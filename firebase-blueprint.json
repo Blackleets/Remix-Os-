@@ -1,0 +1,265 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email"]
+    },
+    "Company": {
+      "title": "Company",
+      "description": "The business entity",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "ownerId": { "type": "string" },
+        "industry": { "type": "string" },
+        "country": { "type": "string" },
+        "currency": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "phone": { "type": "string" },
+        "onboardingState": {
+          "type": "object",
+          "properties": {
+            "isComplete": { "type": "boolean" },
+            "step": { "type": "number" },
+            "checklist": {
+              "type": "object",
+              "properties": {
+                "profile": { "type": "boolean" },
+                "product": { "type": "boolean" },
+                "customer": { "type": "boolean" },
+                "order": { "type": "boolean" }
+              }
+            }
+          }
+        },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "ownerId"]
+    },
+    "Membership": {
+      "title": "Membership",
+      "description": "Links a User to a Company",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "companyId": { "type": "string" },
+        "role": { "type": "string", "enum": ["owner", "admin", "staff", "viewer"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "companyId", "role"]
+    },
+    "Invitation": {
+      "title": "Invitation",
+      "description": "Pending team invitations",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "format": "email" },
+        "companyId": { "type": "string" },
+        "companyName": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "staff", "viewer"] },
+        "status": { "type": "string", "enum": ["pending", "accepted", "revoked", "expired"] },
+        "invitedBy": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "acceptedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["email", "companyId", "role", "status"]
+    },
+    "Customer": {
+      "title": "Customer",
+      "description": "Business customer contact",
+      "type": "object",
+      "properties": {
+        "companyId": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "address": { "type": "string" },
+        "totalOrders": { "type": "number" },
+        "totalSpent": { "type": "number" },
+        "segment": { "type": "string", "enum": ["whale", "vip", "regular", "new", "at_risk"] },
+        "lastOrderAt": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["companyId", "name"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "Inventory product",
+      "type": "object",
+      "properties": {
+        "companyId": { "type": "string" },
+        "name": { "type": "string" },
+        "sku": { "type": "string" },
+        "price": { "type": "number" },
+        "cost": { "type": "number" },
+        "category": { "type": "string" },
+        "stockLevel": { "type": "number" },
+        "description": { "type": "string" }
+      },
+      "required": ["companyId", "name", "price"]
+    },
+    "InventoryMovement": {
+      "title": "Inventory Movement",
+      "description": "Log of stock additions or removals",
+      "type": "object",
+      "properties": {
+        "companyId": { "type": "string" },
+        "productId": { "type": "string" },
+        "type": { "type": "string", "enum": ["in", "out", "adjustment"] },
+        "quantity": { "type": "number" },
+        "reason": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["companyId", "productId", "type", "quantity"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "Sales order",
+      "type": "object",
+      "properties": {
+        "companyId": { "type": "string" },
+        "customerId": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "completed", "cancelled"] },
+        "total": { "type": "number" },
+        "itemCount": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["companyId", "customerId", "status", "total"]
+    },
+    "OrderItem": {
+      "title": "Order Item",
+      "description": "Detailed line item in an order",
+      "type": "object",
+      "properties": {
+        "orderId": { "type": "string" },
+        "productId": { "type": "string" },
+        "productName": { "type": "string" },
+        "quantity": { "type": "number" },
+        "price": { "type": "number" }
+      },
+      "required": ["orderId", "productId", "quantity", "price"]
+    },
+    "AIInsight": {
+      "title": "AI Insight",
+      "description": "Generated business insights",
+      "type": "object",
+      "properties": {
+        "companyId": { "type": "string" },
+        "type": { "type": "string" },
+        "content": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["companyId", "type", "content"]
+    },
+    "Activity": {
+      "title": "Activity",
+      "description": "System-wide activity audit log",
+      "type": "object",
+      "properties": {
+        "companyId": { "type": "string" },
+        "type": { "type": "string" },
+        "title": { "type": "string" },
+        "subtitle": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["companyId", "type", "title", "createdAt"]
+    },
+    "Reminder": {
+      "title": "Reminder",
+      "description": "Follow-up tasks for customers",
+      "type": "object",
+      "properties": {
+        "companyId": { "type": "string" },
+        "customerId": { "type": "string" },
+        "customerName": { "type": "string" },
+        "type": { "type": "string", "enum": ["follow_up", "payment", "order", "reactivation"] },
+        "notes": { "type": "string" },
+        "dueDate": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["pending", "completed", "dismissed"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["companyId", "customerId", "type", "status", "dueDate"]
+    },
+    "CustomerMessage": {
+      "title": "Customer Message",
+      "description": "Communication drafts and history",
+      "type": "object",
+      "properties": {
+        "companyId": { "type": "string" },
+        "customerId": { "type": "string" },
+        "templateId": { "type": "string" },
+        "content": { "type": "string" },
+        "channel": { "type": "string", "enum": ["email", "whatsapp", "sms"] },
+        "status": { "type": "string", "enum": ["draft", "ready", "sent"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "sentAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["companyId", "customerId", "content", "status"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Private user profiles"
+    },
+    "/companies/{companyId}": {
+      "schema": "Company",
+      "description": "Business entities"
+    },
+    "/memberships/{membershipId}": {
+      "schema": "Membership",
+      "description": "User-Company relationships"
+    },
+    "/invitations/{invitationId}": {
+      "schema": "Invitation",
+      "description": "Team invitations"
+    },
+    "/customers/{customerId}": {
+      "schema": "Customer",
+      "description": "Customer directory"
+    },
+    "/reminders/{reminderId}": {
+      "schema": "Reminder",
+      "description": "Customer follow-ups"
+    },
+    "/customerMessages/{messageId}": {
+      "schema": "CustomerMessage",
+      "description": "Communication logs"
+    },
+    "/products/{productId}": {
+      "schema": "Product",
+      "description": "Product catalog"
+    },
+    "/inventoryMovements/{movementId}": {
+      "schema": "InventoryMovement",
+      "description": "Stock logs"
+    },
+    "/orders/{orderId}": {
+      "schema": "Order",
+      "description": "Sales logs"
+    },
+    "/orders/{orderId}/items/{itemId}": {
+      "schema": "OrderItem",
+      "description": "Order line items"
+    },
+    "/aiInsights/{insightId}": {
+      "schema": "AIInsight",
+      "description": "Business intelligence"
+    },
+    "/activities/{activityId}": {
+      "schema": "Activity",
+      "description": "Audit trail"
+    }
+  }
+}

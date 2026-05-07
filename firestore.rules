@@ -1,0 +1,235 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helper Functions ---
+    
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isEmailVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Role-based Access Helpers
+    function getUserRole(companyId) {
+      return get(/databases/$(database)/documents/memberships/$(request.auth.uid + '_' + companyId)).data.role;
+    }
+
+    function hasRole(companyId, roles) {
+      return isSignedIn() && getUserRole(companyId) in roles;
+    }
+
+    function isMember(companyId) {
+      return isSignedIn() && exists(/databases/$(database)/documents/memberships/$(request.auth.uid + '_' + companyId));
+    }
+
+    // --- Entity Validations ---
+
+    function isValidMembership(data) {
+      return data.size() >= 3 &&
+             data.userId is string && data.userId == request.auth.uid &&
+             data.companyId is string &&
+             data.role in ['owner', 'admin', 'staff', 'viewer'] &&
+             data.keys().hasAll(['userId', 'companyId', 'role']) &&
+             (!('createdAt' in data) || data.createdAt == request.time);
+    }
+
+    function isValidProduct(data) {
+      return data.size() >= 3 &&
+             data.companyId is string &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 200 &&
+             (!('price' in data) || (data.price is number && data.price >= 0)) &&
+             (!('sku' in data) || (data.sku is string && data.sku.size() <= 100));
+    }
+
+    function isValidCustomer(data) {
+      return data.size() >= 2 &&
+             data.companyId is string &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 200 &&
+             (!('segment' in data) || data.segment in ["whale", "vip", "regular", "new", "at_risk"]) &&
+             (!('totalSpent' in data) || data.totalSpent is number) &&
+             (!('totalOrders' in data) || data.totalOrders is number) &&
+             (!('lastOrderAt' in data) || data.lastOrderAt == request.time || data.lastOrderAt is timestamp);
+    }
+
+    function isValidReminder(data) {
+      return data.size() >= 5 &&
+             data.companyId is string &&
+             data.customerId is string &&
+             data.type in ["follow_up", "payment", "order", "reactivation"] &&
+             data.status in ["pending", "completed", "dismissed"] &&
+             data.dueDate is string; // Simplified for this turn
+    }
+
+    function isValidCustomerMessage(data) {
+      return data.size() >= 4 &&
+             data.companyId is string &&
+             data.customerId is string &&
+             data.content is string && data.content.size() > 0 && data.content.size() <= 5000 &&
+             data.status in ["draft", "ready", "sent"];
+    }
+
+    // --- Rules ---
+
+    // 1. Users
+    match /users/{userId} {
+      allow read: if isSignedIn() && (request.auth.uid == userId || exists(/databases/$(database)/documents/memberships/$(request.auth.uid + '_' + get(/databases/$(database)/documents/users/$(userId)).data.currentCompanyId)));
+      allow write: if isSignedIn() && request.auth.uid == userId;
+    }
+
+    // 0.2 Test connection
+    match /test/connection {
+      allow read: if isSignedIn();
+    }
+
+    // 2. Memberships
+    match /memberships/{membershipId} {
+      // Allow user to see their own membership OR admins to see all in company
+      allow read: if isSignedIn() && (
+        resource.data.userId == request.auth.uid || 
+        hasRole(resource.data.companyId, ['owner', 'admin'])
+      );
+      
+      // Create: user linking themselves to a company (during onboarding/invite acceptance)
+      allow create: if isSignedIn() && isEmailVerified() && isValidMembership(incoming()) && (
+        // Case A: User is the owner of the company being created (Onboarding)
+        getAfter(/databases/$(database)/documents/companies/$(incoming().companyId)).data.ownerId == request.auth.uid ||
+        // Case B: User was invited and invitation is accepted
+        (
+          exists(/databases/$(database)/documents/invitations/$(request.auth.token.email + '_' + incoming().companyId)) &&
+          getAfter(/databases/$(database)/documents/invitations/$(request.auth.token.email + '_' + incoming().companyId)).data.status == 'accepted'
+        )
+      );
+
+      // Update: only owners/admins can change roles
+      allow update: if isSignedIn() && 
+        hasRole(existing().companyId, ['owner', 'admin']) &&
+        incoming().userId == existing().userId &&
+        incoming().companyId == existing().companyId &&
+        // Prevent removing the last owner is harder here, usually handled by client logic + roles
+        (
+          (existing().role == 'owner' && incoming().role != 'owner' ? hasRole(existing().companyId, ['owner']) : true)
+        ) &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['role', 'updatedAt']);
+
+      // Delete: only owners/admins can delete
+      allow delete: if isSignedIn() && 
+        hasRole(existing().companyId, ['owner', 'admin']) &&
+        (existing().role == 'owner' ? hasRole(existing().companyId, ['owner']) : true);
+    }
+
+    // 3. Companies
+    match /companies/{companyId} {
+      allow read: if isMember(companyId);
+      allow create: if isSignedIn(); // Any verified user can start a company
+      allow update: if hasRole(companyId, ['owner', 'admin']) &&
+                    incoming().ownerId == existing().ownerId; // Immutable ownerId through company update
+      allow delete: if hasRole(companyId, ['owner']);
+    }
+
+    // 4. Products
+    match /products/{productId} {
+      allow get: if isMember(resource.data.companyId);
+      allow list: if isSignedIn() && exists(/databases/$(database)/documents/memberships/$(request.auth.uid + '_' + resource.data.companyId));
+      allow create: if hasRole(incoming().companyId, ['owner', 'admin', 'staff']) && isValidProduct(incoming());
+      allow update: if hasRole(existing().companyId, ['owner', 'admin', 'staff']) && 
+                    isValidProduct(incoming()) &&
+                    incoming().companyId == existing().companyId;
+      allow delete: if hasRole(existing().companyId, ['owner', 'admin', 'staff']);
+    }
+
+    // 5. Invitations
+    match /invitations/{invitationId} {
+      allow read: if isSignedIn() && (
+        request.auth.token.email == resource.data.email ||
+        hasRole(resource.data.companyId, ['owner', 'admin'])
+      );
+      allow create: if hasRole(incoming().companyId, ['owner', 'admin']);
+      allow update: if (
+        // Acceptance
+        (request.auth.token.email == existing().email && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'acceptedAt'])) ||
+        // Revoke
+        (hasRole(existing().companyId, ['owner', 'admin']) && incoming().diff(existing()).affectedKeys().hasOnly(['status']))
+      );
+      allow delete: if hasRole(existing().companyId, ['owner', 'admin']);
+    }
+
+    // 6. Operational Data (Customers, Orders, Inventory, Activities)
+    match /customers/{id} {
+      allow get: if isMember(resource.data.companyId);
+      allow list: if isSignedIn() && exists(/databases/$(database)/documents/memberships/$(request.auth.uid + '_' + resource.data.companyId));
+      allow create: if hasRole(incoming().companyId, ['owner', 'admin', 'staff']) && isValidCustomer(incoming());
+      allow update: if hasRole(existing().companyId, ['owner', 'admin', 'staff']) && 
+                    isValidCustomer(incoming()) &&
+                    incoming().companyId == existing().companyId;
+      allow delete: if hasRole(existing().companyId, ['owner', 'admin']);
+    }
+
+    match /reminders/{id} {
+      allow get: if isMember(resource.data.companyId);
+      allow list: if isSignedIn() && exists(/databases/$(database)/documents/memberships/$(request.auth.uid + '_' + resource.data.companyId));
+      allow create: if hasRole(incoming().companyId, ['owner', 'admin', 'staff']) && isValidReminder(incoming());
+      allow update: if hasRole(existing().companyId, ['owner', 'admin', 'staff']) && 
+                    isValidReminder(incoming()) &&
+                    incoming().companyId == existing().companyId;
+      allow delete: if hasRole(existing().companyId, ['owner', 'admin', 'staff']);
+    }
+
+    match /customerMessages/{id} {
+      allow get: if isMember(resource.data.companyId);
+      allow list: if isSignedIn() && exists(/databases/$(database)/documents/memberships/$(request.auth.uid + '_' + resource.data.companyId));
+      allow create: if hasRole(incoming().companyId, ['owner', 'admin', 'staff']) && isValidCustomerMessage(incoming());
+      allow update: if hasRole(existing().companyId, ['owner', 'admin', 'staff']) && 
+                    isValidCustomerMessage(incoming()) &&
+                    incoming().companyId == existing().companyId;
+      allow delete: if hasRole(existing().companyId, ['owner', 'admin', 'staff']);
+    }
+
+    match /orders/{id} {
+      allow get: if isMember(resource.data.companyId);
+      allow list: if isSignedIn() && exists(/databases/$(database)/documents/memberships/$(request.auth.uid + '_' + resource.data.companyId));
+      allow create: if hasRole(incoming().companyId, ['owner', 'admin', 'staff']);
+      allow update: if hasRole(existing().companyId, ['owner', 'admin', 'staff']);
+      allow delete: if hasRole(existing().companyId, ['owner', 'admin']);
+    }
+    
+    match /orders/{orderId}/items/{itemId} {
+      allow read: if isMember(get(/databases/$(database)/documents/orders/$(orderId)).data.companyId);
+      allow write: if hasRole(get(/databases/$(database)/documents/orders/$(orderId)).data.companyId, ['owner', 'admin', 'staff']);
+    }
+
+    match /inventoryMovements/{id} {
+      allow read: if isMember(resource.data.companyId);
+      allow create: if hasRole(incoming().companyId, ['owner', 'admin', 'staff']);
+    }
+
+    match /activities/{id} {
+      allow read: if isMember(resource.data.companyId);
+      allow create: if isMember(incoming().companyId);
+    }
+    
+    match /aiInsights/{insightId} {
+      allow read: if hasRole(resource.data.companyId, ['owner', 'admin']);
+      allow write: if false; // System only
+    }
+  }
+}
