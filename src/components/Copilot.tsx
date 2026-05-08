@@ -293,6 +293,7 @@ export function Copilot() {
         .slice(0, 3);
 
       const context = {
+        companyId: company.id,
         companyName: company.name,
         industry: company.industry,
         plan: (company as any).planLevel || 'starter',

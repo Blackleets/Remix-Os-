@@ -7,6 +7,7 @@ import { initializeApp, getApps } from "firebase-admin/app";
 import { getFirestore, Timestamp, FieldValue } from "firebase-admin/firestore";
 import type { Firestore } from "firebase-admin/firestore";
 import { getAuth } from "firebase-admin/auth";
+import { GoogleGenAI } from "@google/genai";
 import fs from "fs";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -62,6 +63,20 @@ const getStripe = () => {
     stripe = new Stripe(key);
   }
   return stripe;
+};
+
+// Initialize Gemini (Lazy)
+let genai: GoogleGenAI | null = null;
+const getGenAI = () => {
+  if (!genai) {
+    const key = process.env.GEMINI_API_KEY;
+    if (!key) {
+      console.warn("GEMINI_API_KEY is not configured. AI features will be disabled.");
+      return null;
+    }
+    genai = new GoogleGenAI({ apiKey: key });
+  }
+  return genai;
 };
 
 // Verifies a Firebase ID token from Authorization: Bearer <token>, then asserts
@@ -400,6 +415,145 @@ async function startServer() {
     }
 
     res.json({ received: true });
+  });
+
+  // ===== AI: Insights =====
+  // The Gemini API key never leaves the server. The client posts the business
+  // context it already has access to via Firestore; we call Gemini and return
+  // the parsed insights array.
+  app.post("/api/ai/insights", async (req, res) => {
+    try {
+      const access = await requireCompanyAccess(req, res, ["owner", "admin"]);
+      if (!access) return;
+      const ai = getGenAI();
+      if (!ai) return res.status(503).json({ error: "AI not configured" });
+
+      const { businessData, language } = req.body || {};
+      if (!businessData) return res.status(400).json({ error: "businessData required" });
+
+      const langMap: Record<string, string> = {
+        en: "Output all text in English.",
+        es: "Entrega toda la salida de texto en Español.",
+        pt: "Entregue toda a saída de texto em Português.",
+      };
+      const langInstruction = langMap[language] || langMap.en;
+
+      const prompt = `
+You are an expert business consultant for Remix OS.
+Analyze the following small business data and provide a set of actionable insights.
+
+CRITICAL: ${langInstruction}
+
+Business: ${businessData.companyName} (${businessData.industry})
+Current Plan: ${businessData.planLevel}
+Onboarding: ${businessData.onboardingCompleted ? 'COMPLETE' : 'INCOMPLETE/PENDING'}
+Total Customers: ${businessData.customersCount}
+Total Products: ${businessData.productsCount}
+Revenue (Last 30 Days): $${Number(businessData.recentRevenue || 0).toFixed(2)}
+Growth vs Prev Period: ${businessData.growth}%
+Top Products: ${JSON.stringify(businessData.topProducts)}
+Low Stock Items: ${JSON.stringify(businessData.lowStockItems)}
+Top Customers: ${JSON.stringify(businessData.topCustomers)}
+
+Constraint based on Plan:
+- starter: basic observations and straightforward advice.
+- pro: deeper analysis, subtle patterns and market opportunities.
+- business: highly strategic, predictive forecasting and growth blueprints.
+
+Return ONLY a valid JSON array of insight objects. Each must have:
+- title (string), explanation (1-2 sentences), type ("opportunity"|"risk"|"efficiency"|"growth"),
+- severity ("info"|"success"|"warning"|"critical"), recommendation (1 specific next action).
+No markdown, no preamble.`;
+
+      const response = await ai.models.generateContent({
+        model: "gemini-2.0-flash",
+        contents: prompt,
+      });
+      const text = (response.text ?? "").replace(/```json|```/g, "").trim();
+      if (!text) return res.json({ insights: null });
+      try {
+        return res.json({ insights: JSON.parse(text) });
+      } catch (e) {
+        console.error("Insight JSON parse error:", e);
+        return res.json({ insights: null });
+      }
+    } catch (err: any) {
+      console.error("/api/ai/insights error:", err);
+      res.status(500).json({ error: err?.message || "AI request failed" });
+    }
+  });
+
+  // ===== AI: Copilot chat =====
+  app.post("/api/ai/chat", async (req, res) => {
+    try {
+      const access = await requireCompanyAccess(req, res, ["owner", "admin", "staff", "viewer"]);
+      if (!access) return;
+      const ai = getGenAI();
+      if (!ai) return res.status(503).json({ error: "AI not configured" });
+
+      const { message, history, context, language } = req.body || {};
+      if (typeof message !== "string" || !message.trim()) {
+        return res.status(400).json({ error: "message required" });
+      }
+
+      const langMap: Record<string, string> = {
+        en: "Communicate in English.",
+        es: "Comunícate en Español. Mantén un tono profesional y premium.",
+        pt: "Comunique-se em Português. Mantenha um tom profissional e premium.",
+      };
+      const langInstruction = langMap[language] || langMap.en;
+
+      const ctx = context || {};
+      const systemInstruction = `
+You are the Remix OS AI Operator, a premium business intelligence system.
+You are a proactive business advisor and operational assistant.
+
+CRITICAL: ${langInstruction}
+
+SYSTEM STATUS:
+- Company: ${ctx.companyName} (${ctx.industry})
+- Onboarding: ${ctx.onboardingCompleted ? 'COMPLETED' : 'IN PROGRESS'}
+- User Role: ${ctx.userRole}
+
+BUSINESS TELEMETRY:
+- 30-Day Revenue: $${ctx.recentRevenue}
+- Sales Trend: ${ctx.salesVelocity?.currentPeriodOrders} orders this week (${ctx.salesVelocity?.trend} vs last week)
+- Inventory Risk: ${ctx.lowStockCount} items below threshold.
+- Engagement: ${ctx.pendingReminders?.length || 0} urgent follow-ups pending.
+
+OPERATIONAL PRINCIPLES:
+1. OPERATIONAL FOCUS: Avoid conversational filler. Provide high-impact data analysis first.
+2. INDUSTRY CONTEXT: Calibrate terminology to "${ctx.industry}".
+3. PROACTIVE ADVICE: Prioritize critical risks and suggest specific drafted actions.
+4. CUSTOMER ENGAGEMENT: Identify pending reminders and suggest follow-ups.
+5. SECURITY PROTOCOL: Respect user roles.
+
+COMMAND PROTOCOLS (MUST appear at the END of the response, on their own line):
+- [COMMAND: NAVIGATE | /path] - ONLY for changing screens. Valid paths: /dashboard, /customers, /products, /inventory, /orders, /insights, /team, /settings.
+- [COMMAND: OPEN_FILTER | module | payload] - For complex data views.
+- [COMMAND: DRAFT_REPORT | summary] - When generating an analysis or report. (REVIEW_ONLY)
+- [COMMAND: REVIEW_ONLY | summary] - For complex advice without automated path.
+- [COMMAND: DRAFT_ORDER | details] - For preparing new orders.
+
+CRITICAL RULES:
+1. NEVER put long markdown reports inside [COMMAND: NAVIGATE].
+2. If a customer needs a REMINDER, suggest it and tell the user to check the Customers module.
+3. If there are messages in "draft" status, suggest reviewing them.
+
+STRUCTURE: Use SUMMARY, STATUS REPORT, RECOMMENDATIONS, and [COMMANDS].
+Maintain a professional, efficient, and supportive persona.`;
+
+      const chat = ai.chats.create({
+        model: "gemini-2.0-flash",
+        history: Array.isArray(history) ? history : [],
+        config: { systemInstruction },
+      });
+      const result = await chat.sendMessage({ message });
+      res.json({ text: result.text ?? "" });
+    } catch (err: any) {
+      console.error("/api/ai/chat error:", err);
+      res.status(500).json({ error: err?.message || "AI request failed" });
+    }
   });
 
   // Vite middleware for development
