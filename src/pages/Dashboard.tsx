@@ -534,10 +534,7 @@ export function Dashboard() {
               </div>
 
               <Button 
-                onClick={() => {
-                  const botIcon = document.querySelector('.lucide-bot');
-                  if (botIcon) (botIcon.closest('button') as HTMLButtonElement).click();
-                }}
+                onClick={() => window.dispatchEvent(new CustomEvent('open-copilot'))}
                 className="w-full h-12 bg-blue-600 hover:bg-blue-500 rounded-2xl text-[10px] font-black uppercase tracking-[0.25em] relative group/brief overflow-hidden"
               >
                  <span className="relative z-10 flex items-center justify-center gap-2">{t('dashboard.view_assistant')} <ArrowUpRight className="w-4 h-4" /></span>

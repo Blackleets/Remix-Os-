@@ -71,6 +71,12 @@ export function Copilot() {
   const [businessContext, setBusinessContext] = useState<any>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  useEffect(() => {
+    const handler = () => { setIsOpen(true); setHasNewAlerts(false); };
+    window.addEventListener('open-copilot', handler);
+    return () => window.removeEventListener('open-copilot', handler);
+  }, []);
+
   const handleIntervention = (prompt: string) => {
     setActiveTab('chat');
     handleSendMessage(prompt);
