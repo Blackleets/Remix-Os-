@@ -18,12 +18,13 @@ import { Team } from './pages/Team';
 import { Copilot } from './components/Copilot';
 import { AnimatePresence, motion } from 'motion/react';
 
-const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
-  const { user, company, loading } = useAuth();
+const ProtectedRoute = ({ children, allowedRoles }: { children: React.ReactNode; allowedRoles?: string[] }) => {
+  const { user, company, role, loading } = useAuth();
 
   if (loading) return <div className="flex items-center justify-center h-screen font-medium">Loading OS...</div>;
   if (!user) return <Navigate to="/auth" />;
   if (!company && window.location.pathname !== '/onboarding') return <Navigate to="/onboarding" />;
+  if (allowedRoles && role && !allowedRoles.includes(role)) return <Navigate to="/dashboard" />;
 
   return <>{children}</>;
 };
@@ -93,7 +94,7 @@ export default function App() {
           <Route path="/products" element={<ProtectedRoute><AppLayout><Products /></AppLayout></ProtectedRoute>} />
           <Route path="/inventory" element={<ProtectedRoute><AppLayout><Inventory /></AppLayout></ProtectedRoute>} />
           <Route path="/orders" element={<ProtectedRoute><AppLayout><Orders /></AppLayout></ProtectedRoute>} />
-          <Route path="/insights" element={<ProtectedRoute><AppLayout><Insights /></AppLayout></ProtectedRoute>} />
+          <Route path="/insights" element={<ProtectedRoute allowedRoles={['owner', 'admin']}><AppLayout><Insights /></AppLayout></ProtectedRoute>} />
           <Route path="/team" element={<ProtectedRoute><AppLayout><Team /></AppLayout></ProtectedRoute>} />
           <Route path="/settings" element={<ProtectedRoute><AppLayout><Settings /></AppLayout></ProtectedRoute>} />
           <Route path="/billing" element={<ProtectedRoute><AppLayout><Billing /></AppLayout></ProtectedRoute>} />
