@@ -61,7 +61,7 @@ export function Dashboard() {
     products: 0,
     orders: 0,
     revenue: 0,
-    prevRevenue: 0 // For mock change calculation
+    revenueChange: '—'
   });
 
   const [chartData, setChartData] = useState<{ name: string; sales: number }[]>([]);
@@ -81,18 +81,38 @@ export function Dashboard() {
 
     const unsubscribeOrders = onSnapshot(ordersQ, (snapshot) => {
       let totalRev = 0;
-      snapshot.forEach(doc => { totalRev += doc.data().total || 0; });
-      
+      let revenueThisWeek = 0;
+      let revenuePrevWeek = 0;
+      const now = new Date();
+      const sevenDaysAgo = subDays(startOfDay(now), 6);
+      const fourteenDaysAgo = subDays(startOfDay(now), 13);
+
+      snapshot.forEach(doc => {
+        const total = doc.data().total || 0;
+        totalRev += total;
+        const date = doc.data().createdAt?.toDate?.();
+        if (date) {
+          if (date >= sevenDaysAgo) revenueThisWeek += total;
+          else if (date >= fourteenDaysAgo) revenuePrevWeek += total;
+        }
+      });
+
+      let revenueChange = '—';
+      if (revenuePrevWeek > 0) {
+        const pct = ((revenueThisWeek - revenuePrevWeek) / revenuePrevWeek) * 100;
+        revenueChange = (pct >= 0 ? '+' : '') + pct.toFixed(1) + '%';
+      } else if (revenueThisWeek > 0) {
+        revenueChange = 'NEW';
+      }
+
       setStats(prev => ({
         ...prev,
         orders: snapshot.size,
         revenue: totalRev,
-        prevRevenue: totalRev * 0.9
+        revenueChange
       }));
 
-      // Process Chart Data
-      const now = new Date();
-      const sevenDaysAgo = subDays(startOfDay(now), 6);
+      // Process Chart Data (reuse now/sevenDaysAgo already declared above)
       const days = eachDayOfInterval({ start: sevenDaysAgo, end: now });
       const dayWiseSales = days.map(day => {
         const salesForDay = snapshot.docs
@@ -365,10 +385,10 @@ export function Dashboard() {
           {/* Main Stat Matrix */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
             {[
-              { label: t('dashboard.revenue'), value: formatCurrency(stats.revenue), change: '+12.4%', icon: TrendingUp, color: 'text-blue-500' },
-              { label: t('dashboard.customers'), value: stats.customers.toString(), change: '+5.1%', icon: Contact, color: 'text-purple-500' },
-              { label: t('dashboard.inventory'), value: stats.products.toString(), change: 'STABLE', icon: Shapes, color: 'text-emerald-500' },
-              { label: t('dashboard.orders'), value: stats.orders.toString(), change: '+8.2%', icon: Layers, color: 'text-orange-500' },
+              { label: t('dashboard.revenue'), value: formatCurrency(stats.revenue), change: stats.revenueChange, icon: TrendingUp, color: 'text-blue-500' },
+              { label: t('dashboard.customers'), value: stats.customers.toString(), change: '—', icon: Contact, color: 'text-purple-500' },
+              { label: t('dashboard.inventory'), value: stats.products.toString(), change: '—', icon: Shapes, color: 'text-emerald-500' },
+              { label: t('dashboard.orders'), value: stats.orders.toString(), change: '—', icon: Layers, color: 'text-orange-500' },
             ].map((stat, i) => (
               <motion.div
                 key={stat.label}
