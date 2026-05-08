@@ -253,7 +253,7 @@ export function Onboarding() {
                   </div>
                 </div>
                 
-                <Button onClick={nextStep} disabled={!form.name} className="w-full h-16 sm:h-20 text-lg sm:text-2xl font-black rounded-[2rem] sm:rounded-3xl bg-white text-black hover:bg-neutral-200 shadow-2xl shadow-white/5 transition-all active:scale-[0.98]">
+                <Button onClick={nextStep} disabled={!form.name?.trim()} className="w-full h-16 sm:h-20 text-lg sm:text-2xl font-black rounded-[2rem] sm:rounded-3xl bg-white text-black hover:bg-neutral-200 shadow-2xl shadow-white/5 transition-all active:scale-[0.98]">
                   {t('common.continue')} <ArrowRight className="ml-4 w-5 h-5 sm:w-7 sm:h-7" />
                 </Button>
               </Card>

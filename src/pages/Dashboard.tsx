@@ -289,17 +289,17 @@ export function Dashboard() {
             {t('dashboard.status', { name: company?.name })}
           </p>
         </div>
-        <div className="flex gap-3">
-          <Button 
-            variant="secondary" 
-            className="px-6 gap-2"
+        <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
+          <Button
+            variant="secondary"
+            className="px-6 gap-2 justify-center"
             onClick={handleExportPDF}
             disabled={exporting}
           >
             {exporting ? <History className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
             {exporting ? t('dashboard.generating') : t('dashboard.download_report')}
           </Button>
-          <Button className="px-6 flex gap-2" onClick={() => navigate('/orders', { state: { action: 'create' } })}>
+          <Button className="px-6 flex gap-2 justify-center" onClick={() => navigate('/orders', { state: { action: 'create' } })}>
             <Plus className="w-4 h-4" /> {t('dashboard.new_order')}
           </Button>
         </div>
@@ -476,7 +476,12 @@ export function Dashboard() {
               </div>
               
               <div className="flex-1 space-y-4 overflow-y-auto max-h-[300px] scrollbar-hide pr-2">
-                {activities.map((item, i) => (
+                {activities.length === 0 ? (
+                  <div className="h-full min-h-[180px] flex flex-col items-center justify-center text-neutral-600 border border-dashed border-white/5 rounded-2xl bg-white/[0.01]">
+                    <History className="w-8 h-8 mb-4 opacity-20" />
+                    <p className="text-xs font-bold uppercase tracking-widest italic">Activity_Stream_Empty</p>
+                  </div>
+                ) : activities.map((item, i) => (
                   <div key={item.id} className="flex gap-4 items-start pb-4 border-b border-white/[0.02] last:border-0 group cursor-pointer hover:bg-white/[0.01]">
                     <div className="w-8 h-8 rounded-lg bg-white/[0.03] border border-white/[0.05] flex-shrink-0 flex items-center justify-center mt-0.5 group-hover:border-blue-500/30 transition-colors">
                       {getActivityIcon(item.type)}

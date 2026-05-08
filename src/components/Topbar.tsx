@@ -1,13 +1,11 @@
-import { Bell, Search, Command, CircleUser, Menu, Inbox, Globe, ChevronDown } from 'lucide-react';
+import { Search, Command, CircleUser, Menu, Inbox } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useTranslation } from 'react-i18next';
-import { useLocale } from '../hooks/useLocale';
 import { LanguageSwitcher } from './LanguageSwitcher';
 
 export function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
   const { user, userProfile } = useAuth();
   const { t } = useTranslation();
-  const { language, setLanguage } = useLocale();
 
   const displayName = userProfile?.displayName || user?.displayName || 'Unknown Entity';
   const photoURL = userProfile?.photoURL || user?.photoURL;
@@ -57,8 +55,8 @@ export function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
 
         <div className="flex items-center gap-2 lg:gap-3">
           <div className="hidden sm:flex flex-col items-end">
-            <p className="text-xs font-bold text-white truncate max-w-[100px] lg:max-w-none uppercase tracking-tight">{displayName}</p>
-            <p className="text-[9px] text-neutral-500 truncate max-w-[100px] lg:max-w-none font-mono uppercase">{email}</p>
+            <p className="text-xs font-bold text-white truncate max-w-[140px] xl:max-w-none uppercase tracking-tight">{displayName}</p>
+            <p className="text-[9px] text-neutral-500 truncate max-w-[140px] xl:max-w-none font-mono uppercase">{email}</p>
           </div>
           <div className="w-9 h-9 lg:w-10 lg:h-10 rounded-full bg-neutral-900 flex items-center justify-center border border-white/10 shadow-lg group cursor-pointer hover:border-blue-500/50 hover:bg-blue-600/5 transition-all duration-300 shrink-0 overflow-hidden">
             {photoURL ? (
