@@ -3,8 +3,20 @@ import { Card, Button } from '../components/Common';
 import { Check, Zap, Crown, Shield, ArrowRight, CreditCard, Activity, Package, Users, ShoppingBag, Loader2 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useLocale } from '../hooks/useLocale';
-import { db } from '../lib/firebase';
+import { auth, db } from '../lib/firebase';
 import { collection, query, where, getDocs } from 'firebase/firestore';
+
+async function authedFetch(url: string, body: Record<string, any>) {
+  const token = await auth.currentUser?.getIdToken();
+  return fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(body),
+  });
+}
 import { motion } from 'motion/react';
 import { format } from 'date-fns';
 import { useSearchParams } from 'react-router-dom';
@@ -190,11 +202,7 @@ export function Billing() {
     if (!company) return;
     setSyncing(true);
     try {
-      const res = await fetch('/api/billing/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId, companyId: company.id })
-      });
+      const res = await authedFetch('/api/billing/sync', { sessionId, companyId: company.id });
       
       if (!res.ok) throw new Error("Sync failed");
       
@@ -213,11 +221,7 @@ export function Billing() {
     if (!company || !user) return;
     setLoading(true);
     try {
-      const res = await fetch('/api/billing/create-checkout-session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ planId, companyId: company.id, customerEmail: user.email })
-      });
+      const res = await authedFetch('/api/billing/create-checkout-session', { planId, companyId: company.id, customerEmail: user.email });
       const data = await res.json();
       
       if (data.url) {
@@ -237,11 +241,7 @@ export function Billing() {
     if (!company) return;
     setLoading(true);
     try {
-      const res = await fetch('/api/billing/create-portal-session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ companyId: company.id })
-      });
+      const res = await authedFetch('/api/billing/create-portal-session', { companyId: company.id });
       const data = await res.json();
       if (data.url) {
         window.location.href = data.url;

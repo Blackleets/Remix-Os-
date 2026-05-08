@@ -6,6 +6,7 @@ import Stripe from "stripe";
 import { initializeApp, getApps } from "firebase-admin/app";
 import { getFirestore, Timestamp, FieldValue } from "firebase-admin/firestore";
 import type { Firestore } from "firebase-admin/firestore";
+import { getAuth } from "firebase-admin/auth";
 import fs from "fs";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -63,6 +64,58 @@ const getStripe = () => {
   return stripe;
 };
 
+// Verifies a Firebase ID token from Authorization: Bearer <token>, then asserts
+// the caller is a member of the companyId in the request body with one of the
+// required roles. On failure, sends an HTTP error and returns null.
+async function requireCompanyAccess(
+  req: any,
+  res: any,
+  allowedRoles: string[] = ["owner", "admin"]
+): Promise<{ uid: string; companyId: string } | null> {
+  const authHeader = req.headers.authorization || "";
+  const match = authHeader.match(/^Bearer\s+(.+)$/i);
+  if (!match) {
+    res.status(401).json({ error: "Missing Authorization bearer token" });
+    return null;
+  }
+  let decoded;
+  try {
+    decoded = await getAuth().verifyIdToken(match[1]);
+  } catch {
+    res.status(401).json({ error: "Invalid or expired token" });
+    return null;
+  }
+  const companyId = req.body?.companyId;
+  if (!companyId || typeof companyId !== "string") {
+    res.status(400).json({ error: "companyId is required" });
+    return null;
+  }
+  const db = getDb();
+  if (!db) {
+    res.status(500).json({ error: "Database not initialized" });
+    return null;
+  }
+  const memSnap = await db
+    .collection("memberships")
+    .doc(`${decoded.uid}_${companyId}`)
+    .get();
+  if (!memSnap.exists || !allowedRoles.includes(memSnap.data()?.role)) {
+    res.status(403).json({ error: "Forbidden" });
+    return null;
+  }
+  return { uid: decoded.uid, companyId };
+}
+
+// Safely extract the period-end timestamp from Stripe subscription objects.
+// The newer Stripe API moved current_period_end to subscription.items[].
+function getPeriodEndMs(sub: any): number {
+  const direct = sub?.current_period_end;
+  if (typeof direct === "number") return direct * 1000;
+  const item = sub?.items?.data?.[0]?.current_period_end;
+  if (typeof item === "number") return item * 1000;
+  return Date.now() + 30 * 24 * 60 * 60 * 1000;
+}
+
 async function startServer() {
   const app = express();
   const PORT = 3000;
@@ -90,6 +143,8 @@ async function startServer() {
   // Stripe Checkout Session Creation
   app.post("/api/billing/create-checkout-session", async (req, res) => {
     try {
+      const access = await requireCompanyAccess(req, res, ["owner", "admin"]);
+      if (!access) return;
       const { planId, companyId, customerEmail } = req.body;
       const stripeClient = getStripe();
 
@@ -151,6 +206,8 @@ async function startServer() {
   // Create Customer Portal Session
   app.post("/api/billing/create-portal-session", async (req, res) => {
     try {
+      const access = await requireCompanyAccess(req, res, ["owner", "admin"]);
+      if (!access) return;
       const { companyId } = req.body;
       const stripeClient = getStripe();
 
@@ -182,18 +239,30 @@ async function startServer() {
   // Sync Subscription Status (Callback/Manual)
   app.post("/api/billing/sync", async (req, res) => {
     try {
+      const access = await requireCompanyAccess(req, res, ["owner", "admin"]);
+      if (!access) return;
       const { sessionId, companyId } = req.body;
       const db = getDb();
       if (!db) throw new Error("Database not initialized");
 
+      if (typeof sessionId !== "string" || !sessionId) {
+        return res.status(400).json({ error: "sessionId is required" });
+      }
+
       if (sessionId.startsWith("mock_session_")) {
-        // Handle Mock Sync
-        const parts = sessionId.split('_');
-        const planId = parts[2] || 'starter';
+        // Mock-mode is only honored when Stripe is not configured (dev/preview).
+        if (getStripe()) {
+          return res.status(400).json({ error: "Mock sessions are not allowed in production" });
+        }
+        const parts = sessionId.split("_");
+        const planId = parts[2] || "starter";
+        if (!["starter", "pro", "business"].includes(planId)) {
+          return res.status(400).json({ error: "Invalid mock plan" });
+        }
 
         await db.collection("companies").doc(companyId).update({
           subscription: {
-            planId: planId,
+            planId,
             status: "active",
             currentPeriodEnd: Timestamp.fromMillis(Date.now() + 30 * 24 * 60 * 60 * 1000),
             stripeSubscriptionId: "mock_" + Date.now(),
@@ -206,10 +275,15 @@ async function startServer() {
 
       const stripeClient = getStripe();
       if (!stripeClient) throw new Error("Stripe not configured");
-      
+
       const session = await stripeClient.checkout.sessions.retrieve(sessionId, {
         expand: ["subscription"],
       });
+
+      // Verify the checkout session was created for THIS company.
+      if (session.metadata?.companyId !== companyId) {
+        return res.status(403).json({ error: "Session does not belong to this company" });
+      }
 
       if (session.payment_status === "paid") {
         const subscription = session.subscription as any;
@@ -217,9 +291,9 @@ async function startServer() {
 
         await db.collection("companies").doc(companyId).update({
           subscription: {
-            planId: planId || 'starter',
+            planId: planId || "starter",
             status: subscription.status,
-            currentPeriodEnd: Timestamp.fromMillis(subscription.current_period_end * 1000),
+            currentPeriodEnd: Timestamp.fromMillis(getPeriodEndMs(subscription)),
             stripeSubscriptionId: subscription.id,
           },
           updatedAt: FieldValue.serverTimestamp(),
@@ -243,14 +317,14 @@ async function startServer() {
     const sig = req.headers['stripe-signature'];
     const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
-    let event;
+    if (!webhookSecret || !sig) {
+      // Without a configured secret we cannot verify origin; refuse to process.
+      return res.status(503).send("Webhook secret not configured");
+    }
 
+    let event;
     try {
-      if (webhookSecret && sig) {
-        event = stripeClient.webhooks.constructEvent(req.body, sig, webhookSecret);
-      } else {
-        event = JSON.parse(req.body.toString()); 
-      }
+      event = stripeClient.webhooks.constructEvent(req.body, sig, webhookSecret);
     } catch (err: any) {
       return res.status(400).send(`Webhook Error: ${err.message}`);
     }
@@ -271,7 +345,7 @@ async function startServer() {
             await db.collection("companies").doc(companyId).update({
               "subscription.planId": planId,
               "subscription.status": sub.status,
-              "subscription.currentPeriodEnd": Timestamp.fromMillis(sub.current_period_end * 1000),
+              "subscription.currentPeriodEnd": Timestamp.fromMillis(getPeriodEndMs(sub)),
               "subscription.stripeSubscriptionId": subId,
             });
           }
@@ -288,7 +362,7 @@ async function startServer() {
           const companyDoc = companies.docs[0];
           await companyDoc.ref.update({
             "subscription.status": sub.status,
-            "subscription.currentPeriodEnd": Timestamp.fromMillis(sub.current_period_end * 1000),
+            "subscription.currentPeriodEnd": Timestamp.fromMillis(getPeriodEndMs(sub)),
           });
         }
         break;
