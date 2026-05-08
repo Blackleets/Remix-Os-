@@ -25,19 +25,20 @@ import { useAuth } from '../contexts/AuthContext';
 import { useLocale } from '../hooks/useLocale';
 import { usePermissions } from '../hooks/usePermissions';
 import { db } from '../lib/firebase';
-import { 
-  collection, 
-  query, 
-  where, 
-  getDocs, 
-  addDoc, 
-  serverTimestamp, 
-  doc, 
-  deleteDoc, 
-  updateDoc, 
+import {
+  collection,
+  query,
+  where,
+  getDocs,
+  addDoc,
+  serverTimestamp,
+  doc,
+  deleteDoc,
+  updateDoc,
   orderBy,
   limit,
-  Timestamp 
+  Timestamp,
+  writeBatch
 } from 'firebase/firestore';
 import { motion, AnimatePresence } from 'motion/react';
 import { UpgradeModal } from '../components/UpgradeModal';
@@ -168,8 +169,13 @@ export function Customers() {
     if (!company || !detailCustomer) return;
 
     try {
+      // Persist dueDate as a Firestore Timestamp so range queries
+      // ("due before now", orderBy('dueDate')) behave correctly across timezones.
+      const due = reminderForm.dueDate ? new Date(reminderForm.dueDate) : new Date();
       await addDoc(collection(db, 'reminders'), {
-        ...reminderForm,
+        type: reminderForm.type,
+        notes: reminderForm.notes,
+        dueDate: Timestamp.fromDate(due),
         companyId: company.id,
         customerId: detailCustomer.id,
         customerName: detailCustomer.name,
@@ -250,16 +256,16 @@ export function Customers() {
 
     setLoading(true);
     try {
+      const batch = writeBatch(db);
+      const activityRef = doc(collection(db, 'activities'));
+
       if (selectedCustomer) {
-        // Update
         const customerRef = doc(db, 'customers', selectedCustomer.id);
-        await updateDoc(customerRef, {
+        batch.update(customerRef, {
           ...form,
           updatedAt: serverTimestamp(),
         });
-
-        // Log Activity
-        await addDoc(collection(db, 'activities'), {
+        batch.set(activityRef, {
           type: 'customer_update',
           title: 'Customer Updated',
           subtitle: `${form.name} profile was modified`,
@@ -267,15 +273,13 @@ export function Customers() {
           createdAt: serverTimestamp(),
         });
       } else {
-        // Create
-        await addDoc(collection(db, 'customers'), {
+        const customerRef = doc(collection(db, 'customers'));
+        batch.set(customerRef, {
           ...form,
           companyId: company.id,
           createdAt: serverTimestamp(),
         });
-
-        // Log Activity
-        await addDoc(collection(db, 'activities'), {
+        batch.set(activityRef, {
           type: 'customer_create',
           title: 'New Customer',
           subtitle: `${form.name} joined the platform`,
@@ -283,12 +287,15 @@ export function Customers() {
           createdAt: serverTimestamp(),
         });
       }
+
+      await batch.commit();
       setIsModalOpen(false);
       setSelectedCustomer(null);
       setForm({ name: '', email: '', phone: '', imageURL: '' });
       fetchCustomers();
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+      alert(err?.message || 'Failed to save customer.');
     } finally {
       setLoading(false);
     }
@@ -312,9 +319,26 @@ export function Customers() {
   };
 
   const handleDelete = async (id: string) => {
-    if (confirm(t('customers.delete_confirm'))) {
+    if (!company) return;
+    if (!confirm(t('customers.delete_confirm'))) return;
+    try {
+      // Block delete if the customer is referenced by any order so order
+      // history doesn't dangle to a missing customer doc.
+      const ordersSnap = await getDocs(query(
+        collection(db, 'orders'),
+        where('companyId', '==', company.id),
+        where('customerId', '==', id),
+        limit(1)
+      ));
+      if (!ordersSnap.empty) {
+        alert('This customer has orders and cannot be deleted.');
+        return;
+      }
       await deleteDoc(doc(db, 'customers', id));
       fetchCustomers();
+    } catch (err: any) {
+      console.error(err);
+      alert(err?.message || 'Failed to delete customer.');
     }
   };
 
@@ -790,7 +814,7 @@ export function Customers() {
                             </div>
                           </div>
                           <div className="text-right">
-                            <p className="text-[10px] font-mono text-blue-400">{r.dueDate}</p>
+                            <p className="text-[10px] font-mono text-blue-400">{r.dueDate?.toDate ? format(r.dueDate.toDate(), 'yyyy-MM-dd') : r.dueDate}</p>
                             <p className="text-[8px] font-black text-neutral-600 uppercase mt-0.5">{t('customers.details.reminders.due_node')}</p>
                           </div>
                         </div>

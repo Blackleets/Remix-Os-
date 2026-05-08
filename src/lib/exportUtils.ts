@@ -18,13 +18,16 @@ export function exportToCSV(data: any[], filename: string) {
       const val = row[header];
       // Handle timestamps or nested objects if needed, but for now simple stringify
       const processedVal = val && typeof val === 'object' && val.toDate ? val.toDate().toISOString() : val;
-      const escaped = ('' + processedVal).replace(/"/g, '""');
+      // Replace embedded line breaks with spaces so Excel doesn't split rows,
+      // and double-up quotes per RFC 4180.
+      const escaped = ('' + processedVal).replace(/\r?\n/g, ' ').replace(/"/g, '""');
       return `"${escaped}"`;
     });
     csvRows.push(values.join(','));
   }
 
-  const csvContent = csvRows.join('\n');
+  // Prepend a UTF-8 BOM so Excel/Numbers render non-ASCII names correctly.
+  const csvContent = '﻿' + csvRows.join('\n');
   const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
   saveAs(blob, `${filename}_${new Date().toISOString().split('T')[0]}.csv`);
 }

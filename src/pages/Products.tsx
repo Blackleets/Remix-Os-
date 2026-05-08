@@ -6,7 +6,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useLocale } from '../hooks/useLocale';
 import { usePermissions } from '../hooks/usePermissions';
 import { db } from '../lib/firebase';
-import { collection, query, where, getDocs, addDoc, serverTimestamp, doc, deleteDoc, updateDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, addDoc, serverTimestamp, doc, deleteDoc, updateDoc, writeBatch } from 'firebase/firestore';
 import { motion, AnimatePresence } from 'motion/react';
 import { UpgradeModal } from '../components/UpgradeModal';
 import { PLANS, isLimitReached, getCompanyUsage } from '../lib/plans';
@@ -112,16 +112,16 @@ export function Products() {
         stockLevel: parseInt(form.stockLevel) || 0,
       };
 
+      const batch = writeBatch(db);
+      const activityRef = doc(collection(db, 'activities'));
+
       if (selectedProduct) {
-        // Update
         const productRef = doc(db, 'products', selectedProduct.id);
-        await updateDoc(productRef, {
+        batch.update(productRef, {
           ...productData,
           updatedAt: serverTimestamp(),
         });
-
-        // Log Activity
-        await addDoc(collection(db, 'activities'), {
+        batch.set(activityRef, {
           type: 'product_update',
           title: 'Product Updated',
           subtitle: `${form.name} was modified`,
@@ -129,15 +129,13 @@ export function Products() {
           createdAt: serverTimestamp(),
         });
       } else {
-        // Create
-        await addDoc(collection(db, 'products'), {
+        const productRef = doc(collection(db, 'products'));
+        batch.set(productRef, {
           ...productData,
           companyId: company.id,
           createdAt: serverTimestamp(),
         });
-
-        // Log Activity
-        await addDoc(collection(db, 'activities'), {
+        batch.set(activityRef, {
           type: 'product_create',
           title: 'Product Created',
           subtitle: `${form.name} added to catalog`,
@@ -145,12 +143,15 @@ export function Products() {
           createdAt: serverTimestamp(),
         });
       }
+
+      await batch.commit();
       setIsModalOpen(false);
       setSelectedProduct(null);
       setForm({ name: '', price: '', stockLevel: '', category: '', sku: '', description: '', status: 'active', imageURL: '' });
       fetchProducts();
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+      alert(err?.message || 'Failed to save product.');
     } finally {
       setLoading(false);
     }
@@ -178,9 +179,25 @@ export function Products() {
   };
 
   const handleDelete = async (id: string) => {
-    if (confirm(t('products.delete_confirm'))) {
+    if (!company) return;
+    if (!confirm(t('products.delete_confirm'))) return;
+    try {
+      // Block delete if the product has been part of any sale (movements
+      // reference orphaned product ids otherwise).
+      const movementsSnap = await getDocs(query(
+        collection(db, 'inventoryMovements'),
+        where('companyId', '==', company.id),
+        where('productId', '==', id)
+      ));
+      if (!movementsSnap.empty) {
+        alert('This product has sales history and cannot be deleted. Mark it inactive instead.');
+        return;
+      }
       await deleteDoc(doc(db, 'products', id));
       fetchProducts();
+    } catch (err: any) {
+      console.error(err);
+      alert(err?.message || 'Failed to delete product.');
     }
   };
 

@@ -151,10 +151,13 @@ export function Copilot() {
         const recentOrdersQuery = query(ordersRef, where('companyId', '==', company.id), orderBy('createdAt', 'desc'), limit(5));
         const recentOrdersSnap = await getDocs(recentOrdersQuery);
         if (recentOrdersSnap.size >= 3) {
-            const latest = recentOrdersSnap.docs[0].data();
+            const latestDoc = recentOrdersSnap.docs[0];
+            const latest = latestDoc.data();
             if (latest.totalAmount > 500) {
+                // Deterministic id keyed on the order so the same alert isn't
+                // re-pushed on every monitoring tick.
                 newAlerts.push({
-                    id: 'high-value-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7),
+                    id: 'high-value-' + latestDoc.id,
                     type: 'success',
                     title: 'High-Value Influx',
                     message: `A significant transaction of $${latest.totalAmount} was processed. Client vector identified.`,
@@ -205,7 +208,14 @@ export function Copilot() {
         }
 
         if (newAlerts.length > 0) {
-          setAlerts(prev => [...newAlerts, ...prev].slice(0, 10));
+          setAlerts(prev => {
+            // Drop any newAlert whose id is already present (deterministic ids
+            // mean the same event won't badge the user repeatedly).
+            const existingIds = new Set(prev.map(a => a.id));
+            const fresh = newAlerts.filter(a => !existingIds.has(a.id));
+            if (fresh.length === 0) return prev;
+            return [...fresh, ...prev].slice(0, 10);
+          });
           setHasNewAlerts(true);
         }
       } catch (error) {
@@ -305,10 +315,10 @@ export function Copilot() {
             due: d.data().dueDate,
             notes: d.data().notes
         })),
-        recentCommunications: messagesSnap.docs.map(d => ({ 
-            customer: d.data().customerName || 'Unknown', 
-            status: d.data().status, 
-            content: d.data().content.slice(0, 30) + '...'
+        recentCommunications: messagesSnap.docs.map(d => ({
+            customer: d.data().customerName || 'Unknown',
+            status: d.data().status,
+            content: (d.data().content || '').slice(0, 30) + '...'
         })),
         operatorHistory: operatorHistory.slice(0, 3), // Pass recent actions for continuity
         summary: {
@@ -323,9 +333,14 @@ export function Copilot() {
       }));
 
       const aiResponse = await chatCopilot(userMessage, history, context, language);
-      
-      // Improved multi-line and strict parsing for [COMMAND: TYPE | PARAMS]
-      const commandMatch = aiResponse.match(/\[COMMAND:\s*([^|\]\n]+)\s*\|\s*([^\]]+)\]/);
+
+      // Only accept [COMMAND:] when it appears at the end of the model response
+      // and the user did not echo "[COMMAND:" themselves — this prevents prompt
+      // injection from triggering one-click navigations.
+      const userTriedToInject = /\[COMMAND:/i.test(userMessage);
+      const commandMatch = !userTriedToInject
+        ? aiResponse.match(/\[COMMAND:\s*([^|\]\n]+)\s*\|\s*([^\]]+)\]\s*$/)
+        : null;
       if (commandMatch) {
          const type = commandMatch[1].trim();
          const params = commandMatch[2].trim();

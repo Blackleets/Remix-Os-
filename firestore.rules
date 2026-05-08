@@ -92,7 +92,8 @@ service cloud.firestore {
              data.customerId is string &&
              data.type in ["follow_up", "payment", "order", "reactivation"] &&
              data.status in ["pending", "completed", "dismissed"] &&
-             data.dueDate is string; // Simplified for this turn
+             // Accept both legacy string dates and the new Timestamp format.
+             (data.dueDate is string || data.dueDate is timestamp);
     }
 
     function isValidCustomerMessage(data) {
