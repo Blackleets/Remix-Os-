@@ -34,11 +34,16 @@ service cloud.firestore {
     }
 
     function hasRole(companyId, roles) {
-      return isSignedIn() && getUserRole(companyId) in roles;
+      let path = /databases/$(database)/documents/memberships/$(request.auth.uid + '_' + companyId);
+      return isSignedIn() && exists(path) && get(path).data.role in roles;
     }
 
     function isMember(companyId) {
       return isSignedIn() && exists(/databases/$(database)/documents/memberships/$(request.auth.uid + '_' + companyId));
+    }
+
+    function isMemberAfter(companyId) {
+      return isSignedIn() && existsAfter(/databases/$(database)/documents/memberships/$(request.auth.uid + '_' + companyId));
     }
 
     // --- Entity Validations ---
@@ -91,7 +96,7 @@ service cloud.firestore {
 
     // 1. Users
     match /users/{userId} {
-      allow read: if isSignedIn() && (request.auth.uid == userId || exists(/databases/$(database)/documents/memberships/$(request.auth.uid + '_' + get(/databases/$(database)/documents/users/$(userId)).data.currentCompanyId)));
+      allow read: if isSignedIn() && (request.auth.uid == userId || (resource != null && isMember(resource.data.currentCompanyId)));
       allow write: if isSignedIn() && request.auth.uid == userId;
     }
 
@@ -160,7 +165,7 @@ service cloud.firestore {
     // 5. Invitations
     match /invitations/{invitationId} {
       allow read: if isSignedIn() && (
-        request.auth.token.email == resource.data.email ||
+        request.auth.token.email.lower() == resource.data.email.lower() ||
         hasRole(resource.data.companyId, ['owner', 'admin'])
       );
       allow create: if hasRole(incoming().companyId, ['owner', 'admin']);
@@ -224,7 +229,7 @@ service cloud.firestore {
 
     match /activities/{id} {
       allow read: if isMember(resource.data.companyId);
-      allow create: if isMember(incoming().companyId);
+      allow create: if isMember(incoming().companyId) || isMemberAfter(incoming().companyId);
     }
     
     match /aiInsights/{insightId} {

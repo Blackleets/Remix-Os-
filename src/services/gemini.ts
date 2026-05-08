@@ -3,10 +3,20 @@ import { GoogleGenAI } from "@google/genai";
 // Initialize Gemini
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
-export async function generateBusinessInsights(businessData: any) {
+export async function generateBusinessInsights(businessData: any, language: string = 'en') {
+  const languageInstructions = {
+    en: "Output all text in English.",
+    es: "Entrega toda la salida de texto en Español.",
+    pt: "Entregue toda a saída de texto em Português."
+  };
+
+  const currentLangInstruction = languageInstructions[language as keyof typeof languageInstructions] || languageInstructions.en;
+
   const prompt = `
     You are an expert business consultant for Remix OS. 
     Analyze the following small business data and provide a set of actionable insights.
+    
+    CRITICAL: ${currentLangInstruction}
     
     Business: ${businessData.companyName} (${businessData.industry})
     Current Plan: ${businessData.planLevel}
@@ -51,10 +61,20 @@ export async function generateBusinessInsights(businessData: any) {
   }
 }
 
-export async function chatCopilot(message: string, history: any[], context: any) {
+export async function chatCopilot(message: string, history: any[], context: any, language: string = 'en') {
+  const languageInstructions = {
+    en: "Communicate in English.",
+    es: "Comunícate en Español. Mantén un tono profesional y premium.",
+    pt: "Comunique-se em Português. Mantenha um tom profissional e premium."
+  };
+
+  const currentLangInstruction = languageInstructions[language as keyof typeof languageInstructions] || languageInstructions.en;
+
   const systemInstruction = `
     You are the Remix OS AI Operator, a premium business intelligence system.
     You are a proactive business advisor and operational assistant.
+    
+    CRITICAL: ${currentLangInstruction}
     
     SYSTEM STATUS:
     - Company: ${context.companyName} (${context.industry})

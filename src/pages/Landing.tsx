@@ -1,8 +1,11 @@
 import { Link } from 'react-router-dom';
 import { Button } from '../components/Common';
-import { ArrowRight, BarChart3, ShieldCheck, Zap, Globe, Cpu, Layers, Package, Users, ShoppingCart, Settings, CheckCircle2 } from 'lucide-react';
+import { ArrowRight, BarChart3, ShieldCheck, Zap, Globe, Cpu, Layers, Package, Users, ShoppingCart, Settings, CheckCircle2, ChevronDown } from 'lucide-react';
 import { motion, useScroll, useTransform, useReducedMotion, AnimatePresence } from 'motion/react';
 import { useRef, useState, useEffect } from 'react';
+import { useLocale } from '../hooks/useLocale';
+
+import { LanguageSwitcher } from '../components/LanguageSwitcher';
 
 const Typewriter = ({ text, delay = 0 }: { text: string; delay?: number }) => {
   const [displayedText, setDisplayedText] = useState('');
@@ -290,7 +293,9 @@ const MockupConsole = () => {
 
 export function Landing() {
   const containerRef = useRef(null);
+  const { t, language, setLanguage } = useLocale();
   const prefersReducedMotion = useReducedMotion();
+
   const { scrollYProgress } = useScroll({
     target: containerRef,
     offset: ["start start", "end end"]
@@ -332,6 +337,10 @@ export function Landing() {
               <a href="#insights" className="hover:text-white transition-colors">Intelligence</a>
               <a href="#pricing" className="hover:text-white transition-colors">Pricing</a>
             </div>
+
+            {/* Language Switcher */}
+            <LanguageSwitcher />
+
             <Link to="/auth">
               <Button variant="secondary" className="bg-white text-black hover:bg-neutral-200 border-none px-6">
                 Enter Console

@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { Card, Button, Input, Label } from '../components/Common';
 import { Plus, Search, Box, Trash2, Tag, DollarSign, Layers, Edit2, Download } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { useLocale } from '../hooks/useLocale';
 import { usePermissions } from '../hooks/usePermissions';
 import { db } from '../lib/firebase';
 import { collection, query, where, getDocs, addDoc, serverTimestamp, doc, deleteDoc, updateDoc } from 'firebase/firestore';
@@ -10,6 +11,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { UpgradeModal } from '../components/UpgradeModal';
 import { PLANS, isLimitReached } from '../lib/plans';
 import { exportToCSV } from '../lib/exportUtils';
+import { ImageUpload } from '../components/ImageUpload';
 
 interface Product {
   id: string;
@@ -20,10 +22,12 @@ interface Product {
   sku: string;
   description?: string;
   status: 'active' | 'draft' | 'archived';
+  imageURL?: string;
 }
 
 export function Products() {
   const { company, role } = useAuth();
+  const { t, formatCurrency } = useLocale();
   const location = useLocation();
   const navigate = useNavigate();
   const [products, setProducts] = useState<Product[]>([]);
@@ -50,6 +54,7 @@ export function Products() {
     sku: string;
     description: string;
     status: 'active' | 'draft' | 'archived';
+    imageURL: string;
   }>({ 
     name: '', 
     price: '', 
@@ -57,7 +62,8 @@ export function Products() {
     category: '', 
     sku: '', 
     description: '',
-    status: 'active'
+    status: 'active',
+    imageURL: ''
   });
 
   const handleCreateNew = () => {
@@ -68,7 +74,7 @@ export function Products() {
       return;
     }
     setSelectedProduct(null);
-    setForm({ name: '', price: '', stockLevel: '', category: '', sku: '', description: '', status: 'active' });
+    setForm({ name: '', price: '', stockLevel: '', category: '', sku: '', description: '', status: 'active', imageURL: '' });
     setIsModalOpen(true);
   };
 
@@ -131,7 +137,7 @@ export function Products() {
       }
       setIsModalOpen(false);
       setSelectedProduct(null);
-      setForm({ name: '', price: '', stockLevel: '', category: '', sku: '', description: '', status: 'active' });
+      setForm({ name: '', price: '', stockLevel: '', category: '', sku: '', description: '', status: 'active', imageURL: '' });
       fetchProducts();
     } catch (err) {
       console.error(err);
@@ -150,6 +156,7 @@ export function Products() {
       sku: product.sku || '',
       description: product.description || '',
       status: product.status || 'active',
+      imageURL: product.imageURL || '',
     });
     setIsModalOpen(true);
   };
@@ -157,11 +164,11 @@ export function Products() {
   const handleCloseModal = () => {
     setIsModalOpen(false);
     setSelectedProduct(null);
-    setForm({ name: '', price: '', stockLevel: '', category: '', sku: '', description: '', status: 'active' });
+    setForm({ name: '', price: '', stockLevel: '', category: '', sku: '', description: '', status: 'active', imageURL: '' });
   };
 
   const handleDelete = async (id: string) => {
-    if (confirm('Delete this product? This will impact inventory records.')) {
+    if (confirm(t('products.delete_confirm'))) {
       await deleteDoc(doc(db, 'products', id));
       fetchProducts();
     }
@@ -176,8 +183,8 @@ export function Products() {
     <div className="space-y-10">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
         <div>
-          <h1 className="font-display text-4xl font-bold tracking-tight mb-2 text-white">Product Catalog</h1>
-          <p className="text-neutral-500 text-sm">Centralized management of asset variants, pricing, and structural metadata.</p>
+          <h1 className="font-display text-4xl font-bold tracking-tight mb-2 text-white">{t('products.title')}</h1>
+          <p className="text-neutral-500 text-sm">{t('products.subtitle')}</p>
         </div>
         <div className="flex gap-3">
           <Button 
@@ -194,11 +201,11 @@ export function Products() {
             })), 'products')}
             disabled={products.length === 0}
           >
-            <Download className="w-4 h-4" /> Export CSV
+            <Download className="w-4 h-4" /> {t('common.export')}
           </Button>
           {role !== 'viewer' && (
             <Button onClick={handleCreateNew} className="gap-2 px-6">
-              <Plus className="w-4 h-4" /> Initialize Asset
+              <Plus className="w-4 h-4" /> {t('products.add')}
             </Button>
           )}
         </div>
@@ -207,9 +214,9 @@ export function Products() {
       <UpgradeModal 
         isOpen={isUpgradeModalOpen}
         onClose={() => setIsUpgradeModalOpen(false)}
-        title="Asset Allocation Limit"
-        message="Your inventory protocol has reached its maximum variant capacity. Upgrade to expand your catalog matrix."
-        limitName="Products"
+        title={t('products.upgrade.title')}
+        message={t('products.upgrade.message')}
+        limitName={t('products.limit_products') || 'Products'}
       />
 
       <Card className="relative overflow-hidden group border-white/5 bg-neutral-900/40 p-0">
@@ -217,7 +224,7 @@ export function Products() {
           <div className="relative max-w-sm group">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-600 group-focus-within:text-blue-500 transition-colors" />
             <Input 
-              placeholder="Search assets by SKU or name..." 
+              placeholder={t('common.search')} 
               className="pl-10 h-11 bg-black/40 border-white/10" 
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -229,11 +236,11 @@ export function Products() {
           <table className="w-full border-collapse">
             <thead>
               <tr>
-                <th className="table-header">Asset Identity</th>
-                <th className="table-header">System Metadata</th>
-                <th className="table-header">Unit Price</th>
-                <th className="table-header">Node Stock</th>
-                <th className="table-header text-right">Actions</th>
+                <th className="table-header">{t('products.table.identity')}</th>
+                <th className="table-header">{t('products.table.metadata')}</th>
+                <th className="table-header">{t('products.table.price')}</th>
+                <th className="table-header">{t('products.table.stock')}</th>
+                <th className="table-header text-right">{t('products.table.actions')}</th>
               </tr>
             </thead>
             <tbody>
@@ -247,8 +254,12 @@ export function Products() {
                 >
                   <td className="table-cell">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-xl bg-white/[0.03] border border-white/[0.05] flex items-center justify-center text-neutral-500 group-hover:border-blue-500/50 transition-colors">
-                        <Box className="w-5 h-5 text-neutral-600 group-hover:text-blue-400 transition-colors" />
+                      <div className="w-10 h-10 rounded-xl bg-white/[0.03] border border-white/[0.05] flex items-center justify-center text-neutral-500 group-hover:border-blue-500/50 transition-colors overflow-hidden">
+                        {product.imageURL ? (
+                          <img src={product.imageURL} alt={product.name} className="w-full h-full object-cover" />
+                        ) : (
+                          <Box className="w-5 h-5 text-neutral-600 group-hover:text-blue-400 transition-colors" />
+                        )}
                       </div>
                       <div>
                         <p className="font-bold text-neutral-200">{product.name}</p>
@@ -258,12 +269,12 @@ export function Products() {
                   </td>
                   <td className="table-cell">
                     <div className="flex flex-col">
-                      <span className="text-neutral-400 font-medium">{product.category || 'GENERIC'}</span>
-                      <span className="text-[10px] text-neutral-600 font-mono tracking-tighter uppercase">{product.sku || 'NO_SKU_TAG'}</span>
+                      <span className="text-neutral-400 font-medium">{product.category || t('products.table.generic')}</span>
+                      <span className="text-[10px] text-neutral-600 font-mono tracking-tighter uppercase">{product.sku || t('products.table.no_sku')}</span>
                     </div>
                   </td>
                   <td className="table-cell font-mono text-white text-sm">
-                    <span className="text-neutral-600 mr-0.5">$</span>{product.price.toFixed(2)}
+                    {formatCurrency(product.price)}
                   </td>
                   <td className="table-cell">
                     <div className="flex items-center gap-3">
@@ -307,8 +318,12 @@ export function Products() {
             >
               <div className="flex items-center justify-between gap-4">
                 <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-10 h-10 rounded-xl bg-white/[0.03] border border-white/[0.05] flex items-center justify-center shrink-0">
-                    <Box className="w-5 h-5 text-neutral-600" />
+                  <div className="w-10 h-10 rounded-xl bg-white/[0.03] border border-white/[0.05] flex items-center justify-center shrink-0 overflow-hidden">
+                    {product.imageURL ? (
+                      <img src={product.imageURL} alt={product.name} className="w-full h-full object-cover" />
+                    ) : (
+                      <Box className="w-5 h-5 text-neutral-600" />
+                    )}
                   </div>
                   <div className="min-w-0">
                     <p className="font-bold text-neutral-200 truncate">{product.name}</p>
@@ -316,8 +331,8 @@ export function Products() {
                   </div>
                 </div>
                 <div className="text-right shrink-0">
-                  <p className="font-mono text-white text-sm">${product.price.toFixed(2)}</p>
-                  <p className="text-[9px] text-neutral-500 font-bold uppercase tracking-widest">{product.stockLevel} In Node</p>
+                  <p className="font-mono text-white text-sm">{formatCurrency(product.price)}</p>
+                  <p className="text-[9px] text-neutral-500 font-bold uppercase tracking-widest">{product.stockLevel} {t('products.table.in_node')}</p>
                 </div>
               </div>
               <div className="flex items-center justify-between">
@@ -343,12 +358,12 @@ export function Products() {
                 <Box className="w-10 h-10 opacity-20" />
               </div>
               <div className="space-y-2">
-                <p className="text-lg font-bold text-neutral-200">Initialize your Manifest.</p>
-                <p className="text-xs leading-relaxed text-neutral-500 px-4">Register your first product to begin tracking inventory and generating sales telemetry.</p>
+                <p className="text-lg font-bold text-neutral-200">{t('products.empty.title') || 'Initialize your Manifest.'}</p>
+                <p className="text-xs leading-relaxed text-neutral-500 px-4">{t('products.empty.subtitle') || 'Register your first product to begin tracking inventory and generating sales telemetry.'}</p>
               </div>
               {canEditProducts && (
                 <Button onClick={handleCreateNew} className="gap-2 px-8 h-12 shadow-xl shadow-blue-600/20">
-                  <Plus className="w-4 h-4" /> Add first product
+                  <Plus className="w-4 h-4" /> {t('products.add')}
                 </Button>
               )}
             </div>
@@ -367,60 +382,73 @@ export function Products() {
             >
               <div className="p-8 border-b border-white/[0.05] flex justify-between items-center bg-white/[0.02]">
                 <h2 className="font-display text-xl font-bold text-white uppercase tracking-tight">
-                  {selectedProduct ? 'Asset Parameters' : 'Product Node Initialization'}
+                  {selectedProduct ? t('products.modal.title') : t('products.modal.init_title')}
                 </h2>
                 <button onClick={handleCloseModal} className="p-2 text-neutral-500 hover:text-white transition-colors rounded-full hover:bg-white/5">
                   <Plus className="w-6 h-6 rotate-45" />
                 </button>
               </div>
               <form onSubmit={handleSubmit} className="p-8 space-y-6">
+                <div className="flex gap-8 items-start mb-4">
+                  <div className="w-32 shrink-0">
+                    <ImageUpload 
+                      value={form.imageURL}
+                      onChange={url => setForm({ ...form, imageURL: url })}
+                      path={`companies/${company?.id}/products`}
+                      label={t('products.modal.avatar')}
+                    />
+                  </div>
+                  <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="col-span-2">
+                       <Label>{t('products.name')}</Label>
+                       <Input required value={form.name} onChange={e => setForm({...form, name: e.target.value})} placeholder={t('products.modal.name_placeholder')} />
+                    </div>
+                    <div>
+                      <Label>{t('products.category')}</Label>
+                      <Input value={form.category} onChange={e => setForm({...form, category: e.target.value})} placeholder="e.g. Hardware" />
+                    </div>
+                    <div>
+                      <Label>{t('products.sku')}</Label>
+                      <Input value={form.sku} onChange={e => setForm({...form, sku: e.target.value})} placeholder="e.g. SK-1002-X" />
+                    </div>
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                  <div className="col-span-2">
-                    <Label>Asset Functional Name</Label>
-                    <Input required value={form.name} onChange={e => setForm({...form, name: e.target.value})} placeholder="e.g. Kinetic Processor Pro" />
-                  </div>
                   <div>
-                    <Label>Categorization Node</Label>
-                    <Input value={form.category} onChange={e => setForm({...form, category: e.target.value})} placeholder="e.g. Hardware" />
-                  </div>
-                  <div>
-                    <Label>System SKU Tag</Label>
-                    <Input value={form.sku} onChange={e => setForm({...form, sku: e.target.value})} placeholder="e.g. SK-1002-X" />
-                  </div>
-                  <div>
-                    <Label>Base Valuation ($)</Label>
+                    <Label>{t('products.price')}</Label>
                     <Input required type="number" step="0.01" value={form.price} onChange={e => setForm({...form, price: e.target.value})} placeholder="0.00" />
                   </div>
                   <div>
-                    <Label>Initial Node Stock</Label>
+                    <Label>{t('products.stock')}</Label>
                     <Input required type="number" value={form.stockLevel} onChange={e => setForm({...form, stockLevel: e.target.value})} placeholder="0" />
                   </div>
                   <div className="col-span-2">
-                    <Label>Deployment Status</Label>
+                    <Label>{t('products.status')}</Label>
                     <select 
                       className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition-all appearance-none"
                       value={form.status}
                       onChange={e => setForm({...form, status: e.target.value as any})}
                     >
-                      <option value="active" className="bg-neutral-900">Active Node</option>
-                      <option value="draft" className="bg-neutral-900">System Draft</option>
-                      <option value="archived" className="bg-neutral-900">Archived Status</option>
+                      <option value="active" className="bg-neutral-900">{t('common.active')}</option>
+                      <option value="draft" className="bg-neutral-900">{t('common.draft')}</option>
+                      <option value="archived" className="bg-neutral-900">{t('common.archived')}</option>
                     </select>
                   </div>
                   <div className="col-span-2">
-                    <Label>Asset Manifest / Description</Label>
+                    <Label>{t('products.modal.desc_label')}</Label>
                     <textarea 
                       className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition-all min-h-[100px]"
                       value={form.description}
                       onChange={e => setForm({...form, description: e.target.value})}
-                      placeholder="Detailed specifications for the node log..."
+                      placeholder={t('products.modal.desc_placeholder')}
                     />
                   </div>
                 </div>
-                <div className="flex justify-end gap-3 pt-6">
-                  <Button type="button" variant="secondary" onClick={handleCloseModal} className="px-6">Abort</Button>
+                <div className="flex justify-end gap-3 pt-6 border-t border-white/5">
+                  <Button type="button" variant="secondary" onClick={handleCloseModal} className="px-6">{t('common.abort')}</Button>
                   <Button type="submit" disabled={loading} className="px-8">
-                    {loading ? 'Processing...' : selectedProduct ? 'Sync Parameters' : 'Register Asset'}
+                    {loading ? t('common.processing') : selectedProduct ? t('common.update') : t('products.add')}
                   </Button>
                 </div>
               </form>

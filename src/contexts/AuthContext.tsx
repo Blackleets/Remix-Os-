@@ -8,8 +8,12 @@ interface Company {
   name: string;
   ownerId: string;
   industry: string;
+  logoURL?: string;
   country?: string;
   currency?: string;
+  defaultLanguage?: string;
+  timezone?: string;
+  dateFormat?: string;
   email?: string;
   phone?: string;
   stripeCustomerId?: string;
@@ -30,27 +34,59 @@ interface Company {
   };
 }
 
+interface UserProfile {
+  uid: string;
+  email: string;
+  displayName?: string;
+  photoURL?: string;
+  language?: string;
+  createdAt?: any;
+}
+
 interface AuthContextType {
   user: User | null;
+  userProfile: UserProfile | null;
   company: Company | null;
   role: 'viewer' | 'staff' | 'admin' | 'owner' | null;
   loading: boolean;
   refreshCompany: () => Promise<void>;
+  refreshProfile: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType>({
   user: null,
+  userProfile: null,
   company: null,
   role: null,
   loading: true,
   refreshCompany: async () => {},
+  refreshProfile: async () => {},
 });
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [company, setCompany] = useState<Company | null>(null);
   const [role, setRole] = useState<'viewer' | 'staff' | 'admin' | 'owner' | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const fetchUserProfile = async (uid: string) => {
+    try {
+      const { handleFirestoreError, OperationType } = await import('../lib/firebase');
+      const userRef = doc(db, 'users', uid);
+      const userSnap = await getDoc(userRef);
+      if (userSnap.exists()) {
+        setUserProfile({ uid, ...userSnap.data() } as UserProfile);
+      } else {
+        // Fallback for new users or missing docs
+        setUserProfile(null);
+      }
+    } catch (error) {
+      console.error("Error fetching user profile:", error);
+      const { handleFirestoreError, OperationType } = await import('../lib/firebase');
+      handleFirestoreError(error, OperationType.GET, `users/${uid}`);
+    }
+  };
 
   const fetchUserCompany = async (userId: string) => {
     try {
@@ -93,13 +129,23 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     }
   };
 
+  const refreshProfile = async () => {
+    if (user) {
+      await fetchUserProfile(user.uid);
+    }
+  };
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setUser(user);
       if (user) {
-        await fetchUserCompany(user.uid);
+        await Promise.all([
+          fetchUserProfile(user.uid),
+          fetchUserCompany(user.uid)
+        ]);
       } else {
         setCompany(null);
+        setUserProfile(null);
       }
       setLoading(false);
     });
@@ -108,7 +154,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, company, role, loading, refreshCompany }}>
+    <AuthContext.Provider value={{ user, userProfile, company, role, loading, refreshCompany, refreshProfile }}>
       {children}
     </AuthContext.Provider>
   );

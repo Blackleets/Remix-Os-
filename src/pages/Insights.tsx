@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Card, Button } from '../components/Common';
-import { BrainCircuit, Sparkles, RefreshCcw, TrendingUp, AlertTriangle, CheckCircle, Info, ArrowRight, Activity, Zap, ShieldCheck, Globe, Database, Terminal, Cpu, Gauge } from 'lucide-react';
+import { RefreshCcw, TrendingUp, AlertTriangle, CheckCircle, Info, ArrowRight, Activity, Zap, Fingerprint, Globe, Database, Terminal, Cpu, Gauge } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../lib/firebase';
 import { collection, query, where, getDocs, limit, orderBy, addDoc, serverTimestamp } from 'firebase/firestore';
@@ -9,6 +9,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { subDays, startOfDay } from 'date-fns';
 import { useNavigate } from 'react-router-dom';
 import { cn } from '../components/Common';
+import { useLocale } from '../hooks/useLocale';
 
 interface Insight {
   title: string;
@@ -20,6 +21,7 @@ interface Insight {
 
 export function Insights() {
   const { company, role } = useAuth();
+  const { t, formatCurrency, formatDate, language } = useLocale();
   const navigate = useNavigate();
   const [insights, setInsights] = useState<Insight[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -30,7 +32,7 @@ export function Insights() {
   if (role !== 'owner' && role !== 'admin') {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center">
-        <BrainCircuit className="w-16 h-16 text-blue-500/20 mb-6" />
+        <Cpu className="w-16 h-16 text-blue-500/20 mb-6" />
         <h2 className="text-2xl font-bold text-white mb-2">Access Restricted</h2>
         <p className="text-neutral-500 max-w-sm font-mono text-[10px] uppercase tracking-widest leading-loose">
           Advanced business insights are reserved for administrators. Please contact your manager for access.
@@ -125,7 +127,7 @@ export function Insights() {
       };
 
       // 5. Call AI
-      const result = await generateBusinessInsights(businessData);
+      const result = await generateBusinessInsights(businessData, language);
       
       if (!result || !Array.isArray(result)) {
         throw new Error("AI failed to generate a structured analysis.");
@@ -178,10 +180,10 @@ export function Insights() {
             </div>
             <div className="space-y-4">
               <h1 className="font-display text-6xl font-bold tracking-tighter text-white leading-[0.9]">
-                Business <br /> <span className="text-blue-500">Insights.</span>
+                Business <br /> <span className="text-blue-500">{t('insights.title')}</span>
               </h1>
               <p className="text-neutral-400 max-w-md text-lg leading-relaxed font-medium">
-                Advanced analysis of your business performance. Identifying growth opportunities and operational risks.
+                {t('insights.subtitle')}
               </p>
             </div>
           </div>
@@ -226,11 +228,11 @@ export function Insights() {
                   "w-16 h-16 rounded-2xl bg-blue-500 text-white flex items-center justify-center shadow-[0_0_30px_rgba(59,130,246,0.5)]",
                   loading && "animate-pulse"
                 )}>
-                  {loading ? <RefreshCcw className="w-8 h-8 animate-spin" /> : <Sparkles className="w-8 h-8" />}
+                  {loading ? <RefreshCcw className="w-8 h-8 animate-spin" /> : <Zap className="w-8 h-8" />}
                 </div>
                 <div className="text-center">
                   <p className="text-xs font-black uppercase tracking-[0.4em] text-white">
-                    {loading ? 'Analyzing' : 'Start Analysis'}
+                    {loading ? t('insights.analyzing') : t('insights.start')}
                   </p>
                   <p className="text-[9px] font-mono text-blue-400 mt-1 uppercase">
                     {loading ? 'Processing...' : 'Run Scan'}
@@ -253,7 +255,7 @@ export function Insights() {
                 {[
                   { label: 'System Load', val: 'Minimal', status: 'optimal', icon: Cpu },
                   { label: 'Analysis Speed', val: 'High', status: 'active', icon: Zap },
-                  { label: 'Data Integrity', val: 'Verified', status: 'secure', icon: ShieldCheck },
+                  { label: 'Data Integrity', val: 'Verified', status: 'secure', icon: Fingerprint },
                   { label: 'Sync Status', val: 'Current', status: 'online', icon: Globe },
                 ].map(m => (
                   <div key={m.label} className="p-5 rounded-2xl bg-neutral-900 border border-white/[0.03] group hover:border-blue-500/30 transition-all">
@@ -298,7 +300,7 @@ export function Insights() {
                 <div className="relative group mb-12">
                   <div className="absolute inset-0 bg-blue-500/20 rounded-[2.5rem] blur-3xl animate-pulse" />
                   <div className="w-32 h-32 bg-neutral-800 rounded-[2.5rem] flex items-center justify-center relative border border-white/10 group-hover:border-blue-500/50 transition-colors">
-                    <BrainCircuit className="w-16 h-16 text-blue-500" />
+                    <Cpu className="w-16 h-16 text-blue-500" />
                   </div>
                 </div>
                 <h3 className="text-4xl font-display font-bold text-white mb-6 tracking-tight">Ready for Analysis.</h3>
@@ -467,7 +469,7 @@ export function Insights() {
                               }}
                               className="h-14 px-10 text-[11px] font-black uppercase tracking-[0.3em] gap-3 bg-white text-black hover:bg-neutral-200 border-0 rounded-2xl transition-all active:scale-[0.98]"
                             >
-                              Execute Action <ArrowRight className="w-4 h-4" />
+                              {t('insights.execute')} <ArrowRight className="w-4 h-4" />
                             </Button>
                             </div>
                           </div>

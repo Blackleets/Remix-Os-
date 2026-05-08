@@ -5,9 +5,13 @@ import { useAuth } from '../contexts/AuthContext';
 import { auth, googleProvider } from '../lib/firebase';
 import { signInWithPopup } from 'firebase/auth';
 import { motion } from 'motion/react';
+import { useLocale } from '../hooks/useLocale';
+import { Globe, ChevronDown } from 'lucide-react';
+import { LanguageSwitcher } from '../components/LanguageSwitcher';
 
 export function Auth() {
   const { user, loading } = useAuth();
+  const { t, language, setLanguage } = useLocale();
   const [error, setError] = useState<string | null>(null);
 
   const handleGoogleLogin = async () => {
@@ -23,6 +27,11 @@ export function Auth() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-black p-6 selection:bg-blue-500 selection:text-white overflow-hidden relative">
+      {/* Language Switcher */}
+      <div className="absolute top-8 right-8 z-50">
+        <LanguageSwitcher />
+      </div>
+
       {/* Background Ambience */}
       <div className="absolute inset-0 bg-grid-white/[0.02] bg-[size:32px_32px] [mask-image:radial-gradient(ellipse_60%_60%_at_50%_50%,#000_70%,transparent_100%)]" />
       <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[500px] h-[500px] bg-blue-600/10 rounded-full blur-[120px] pointer-events-none" />

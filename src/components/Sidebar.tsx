@@ -1,47 +1,49 @@
 import { Link, useLocation } from 'react-router-dom';
 import { motion } from 'motion/react';
 import { 
-  BarChart3, 
-  Users, 
+  Grip, 
+  User, 
   Package, 
-  ClipboardList, 
-  LayoutDashboard, 
+  Database, 
+  Receipt, 
+  Shield, 
+  Sparkle, 
+  CreditCard, 
   Settings, 
   LogOut,
-  BrainCircuit,
-  Boxes,
-  ShieldCheck,
   X
 } from 'lucide-react';
 import { cn } from './Common';
 import { useAuth } from '../contexts/AuthContext';
 import { auth } from '../lib/firebase';
 import { signOut } from 'firebase/auth';
-
-const navItems = [
-  { icon: LayoutDashboard, label: 'Dashboard', path: '/dashboard' },
-  { icon: Users, label: 'Customers', path: '/customers' },
-  { icon: Package, label: 'Products', path: '/products' },
-  { icon: Boxes, label: 'Inventory', path: '/inventory' },
-  { icon: ClipboardList, label: 'Orders', path: '/orders' },
-  { icon: ShieldCheck, label: 'Team', path: '/team' },
-  { icon: BrainCircuit, label: 'AI Insights', path: '/insights' },
-  { icon: BarChart3, label: 'Billing & Plans', path: '/billing' },
-];
+import { useTranslation } from 'react-i18next';
 
 export function Sidebar({ onClose }: { onClose?: () => void }) {
   const location = useLocation();
   const { company, role } = useAuth();
+  const { t } = useTranslation();
+
+  const navItems = [
+    { icon: Grip, label: t('nav.dashboard'), path: '/dashboard' },
+    { icon: User, label: t('nav.customers'), path: '/customers' },
+    { icon: Package, label: t('nav.products'), path: '/products' },
+    { icon: Database, label: t('nav.inventory'), path: '/inventory' },
+    { icon: Receipt, label: t('nav.orders'), path: '/orders' },
+    { icon: Shield, label: t('nav.team'), path: '/team' },
+    { icon: Sparkle, label: t('nav.insights'), path: '/insights' },
+    { icon: CreditCard, label: t('nav.billing'), path: '/billing' },
+  ];
 
   return (
     <aside className="w-full lg:w-64 border-r border-white/5 h-screen flex flex-col bg-black lg:sticky lg:top-0 overflow-y-auto">
       <div className="p-6">
         <div className="flex items-center justify-between mb-10">
           <Link to="/" className="flex items-center gap-3 group" onClick={onClose}>
-            <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center transition-transform group-hover:scale-105">
-              <div className="w-4 h-4 bg-black rounded-sm" />
+            <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center transition-all duration-500 group-hover:rotate-12 group-hover:scale-110">
+              <div className="w-4 h-4 bg-black rounded-sm group-hover:rounded-full transition-all duration-500" />
             </div>
-            <span className="font-display font-bold text-xl tracking-tight text-white">Remix OS</span>
+            <span className="font-display font-medium text-lg tracking-tight text-white uppercase italic">Remix</span>
           </Link>
           <button 
             onClick={onClose}
@@ -52,24 +54,27 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
         </div>
 
         <div className="mb-10">
-          <p className="text-[10px] font-bold text-neutral-600 uppercase tracking-[0.2em] mb-4">Enterprise Node</p>
-          <div className="flex items-center gap-3 px-3 py-2 bg-white/[0.03] rounded-xl border border-white/[0.05]">
-            <div className="w-8 h-8 bg-blue-600/20 rounded-lg flex items-center justify-center text-blue-500 font-bold text-xs">
-              {company?.name?.[0] || 'B'}
+          <p className="text-[9px] font-black text-neutral-800 uppercase tracking-[0.4em] mb-4">Registry</p>
+          <div className="flex items-center gap-3 px-3 py-3 bg-white/[0.02] rounded-2xl border border-white/[0.04] group hover:border-white/[0.1] transition-all duration-300">
+            <div className="w-9 h-9 bg-blue-600/10 border border-blue-500/10 rounded-xl flex items-center justify-center text-blue-400 font-bold text-xs shadow-inner overflow-hidden">
+              {company?.logoURL ? (
+                <img src={company.logoURL} alt={company.name} className="w-full h-full object-cover" />
+              ) : (
+                company?.name?.[0] || 'B'
+              )}
             </div>
             <div className="overflow-hidden">
-              <p className="text-sm font-medium text-neutral-200 truncate">{company?.name || 'My Business'}</p>
-              <p className="text-[10px] text-neutral-500 truncate uppercase tracking-wider">{company?.industry || 'Core Unit'}</p>
+              <p className="text-xs font-bold text-neutral-200 truncate tracking-tight">{company?.name || 'Main Grid'}</p>
+              <p className="text-[9px] text-neutral-600 truncate uppercase font-black tracking-widest leading-tight">{company?.industry || 'System Root'}</p>
             </div>
           </div>
         </div>
 
         <nav className="space-y-1">
-          <p className="text-[10px] font-bold text-neutral-600 uppercase tracking-[0.2em] mb-4">Core Systems</p>
+          <p className="text-[9px] font-black text-neutral-800 uppercase tracking-[0.4em] mb-4">Operations</p>
           {navItems.map((item) => {
             const isActive = location.pathname === item.path;
             
-            // Operational Security: Hide billing from non-privileged roles
             if (item.path === '/billing' && role !== 'owner' && role !== 'admin') {
               return null;
             }
@@ -82,21 +87,30 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
                 key={item.path}
                 to={item.path}
                 onClick={onClose}
-                className={cn(
-                  'flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all duration-200 group relative',
-                  isActive 
-                    ? 'bg-white/10 text-white font-medium shadow-[0_0_20px_rgba(255,255,255,0.05)]' 
-                    : 'text-neutral-500 hover:text-neutral-200 hover:bg-white/5'
-                )}
+                className="block"
               >
-                {isActive && (
-                  <motion.div 
-                    layoutId="activeNav"
-                    className="absolute left-0 w-1 h-4 bg-blue-500 rounded-r-full"
-                  />
-                )}
-                <item.icon className={cn('w-4 h-4 transition-colors', isActive ? 'text-blue-500' : 'text-neutral-600 group-hover:text-neutral-400')} />
-                {item.label}
+                <motion.div
+                  whileHover={{ x: 4 }}
+                  whileTap={{ scale: 0.98 }}
+                  className={cn(
+                    'flex items-center gap-3 px-4 py-2.5 rounded-xl text-[11px] transition-all duration-300 group relative uppercase tracking-widest font-black',
+                    isActive 
+                      ? 'bg-blue-600/10 text-white border border-blue-500/10 shadow-[0_4px_20px_rgba(59,130,246,0.05)]' 
+                      : 'text-neutral-500 hover:text-neutral-200 hover:bg-white/[0.03]'
+                  )}
+                >
+                  {isActive && (
+                    <motion.div 
+                      layoutId="activeNav"
+                      className="absolute left-1 w-0.5 h-3 bg-blue-500 rounded-full"
+                    />
+                  )}
+                  <item.icon className={cn(
+                    'w-3.5 h-3.5 transition-all duration-500', 
+                    isActive ? 'text-blue-400 scale-110' : 'text-neutral-600 group-hover:text-neutral-400 group-hover:scale-110'
+                  )} />
+                  {item.label}
+                </motion.div>
               </Link>
             );
           })}
@@ -107,24 +121,36 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
         <Link
           to="/settings"
           onClick={onClose}
-          className={cn(
-            'flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all duration-200',
-            location.pathname === '/settings' 
-              ? 'bg-white/5 text-white font-medium' 
-              : 'text-neutral-500 hover:text-white hover:bg-white/5'
-          )}
+          className="block"
         >
-          <Settings className="w-4 h-4" />
-          System Settings
+          <motion.div
+            whileHover={{ x: 4 }}
+            className={cn(
+              'flex items-center gap-3 px-4 py-2.5 rounded-xl text-[11px] transition-all duration-300 uppercase tracking-widest font-black group',
+              location.pathname === '/settings' 
+                ? 'bg-white/10 text-white border border-white/10' 
+                : 'text-neutral-500 hover:text-white hover:bg-white/[0.03]'
+            )}
+          >
+            <Settings className="w-3.5 h-3.5 group-hover:rotate-90 transition-transform duration-700 ease-in-out" />
+            {t('nav.settings')}
+          </motion.div>
         </Link>
         <button
           onClick={() => signOut(auth)}
-          className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-red-400/70 hover:text-red-400 hover:bg-red-400/5 transition-all duration-200 w-full text-left"
+          className="block w-full text-left"
         >
-          <LogOut className="w-4 h-4" />
-          Terminate Session
+          <motion.div
+            whileHover={{ x: 4 }}
+            className="flex items-center gap-3 px-4 py-2.5 rounded-xl text-[11px] text-red-500/50 hover:text-red-400 hover:bg-red-400/5 transition-all duration-300 uppercase tracking-widest font-black"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            {t('nav.logout')}
+          </motion.div>
         </button>
       </div>
     </aside>
+
+
   );
 }

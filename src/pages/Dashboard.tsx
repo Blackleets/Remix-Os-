@@ -2,31 +2,32 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, Button } from '../components/Common';
 import { 
-  Users, 
-  Package, 
-  ClipboardList, 
+  Contact, 
+  Shapes, 
+  Layers, 
   TrendingUp, 
   ArrowUpRight, 
   ArrowDownRight,
   MoreHorizontal,
   Plus,
   ArrowDownLeft,
-  ShoppingBag,
+  Receipt,
   UserPlus,
-  Box,
+  Database,
   History,
   Download,
   CheckCircle2,
   ChevronRight,
-  BrainCircuit,
+  Cpu,
   Sparkles,
   Zap,
   Activity,
-  ShieldCheck
+  Fingerprint
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../lib/firebase';
 import { collection, query, where, limit, orderBy, Timestamp, onSnapshot, getDocs } from 'firebase/firestore';
+import { OperationType, handleFirestoreError } from '../lib/firebase';
 import { 
   AreaChart, 
   Area, 
@@ -40,6 +41,7 @@ import { motion } from 'motion/react';
 import { format, subDays, startOfDay, eachDayOfInterval, isSameDay } from 'date-fns';
 import { exportDashboardToPDF } from '../lib/exportUtils';
 import { cn } from '../components/Common';
+import { useLocale } from '../hooks/useLocale';
 
 interface ActivityItem {
   id: string;
@@ -51,6 +53,7 @@ interface ActivityItem {
 
 export function Dashboard() {
   const { company } = useAuth();
+  const { t, formatCurrency, formatDate } = useLocale();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({
@@ -105,12 +108,16 @@ export function Dashboard() {
         };
       });
       setChartData(dayWiseSales);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'orders');
     });
 
     // 2. Customers Listener
     const customersQ = query(collection(db, 'customers'), where('companyId', '==', company.id));
     const unsubscribeCustomers = onSnapshot(customersQ, (snapshot) => {
       setStats(prev => ({ ...prev, customers: snapshot.size }));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'customers');
     });
 
     // 3. Products Listener
@@ -118,6 +125,8 @@ export function Dashboard() {
     const unsubscribeProducts = onSnapshot(productsQ, (snapshot) => {
       setStats(prev => ({ ...prev, products: snapshot.size }));
       setLoading(false); // First one to return usually resets loading
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'products');
     });
 
     // 4. Activity Listener
@@ -136,6 +145,8 @@ export function Dashboard() {
         createdAt: d.data().createdAt
       }));
       setActivities(activityList as ActivityItem[]);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'activities');
     });
 
     return () => {
@@ -203,12 +214,12 @@ export function Dashboard() {
 
   const getActivityIcon = (type: string) => {
     switch (type) {
-      case 'order': return <ShoppingBag className="w-4 h-4 text-blue-600" />;
+      case 'order': return <Receipt className="w-4 h-4 text-blue-600" />;
       case 'customer': return <UserPlus className="w-4 h-4 text-green-600" />;
-      case 'product': return <Box className="w-4 h-4 text-amber-600" />;
+      case 'product': return <Database className="w-4 h-4 text-amber-600" />;
       case 'movement': return <History className="w-4 h-4 text-purple-600" />;
       case 'ai':
-      case 'ai_sync': return <BrainCircuit className="w-4 h-4 text-blue-400" />;
+      case 'ai_sync': return <Cpu className="w-4 h-4 text-blue-400" />;
       default: return <Plus className="w-4 h-4" />;
     }
   };
@@ -222,10 +233,10 @@ export function Dashboard() {
     const diffHours = Math.floor(diffMins / 60);
     const diffDays = Math.floor(diffHours / 24);
 
-    if (diffMins < 1) return 'now';
-    if (diffMins < 60) return `${diffMins}m ago`;
-    if (diffHours < 24) return `${diffHours}h ago`;
-    return `${diffDays}d ago`;
+    if (diffMins < 1) return t('common.now') || 'now';
+    if (diffMins < 60) return `${diffMins}m ${t('common.ago') || 'ago'}`;
+    if (diffHours < 24) return `${diffHours}h ${t('common.ago') || 'ago'}`;
+    return `${diffDays}d ${t('common.ago') || 'ago'}`;
   };
 
   if (loading) {
@@ -238,8 +249,8 @@ export function Dashboard() {
             className="w-12 h-12 border-2 border-white/10 border-t-blue-500 rounded-full mx-auto" 
           />
           <div className="space-y-2">
-            <p className="text-sm font-bold uppercase tracking-[0.2em] text-white">Loading OS</p>
-            <p className="text-xs text-neutral-500 font-mono italic">Synchronizing business metrics...</p>
+            <p className="text-sm font-bold uppercase tracking-[0.2em] text-white">{t('common.loading')}</p>
+            <p className="text-xs text-neutral-500 font-mono italic">{t('common.syncing')}</p>
           </div>
         </div>
       </div>
@@ -250,10 +261,10 @@ export function Dashboard() {
     <div className="space-y-12">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
         <div>
-          <h1 className="font-display text-4xl font-bold tracking-tight mb-2">Operational Overview</h1>
+          <h1 className="font-display text-4xl font-bold tracking-tight mb-2">{t('dashboard.title')}</h1>
           <p className="text-neutral-500 text-sm flex items-center gap-2">
             <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
-            Remix OS is active for {company?.name}. System status: Optimized.
+            {t('dashboard.status', { name: company?.name })}
           </p>
         </div>
         <div className="flex gap-3">
@@ -264,10 +275,10 @@ export function Dashboard() {
             disabled={exporting}
           >
             {exporting ? <History className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-            {exporting ? 'Generating...' : 'Download Report'}
+            {exporting ? t('dashboard.generating') : t('dashboard.download_report')}
           </Button>
           <Button className="px-6 flex gap-2" onClick={() => navigate('/orders', { state: { action: 'create' } })}>
-            <Plus className="w-4 h-4" /> New Order
+            <Plus className="w-4 h-4" /> {t('dashboard.new_order')}
           </Button>
         </div>
       </div>
@@ -283,36 +294,36 @@ export function Dashboard() {
               <div className="lg:w-1/3">
                 <div className="flex items-center gap-2 mb-4">
                   <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
-                  <span className="text-[10px] font-bold text-blue-500 uppercase tracking-widest">Setup Checklist</span>
+                  <span className="text-[10px] font-bold text-blue-500 uppercase tracking-widest">{t('dashboard.setup.subtitle')}</span>
                 </div>
-                <h2 className="text-2xl font-bold mb-4">Complete your setup.</h2>
+                <h2 className="text-2xl font-bold mb-4">{t('dashboard.setup.title')}</h2>
                 <p className="text-sm text-neutral-500 leading-relaxed">
-                  Complete these essential steps to optimize your business environment and unlock advanced AI insights.
+                  {t('dashboard.setup.description')}
                 </p>
               </div>
               
               <div className="lg:w-2/3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 w-full">
                 {[
                   { 
-                    label: 'Register Product', 
-                    desc: 'Add your first product to inventory.', 
+                    label: t('dashboard.setup.register_product'), 
+                    desc: t('dashboard.setup.register_product_desc'), 
                     done: stats.products > 0,
                     link: '/products',
-                    icon: <Box className="w-5 h-5" />
+                    icon: <Database className="w-5 h-5" />
                   },
                   { 
-                    label: 'Add Customer', 
-                    desc: 'Initialize a contact in your CRM.', 
+                    label: t('dashboard.setup.add_customer'), 
+                    desc: t('dashboard.setup.add_customer_desc'), 
                     done: stats.customers > 0,
                     link: '/customers',
                     icon: <UserPlus className="w-5 h-5" />
                   },
                   { 
-                    label: 'Log Sale', 
-                    desc: 'Create your first completed order.', 
+                    label: t('dashboard.setup.log_sale'), 
+                    desc: t('dashboard.setup.log_sale_desc'), 
                     done: stats.orders > 0,
                     link: '/orders',
-                    icon: <ShoppingBag className="w-5 h-5" />
+                    icon: <Receipt className="w-5 h-5" />
                   },
                 ].map((item, i) => (
                   <div 
@@ -354,10 +365,10 @@ export function Dashboard() {
           {/* Main Stat Matrix */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
             {[
-              { label: 'Cumulative Revenue', value: `$${stats.revenue.toLocaleString()}`, change: '+12.4%', icon: TrendingUp, color: 'text-blue-500' },
-              { label: 'Active Pipeline', value: stats.customers.toString(), change: '+5.1%', icon: Users, color: 'text-purple-500' },
-              { label: 'Unit Stock', value: stats.products.toString(), change: 'STABLE', icon: Package, color: 'text-emerald-500' },
-              { label: 'Order Velocity', value: stats.orders.toString(), change: '+8.2%', icon: ClipboardList, color: 'text-orange-500' },
+              { label: t('dashboard.revenue'), value: formatCurrency(stats.revenue), change: '+12.4%', icon: TrendingUp, color: 'text-blue-500' },
+              { label: t('dashboard.customers'), value: stats.customers.toString(), change: '+5.1%', icon: Contact, color: 'text-purple-500' },
+              { label: t('dashboard.inventory'), value: stats.products.toString(), change: 'STABLE', icon: Shapes, color: 'text-emerald-500' },
+              { label: t('dashboard.orders'), value: stats.orders.toString(), change: '+8.2%', icon: Layers, color: 'text-orange-500' },
             ].map((stat, i) => (
               <motion.div
                 key={stat.label}
@@ -386,8 +397,8 @@ export function Dashboard() {
             <Card className="relative overflow-hidden group p-6">
               <div className="flex justify-between items-center mb-8">
                 <div className="space-y-1">
-                  <h3 className="font-display font-bold text-xl tracking-tight">Financial Intelligence</h3>
-                  <p className="text-[10px] text-neutral-500 font-bold uppercase tracking-widest">Revenue Cycle Optimization</p>
+                  <h3 className="font-display font-bold text-xl tracking-tight">{t('dashboard.financial_intelligence')}</h3>
+                  <p className="text-[10px] text-neutral-500 font-bold uppercase tracking-widest">{t('dashboard.revenue_optimization')}</p>
                 </div>
                 <div className="w-9 h-9 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-500">
                   <TrendingUp className="w-4 h-4" />
@@ -434,8 +445,8 @@ export function Dashboard() {
             <Card className="flex flex-col p-6">
               <div className="flex items-center justify-between mb-8">
                 <div className="space-y-1">
-                  <h3 className="font-display font-bold text-xl tracking-tight">System Log</h3>
-                  <p className="text-[10px] text-neutral-500 font-bold uppercase tracking-widest">Live Activity Stream</p>
+                  <h3 className="font-display font-bold text-xl tracking-tight">{t('dashboard.system_log')}</h3>
+                  <p className="text-[10px] text-neutral-500 font-bold uppercase tracking-widest">{t('dashboard.live_activity')}</p>
                 </div>
                 <div className="w-9 h-9 rounded-xl bg-orange-500/10 flex items-center justify-center text-orange-500">
                   <History className="w-4 h-4" />
@@ -466,21 +477,21 @@ export function Dashboard() {
         <div className="space-y-8">
           <Card className="p-8 bg-blue-600/5 border-blue-500/20 relative overflow-hidden group shadow-[0_20px_50px_rgba(59,130,246,0.05)]">
             <div className="absolute top-0 right-0 p-6 opacity-5 pointer-events-none group-hover:rotate-12 transition-transform duration-700">
-              <BrainCircuit className="w-24 h-24" />
+              <Cpu className="w-24 h-24" />
             </div>
             
             <div className="flex items-center gap-3 mb-8">
               <div className="w-10 h-10 rounded-xl bg-blue-500 flex items-center justify-center text-white shadow-xl shadow-blue-500/30">
                 <Zap className="w-5 h-5 animate-pulse" />
               </div>
-              <h3 className="text-xs font-black uppercase tracking-[0.2em] text-blue-400">Business Briefing</h3>
+              <h3 className="text-xs font-black uppercase tracking-[0.2em] text-blue-400">{t('dashboard.business_briefing')}</h3>
             </div>
 
             <div className="space-y-6 relative z-10">
               <div className="space-y-3">
                  <div className="flex justify-between items-end">
-                    <p className="text-[10px] font-black text-neutral-500 uppercase tracking-widest">System Status</p>
-                    <p className="text-[10px] font-mono font-bold text-emerald-500 tracking-tighter">SECURE</p>
+                    <p className="text-[10px] font-black text-neutral-500 uppercase tracking-widest">{t('dashboard.system_status')}</p>
+                    <p className="text-[10px] font-mono font-bold text-emerald-500 tracking-tighter">{t('dashboard.ops_status.secure')}</p>
                  </div>
                  <div className="h-1 w-full bg-white/5 rounded-full overflow-hidden">
                     <motion.div initial={{ width: "0%" }} animate={{ width: "98%" }} className="h-full bg-emerald-500 shadow-[0_0_10px_#10b981]" />
@@ -488,17 +499,17 @@ export function Dashboard() {
               </div>
 
               <p className="text-sm text-neutral-400 leading-relaxed font-medium">
-                The system is operating at <b>Normal Capacity</b>. Current insights indicate <b>stable performance</b> with ${stats.revenue.toLocaleString()} in revenue.
+                {t('dashboard.briefing.operating_at')} <b>{t('dashboard.briefing.normal_capacity')}</b>. {t('dashboard.briefing.insights_indicate')} <b>{t('dashboard.briefing.stable_performance')}</b> {t('dashboard.briefing.with')} {formatCurrency(stats.revenue)} {t('dashboard.briefing.in_revenue')}
               </p>
 
               <div className="grid grid-cols-2 gap-3 pt-2">
                  <div className="p-3 rounded-2xl bg-white/[0.02] border border-white/[0.05]">
-                    <p className="text-[9px] font-black text-neutral-600 uppercase mb-1">Risk Profile</p>
+                    <p className="text-[9px] font-black text-neutral-600 uppercase mb-1">{t('dashboard.risk_profile')}</p>
                     <p className="text-xs font-bold text-white uppercase tracking-tight">Status_Nominal</p>
                  </div>
                  <div className="p-3 rounded-2xl bg-white/[0.02] border border-white/[0.05]">
-                    <p className="text-[9px] font-black text-neutral-600 uppercase mb-1">Data Sync</p>
-                    <p className="text-xs font-bold text-white uppercase tracking-tight">Active</p>
+                    <p className="text-[9px] font-black text-neutral-600 uppercase mb-1">{t('dashboard.data_sync')}</p>
+                    <p className="text-xs font-bold text-white uppercase tracking-tight">{t('common.active')}</p>
                  </div>
               </div>
 
@@ -509,7 +520,7 @@ export function Dashboard() {
                 }}
                 className="w-full h-12 bg-blue-600 hover:bg-blue-500 rounded-2xl text-[10px] font-black uppercase tracking-[0.25em] relative group/brief overflow-hidden"
               >
-                 <span className="relative z-10 flex items-center justify-center gap-2">View Assistant <ArrowUpRight className="w-4 h-4" /></span>
+                 <span className="relative z-10 flex items-center justify-center gap-2">{t('dashboard.view_assistant')} <ArrowUpRight className="w-4 h-4" /></span>
                  <motion.div 
                    animate={{ x: ['100%', '-100%'] }}
                    transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
@@ -520,12 +531,12 @@ export function Dashboard() {
           </Card>
 
           <Card className="p-6 bg-neutral-900 border-white/5">
-             <h3 className="text-[10px] font-black text-neutral-600 uppercase tracking-widest mb-6">Operational Status</h3>
+             <h3 className="text-[10px] font-black text-neutral-600 uppercase tracking-widest mb-6">{t('dashboard.ops_status.title')}</h3>
              <div className="space-y-4">
                 {[
-                  { label: 'Inventory Level', status: stats.products > 0 ? 'OPTIMAL' : 'PENDING', icon: Package, color: 'text-neutral-500' },
-                  { label: 'Order Activity', status: stats.orders > 0 ? 'NOMINAL' : 'IDLE', icon: ShoppingBag, color: 'text-neutral-500' },
-                  { label: 'Customer Sync', status: stats.customers > 0 ? 'SYNCED' : 'PENDING', icon: Users, color: 'text-neutral-500' },
+                  { label: t('dashboard.ops_status.inventory'), status: stats.products > 0 ? t('dashboard.ops_status.optimal') : t('dashboard.ops_status.pending'), icon: Shapes, color: 'text-neutral-500' },
+                  { label: t('dashboard.ops_status.orders'), status: stats.orders > 0 ? t('dashboard.ops_status.nominal') : t('dashboard.ops_status.idle'), icon: Receipt, color: 'text-neutral-500' },
+                  { label: t('dashboard.ops_status.customers'), status: stats.customers > 0 ? t('dashboard.ops_status.synced') : t('dashboard.ops_status.pending'), icon: Contact, color: 'text-neutral-500' },
                 ].map((item, i) => (
                   <div key={i} className="flex items-center justify-between p-4 rounded-2xl bg-white/[0.01] border border-white/[0.03] group hover:bg-white/[0.02] transition-all">
                      <div className="flex items-center gap-3">

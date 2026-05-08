@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Card, Button } from '../components/Common';
 import { Check, Zap, Crown, Shield, ArrowRight, CreditCard, Activity, Package, Users, ShoppingBag, Loader2 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { useLocale } from '../hooks/useLocale';
 import { db } from '../lib/firebase';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { motion } from 'motion/react';
@@ -66,6 +67,7 @@ const PLANS = [
 
 export function Billing() {
   const { company, user, refreshCompany, role } = useAuth();
+  const { t } = useLocale();
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
   
@@ -73,8 +75,8 @@ export function Billing() {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center">
         <Shield className="w-16 h-16 text-red-500/20 mb-6" />
-        <h2 className="text-2xl font-bold text-white mb-2">Access Restricted</h2>
-        <p className="text-neutral-500 max-w-sm">Your current designation does not permit access to financial protocols. Contact your administrator.</p>
+        <h2 className="text-2xl font-bold text-white mb-2">{t('billing.access_restricted')}</h2>
+        <p className="text-neutral-500 max-w-sm">{t('billing.access_desc')}</p>
       </div>
     );
   }
@@ -89,8 +91,63 @@ export function Billing() {
 
   const currentPlanId = company?.subscription?.planId || 'starter';
   
+  const PLANS_LOCALIZED = [
+    {
+      id: 'starter',
+      name: PLAN_DATA.starter.name,
+      price: 0,
+      description: t('billing.plans.starter.desc'),
+      features: [
+        t('billing.plans.starter.f1'),
+        t('billing.plans.starter.f2'),
+        t('billing.plans.starter.f3'),
+        t('billing.plans.starter.f4'),
+        t('billing.plans.starter.f5')
+      ],
+      limits: PLAN_DATA.starter.limits,
+      icon: <Zap className="w-5 h-5 text-blue-400" />,
+      color: 'blue'
+    },
+    {
+      id: 'pro',
+      name: PLAN_DATA.pro.name,
+      price: 49,
+      description: t('billing.plans.pro.desc'),
+      features: [
+        t('billing.plans.pro.f1'),
+        t('billing.plans.pro.f2'),
+        t('billing.plans.pro.f3'),
+        t('billing.plans.pro.f4'),
+        t('billing.plans.pro.f5'),
+        t('billing.plans.pro.f6')
+      ],
+      limits: PLAN_DATA.pro.limits,
+      icon: <Shield className="w-5 h-5 text-emerald-400" />,
+      color: 'emerald',
+      popular: true
+    },
+    {
+      id: 'business',
+      name: PLAN_DATA.business.name,
+      price: 199,
+      description: t('billing.plans.business.desc'),
+      features: [
+        t('billing.plans.business.f1'),
+        t('billing.plans.business.f2'),
+        t('billing.plans.business.f3'),
+        t('billing.plans.business.f4'),
+        t('billing.plans.business.f5'),
+        t('billing.plans.business.f6'),
+        t('billing.plans.business.f7')
+      ],
+      limits: PLAN_DATA.business.limits,
+      icon: <Crown className="w-5 h-5 text-orange-400" />,
+      color: 'orange'
+    }
+  ];
+
   // Dynamic Plan merging
-  const plansWithPrices = PLANS.map(p => {
+  const plansWithPrices = PLANS_LOCALIZED.map(p => {
     const configPrice = stripeConfig?.prices?.[p.id];
     return {
         ...p,
@@ -210,25 +267,25 @@ export function Billing() {
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex flex-col items-center justify-center space-y-4">
           <Loader2 className="w-12 h-12 text-blue-500 animate-spin" />
           <p className="font-display font-bold text-white uppercase tracking-widest text-sm">
-            {syncing ? 'Synchronizing Protocols...' : 'Provisioning Payment Gateway...'}
+            {syncing ? t('billing.syncing') : t('billing.provisioning')}
           </p>
         </div>
       )}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
         <div>
-          <h1 className="font-display text-4xl font-bold tracking-tight mb-2 text-white">Billing & Subscription</h1>
-          <p className="text-neutral-500 text-sm">Manage your operational protocol and resource allocation.</p>
+          <h1 className="font-display text-4xl font-bold tracking-tight mb-2 text-white">{t('billing.title')}</h1>
+          <p className="text-neutral-500 text-sm">{t('billing.subtitle')}</p>
         </div>
         {stripeConfig && !stripeConfig.stripeEnabled && (
           <div className="flex items-center gap-2 px-3 py-1 bg-amber-500/10 border border-amber-500/20 rounded-full">
             <div className="w-2 h-2 bg-amber-500 rounded-full animate-pulse" />
-            <span className="text-[10px] font-bold text-amber-500 uppercase tracking-widest">Mock/Preview Mode</span>
+            <span className="text-[10px] font-bold text-amber-500 uppercase tracking-widest">{t('billing.mock_mode')}</span>
           </div>
         )}
         {stripeConfig?.stripeEnabled && (
           <div className="flex items-center gap-2 px-3 py-1 bg-emerald-500/10 border border-emerald-500/20 rounded-full">
             <div className="w-2 h-2 bg-emerald-500 rounded-full" />
-            <span className="text-[10px] font-bold text-emerald-500 uppercase tracking-widest">Live Sync Active</span>
+            <span className="text-[10px] font-bold text-emerald-500 uppercase tracking-widest">{t('billing.live_sync')}</span>
           </div>
         )}
       </div>
@@ -247,18 +304,18 @@ export function Billing() {
                 <div>
                   <div className="flex items-center gap-3 mb-1">
                     <h2 className="font-display font-bold text-2xl text-white uppercase tracking-tight">{currentPlan.name}</h2>
-                    <span className="text-[10px] font-bold bg-emerald-500/10 text-emerald-500 px-2 py-0.5 rounded border border-emerald-500/20 uppercase">Active Protocol</span>
+                    <span className="text-[10px] font-bold bg-emerald-500/10 text-emerald-500 px-2 py-0.5 rounded border border-emerald-500/20 uppercase">{t('billing.active_protocol')}</span>
                   </div>
                   <p className="text-sm text-neutral-500 font-mono italic">
-                    Status: <span className="text-emerald-400 capitalize">{company?.subscription?.status || 'active'}</span>
-                    {company?.subscription?.currentPeriodEnd && ` • Renews ${format(company.subscription.currentPeriodEnd.toDate ? company.subscription.currentPeriodEnd.toDate() : company.subscription.currentPeriodEnd, 'MMM dd, yyyy')}`}
+                    {t('common.active')}: <span className="text-emerald-400 capitalize">{company?.subscription?.status || t('billing.gateway.active')}</span>
+                    {company?.subscription?.currentPeriodEnd && ` • ${t('billing.renews')} ${format(company.subscription.currentPeriodEnd.toDate ? company.subscription.currentPeriodEnd.toDate() : company.subscription.currentPeriodEnd, 'MMM dd, yyyy')}`}
                   </p>
                 </div>
               </div>
               <div className="text-right space-y-3">
                 <div>
-                    <p className="text-[10px] uppercase font-bold text-neutral-600 tracking-widest mb-1">Fee</p>
-                    <p className="text-3xl font-mono font-bold text-white">${currentPlan.price}<span className="text-sm text-neutral-500">/mo</span></p>
+                    <p className="text-[10px] uppercase font-bold text-neutral-600 tracking-widest mb-1">{t('billing.fee')}</p>
+                    <p className="text-3xl font-mono font-bold text-white">${currentPlan.price}<span className="text-sm text-neutral-500">{t('billing.mo')}</span></p>
                 </div>
                 {company?.stripeCustomerId && stripeConfig?.stripeEnabled && (
                     <Button 
@@ -267,7 +324,7 @@ export function Billing() {
                         disabled={loading}
                         className="text-[9px] h-8 px-4 font-bold tracking-widest"
                     >
-                        Manage Subscription
+                        {t('billing.manage')}
                     </Button>
                 )}
               </div>
@@ -275,10 +332,10 @@ export function Billing() {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mt-12 pt-8 border-t border-white/[0.05] relative z-10">
               {[
-                { label: 'Customer Nodes', current: counts.customers, max: currentPlan.limits.customers, icon: <Users className="w-4 h-4" /> },
-                { label: 'Asset Variants', current: counts.products, max: currentPlan.limits.products, icon: <Package className="w-4 h-4" /> },
-                { label: 'Monthly cycles', current: counts.orders, max: currentPlan.limits.orders, icon: <ShoppingBag className="w-4 h-4" /> },
-                { label: 'Team Seats', current: counts.seats, max: currentPlan.limits.seats, icon: <Activity className="w-4 h-4" /> }
+                { label: t('billing.usage.customers'), current: counts.customers, max: currentPlan.limits.customers, icon: <Users className="w-4 h-4" /> },
+                { label: t('billing.usage.products'), current: counts.products, max: currentPlan.limits.products, icon: <Package className="w-4 h-4" /> },
+                { label: t('billing.usage.orders'), current: counts.orders, max: currentPlan.limits.orders, icon: <ShoppingBag className="w-4 h-4" /> },
+                { label: t('billing.usage.seats'), current: counts.seats, max: currentPlan.limits.seats, icon: <Activity className="w-4 h-4" /> }
               ].map(usage => (
                 <div key={usage.label} className="space-y-3">
                   <div className="flex justify-between items-end">
@@ -308,14 +365,14 @@ export function Billing() {
               <Card key={plan.id} className={`p-6 flex flex-col h-full border ${plan.id === currentPlanId ? 'border-blue-500/50 bg-blue-500/[0.02]' : 'border-white/5 bg-neutral-900/40'} relative overflow-hidden group`}>
                 {plan.popular && (
                   <div className="absolute top-0 right-0 p-3">
-                    <span className="text-[8px] font-bold uppercase tracking-widest bg-emerald-500 text-black px-2 py-0.5 rounded shadow-lg">Optimal Choice</span>
+                    <span className="text-[8px] font-bold uppercase tracking-widest bg-emerald-500 text-black px-2 py-0.5 rounded shadow-lg">{t('billing.plans.optimal')}</span>
                   </div>
                 )}
                 {!plan.isConfigured && stripeConfig?.stripeEnabled && (
                   <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px] z-20 flex items-center justify-center p-6 text-center">
                     <div className="space-y-2">
-                        <p className="text-[10px] font-bold text-orange-500 uppercase tracking-widest">Configuration Required</p>
-                        <p className="text-[9px] text-neutral-400 italic">Price ID for this node is missing in server environment.</p>
+                        <p className="text-[10px] font-bold text-orange-500 uppercase tracking-widest">{t('billing.plans.config_required')}</p>
+                        <p className="text-[9px] text-neutral-400 italic">{t('billing.plans.price_missing')}</p>
                     </div>
                   </div>
                 )}
@@ -326,7 +383,7 @@ export function Billing() {
                   <h3 className="font-display font-bold text-lg text-white mb-1 uppercase tracking-tight">{plan.name}</h3>
                   <div className="flex items-baseline gap-1 mb-4">
                     <span className="text-2xl font-mono font-bold text-white">${plan.price}</span>
-                    <span className="text-[10px] text-neutral-500 font-bold uppercase">/mo</span>
+                    <span className="text-[10px] text-neutral-500 font-bold uppercase">{t('billing.mo')}</span>
                   </div>
                   <p className="text-xs text-neutral-500 italic leading-relaxed">
                     {plan.description}
@@ -350,7 +407,7 @@ export function Billing() {
                   variant={plan.id === currentPlanId ? 'secondary' : 'primary'}
                   className={`w-full text-[10px] font-bold uppercase tracking-[0.2em] h-11 ${plan.id === currentPlanId ? 'opacity-50 cursor-default' : 'shadow-xl shadow-blue-500/10'}`}
                 >
-                  {plan.id === currentPlanId ? 'Current Protocol' : 'Switch Protocol'}
+                  {plan.id === currentPlanId ? t('billing.plans.current') : t('billing.plans.switch')}
                 </Button>
               </Card>
             ))}
@@ -360,7 +417,7 @@ export function Billing() {
         <div className="lg:col-span-1 space-y-8">
             <Card className="p-8 border-white/5 bg-neutral-900">
                 <h3 className="font-display font-bold text-lg text-white mb-6 uppercase tracking-tight flex items-center gap-3">
-                    <CreditCard className="w-5 h-5 text-neutral-500" /> Payment Node
+                    <CreditCard className="w-5 h-5 text-neutral-500" /> {t('billing.gateway.title')}
                 </h3>
                 <div className="space-y-6">
                     <div className="p-4 bg-white/[0.01] border border-dashed border-white/10 rounded-2xl flex flex-col items-center justify-center gap-3 py-10 text-center">
@@ -369,18 +426,18 @@ export function Billing() {
                         </div>
                         <div className="space-y-1">
                             <p className="text-xs font-bold text-white uppercase tracking-widest">
-                                {stripeConfig?.stripeEnabled ? 'Live Gateway Ready' : 'Payment Vector Offline'}
+                                {stripeConfig?.stripeEnabled ? t('billing.gateway.ready') : t('billing.gateway.offline')}
                             </p>
                             <p className="text-[10px] text-neutral-500 italic">
                                 {stripeConfig?.stripeEnabled 
-                                    ? 'Select a plan to initialize your live subscription.' 
-                                    : 'Stripe configuration required for real processing.'}
+                                    ? t('billing.gateway.ready_desc') 
+                                    : t('billing.gateway.offline_desc')}
                             </p>
                         </div>
                         {!stripeConfig?.stripeEnabled && (
                             <div className="px-4 py-2 bg-amber-500/5 border border-amber-500/10 rounded-xl mt-4">
-                                <p className="text-[8px] text-amber-500 font-bold uppercase tracking-wider">Engineering Note</p>
-                                <p className="text-[9px] text-neutral-500 italic mt-1">Set STRIPE_SECRET_KEY in environment to enable live sync.</p>
+                                <p className="text-[8px] text-amber-500 font-bold uppercase tracking-wider">{t('billing.gateway.eng_note')}</p>
+                                <p className="text-[9px] text-neutral-500 italic mt-1">{t('billing.gateway.eng_desc')}</p>
                             </div>
                         )}
                     </div>
@@ -388,18 +445,18 @@ export function Billing() {
                     <div className="p-4 bg-emerald-500/5 border border-emerald-500/10 rounded-2xl">
                         <div className="flex items-center gap-3 mb-2">
                             <Shield className="w-4 h-4 text-emerald-500" />
-                            <span className="text-[10px] font-bold text-emerald-500 uppercase tracking-widest">Encryption OK</span>
+                            <span className="text-[10px] font-bold text-emerald-500 uppercase tracking-widest">{t('billing.gateway.encryption')}</span>
                         </div>
-                        <p className="text-[10px] text-neutral-500 leading-relaxed italic">All financial metadata is handled via AES-256 encrypted protocols.</p>
+                        <p className="text-[10px] text-neutral-500 leading-relaxed italic">{t('billing.gateway.encryption_desc')}</p>
                     </div>
 
                     <div className="pt-6 border-t border-white/[0.05] space-y-4">
                         <div className="flex justify-between items-center text-[10px] uppercase font-bold text-neutral-600 tracking-widest">
-                            <span>Gateway Status</span>
-                            <span className="text-orange-500">Standby</span>
+                            <span>{t('billing.gateway.status')}</span>
+                            <span className="text-orange-500">{t('billing.gateway.standby')}</span>
                         </div>
                         <div className="flex justify-between items-center text-[10px] uppercase font-bold text-neutral-600 tracking-widest">
-                            <span>SLA Uptime</span>
+                            <span>{t('billing.gateway.uptime')}</span>
                             <span className="text-emerald-500">99.99%</span>
                         </div>
                     </div>
@@ -408,10 +465,10 @@ export function Billing() {
 
             <Card className="p-8 border-white/5 bg-neutral-900 relative overflow-hidden">
                 <div className="absolute -bottom-10 -right-10 w-40 h-40 bg-blue-600/10 rounded-full blur-3xl" />
-                <h3 className="font-display font-bold text-lg text-white mb-4 uppercase tracking-tight">Need a Custom Node?</h3>
-                <p className="text-xs text-neutral-500 leading-relaxed italic mb-8">For entities requiring more than 100 admin seats or custom API throughput, our engineering team can architect a dedicated protocol.</p>
+                <h3 className="font-display font-bold text-lg text-white mb-4 uppercase tracking-tight">{t('billing.custom.title')}</h3>
+                <p className="text-xs text-neutral-500 leading-relaxed italic mb-8">{t('billing.custom.desc')}</p>
                 <Button variant="ghost" className="w-full text-[10px] font-bold uppercase tracking-widest border border-white/5 h-12 hover:bg-white/5 group">
-                    Protocol Consultation <ArrowRight className="w-4 h-4 ml-2 group-hover:translate-x-1 transition-transform" />
+                    {t('billing.custom.button')} <ArrowRight className="w-4 h-4 ml-2 group-hover:translate-x-1 transition-transform" />
                 </Button>
             </Card>
         </div>

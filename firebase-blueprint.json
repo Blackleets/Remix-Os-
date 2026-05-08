@@ -9,6 +9,7 @@
         "email": { "type": "string", "format": "email" },
         "displayName": { "type": "string" },
         "photoURL": { "type": "string" },
+        "language": { "type": "string", "description": "Preferred interface language" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["uid", "email"]
@@ -22,10 +23,14 @@
         "name": { "type": "string" },
         "ownerId": { "type": "string" },
         "industry": { "type": "string" },
-        "country": { "type": "string" },
-        "currency": { "type": "string" },
+        "country": { "type": "string", "description": "Business headquarters country" },
+        "currency": { "type": "string", "description": "Base currency for financial operations" },
+        "defaultLanguage": { "type": "string", "description": "Default language for the company" },
+        "timezone": { "type": "string", "description": "Operational timezone" },
+        "dateFormat": { "type": "string", "description": "Standard date format" },
         "email": { "type": "string", "format": "email" },
         "phone": { "type": "string" },
+        "logoURL": { "type": "string", "description": "URL to the company logo" },
         "onboardingState": {
           "type": "object",
           "properties": {
@@ -89,6 +94,7 @@
         "totalSpent": { "type": "number" },
         "segment": { "type": "string", "enum": ["whale", "vip", "regular", "new", "at_risk"] },
         "lastOrderAt": { "type": "string", "format": "date-time" },
+        "imageURL": { "type": "string", "description": "URL to customer photo/logo" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["companyId", "name"]
@@ -105,7 +111,8 @@
         "cost": { "type": "number" },
         "category": { "type": "string" },
         "stockLevel": { "type": "number" },
-        "description": { "type": "string" }
+        "description": { "type": "string" },
+        "imageURL": { "type": "string", "description": "URL to product image" }
       },
       "required": ["companyId", "name", "price"]
     },

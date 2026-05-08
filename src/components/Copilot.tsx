@@ -29,6 +29,7 @@ import { chatCopilot } from '../services/gemini';
 import { cn } from './Common';
 import { useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
+import { useLocale } from '../hooks/useLocale';
 
 interface Alert {
   id: string;
@@ -47,6 +48,7 @@ interface Message {
 
 export function Copilot() {
   const { company, user } = useAuth();
+  const { t, language, formatCurrency } = useLocale();
   const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'chat' | 'briefing' | 'actions'>('chat');
@@ -119,7 +121,7 @@ export function Copilot() {
         // Alerts Logic
         if (lowStockProducts.length > 0) {
           newAlerts.push({
-            id: 'low-stock-' + Date.now(),
+            id: 'low-stock-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7),
             type: 'warning',
             title: 'Inventory Stabilization Needed',
             message: `${lowStockProducts.length} assets are at critical supply levels. Restock required.`,
@@ -146,7 +148,7 @@ export function Copilot() {
             const latest = recentOrdersSnap.docs[0].data();
             if (latest.totalAmount > 500) {
                 newAlerts.push({
-                    id: 'high-value-' + Date.now(),
+                    id: 'high-value-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7),
                     type: 'success',
                     title: 'High-Value Influx',
                     message: `A significant transaction of $${latest.totalAmount} was processed. Client vector identified.`,
@@ -166,7 +168,7 @@ export function Copilot() {
             // If created within the last 24 hours (for demo, maybe last 5 mins if we want real-time feeling, but let's stick to recent)
             if (createdAt && (Date.now() - createdAt.getTime()) < 3600000 * 24) {
                 newAlerts.push({
-                    id: 'new-customer-' + Date.now(),
+                    id: 'new-customer-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7),
                     type: 'info',
                     title: 'New Client Vector',
                     message: `${customer.name} has entered the business environment. Engagement recommended.`,
@@ -185,7 +187,7 @@ export function Copilot() {
           });
           if (urgent.length > 0) {
             newAlerts.push({
-              id: 'urgent-reminders-' + Date.now(),
+              id: 'urgent-reminders-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7),
               type: 'warning',
               title: 'Operational Follow-ups Due',
               message: `You have ${urgent.length} urgent customer follow-up actions requiring review.`,
@@ -314,7 +316,7 @@ export function Copilot() {
         parts: [{ text: m.text }]
       }));
 
-      const aiResponse = await chatCopilot(userMessage, history, context);
+      const aiResponse = await chatCopilot(userMessage, history, context, language);
       
       // Improved multi-line and strict parsing for [COMMAND: TYPE | PARAMS]
       const commandMatch = aiResponse.match(/\[COMMAND:\s*([^|\]\n]+)\s*\|\s*([^\]]+)\]/);
@@ -484,14 +486,14 @@ export function Copilot() {
                     <BrainCircuit className="w-5 h-5" />
                   </div>
                   <div className="space-y-0.5">
-                    <h3 className="font-display font-bold text-white tracking-tight text-lg">AI Assistant</h3>
+                    <h3 className="font-display font-bold text-white tracking-tight text-lg">{t('common.view_assistant')}</h3>
                     <div className="flex items-center gap-2">
                         <motion.span 
                           animate={{ opacity: [0.4, 1, 0.4] }}
                           transition={{ duration: 2, repeat: Infinity }}
                           className="w-1.5 h-1.5 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)]" 
                         />
-                        <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest">Business monitoring active</span>
+                        <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest">{t('dashboard.system_status')}</span>
                     </div>
                   </div>
                 </div>

@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Card, Button, Input, Label } from '../components/Common';
-import { Package, Move, Filter, ArrowDownLeft, ArrowUpRight, History, Download, ShieldAlert } from 'lucide-react';
+import { Database, Move, Filter, ArrowDownLeft, ArrowUpRight, History, Download, ShieldAlert } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { useLocale } from '../hooks/useLocale';
 import { usePermissions } from '../hooks/usePermissions';
 import { db } from '../lib/firebase';
 import { collection, query, where, addDoc, serverTimestamp, orderBy, doc, increment, runTransaction, onSnapshot } from 'firebase/firestore';
@@ -19,6 +20,7 @@ interface Movement {
 
 export function Inventory() {
   const { company } = useAuth();
+  const { t } = useLocale();
   const [movements, setMovements] = useState<Movement[]>([]);
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -64,11 +66,11 @@ export function Inventory() {
         const prodRef = doc(db, 'products', form.productId);
         const prodSnap = await transaction.get(prodRef);
         
-        if (!prodSnap.exists()) throw new Error("Product not found");
+        if (!prodSnap.exists()) throw new Error(t('inventory.alerts.not_found'));
         
         const currentStock = prodSnap.data().stockLevel || 0;
         if (form.type === 'out' && currentStock < qty) {
-          throw new Error(`Insufficient stock. Available: ${currentStock}`);
+          throw new Error(t('inventory.alerts.insufficient', { count: currentStock }));
         }
 
         // 1. Log movement
@@ -100,7 +102,7 @@ export function Inventory() {
       setForm({ productId: '', quantity: '', type: 'in', reason: '' });
     } catch (err: any) {
       console.error(err);
-      alert(err.message || "Failed to adjust inventory");
+      alert(err.message || t('inventory.alerts.failed'));
     } finally {
       setLoading(false);
     }
@@ -110,8 +112,8 @@ export function Inventory() {
     <div className="space-y-10">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
         <div>
-          <h1 className="font-display text-4xl font-bold tracking-tight mb-2 text-white">Stock Intelligence</h1>
-          <p className="text-neutral-500 text-sm">Real-time tracking of asset movements and stock level fluctuations.</p>
+          <h1 className="font-display text-4xl font-bold tracking-tight mb-2 text-white">{t('inventory.title')}</h1>
+          <p className="text-neutral-500 text-sm">{t('inventory.subtitle')}</p>
         </div>
         <Button 
           variant="secondary" 
@@ -126,7 +128,7 @@ export function Inventory() {
           })), 'inventory_movements')}
           disabled={movements.length === 0}
         >
-          <Download className="w-4 h-4" /> Export CSV
+          <Download className="w-4 h-4" /> {t('common.export')}
         </Button>
       </div>
 
@@ -138,39 +140,39 @@ export function Inventory() {
                 <div className="w-8 h-8 rounded-lg bg-blue-600/10 border border-blue-500/20 flex items-center justify-center">
                   <Move className="w-4 h-4 text-blue-500" />
                 </div>
-                <h2 className="font-display font-bold text-lg text-white uppercase tracking-tight">Manual Adjustment</h2>
+                <h2 className="font-display font-bold text-lg text-white uppercase tracking-tight">{t('inventory.manual_adjustment')}</h2>
               </div>
               <form onSubmit={handleAdjust} className="space-y-6">
                 <div className="space-y-2">
-                  <Label>Target Asset</Label>
+                  <Label>{t('inventory.target_asset')}</Label>
                   <select 
                     className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition-all appearance-none"
                     value={form.productId}
                     onChange={e => setForm({...form, productId: e.target.value})}
                     required
                   >
-                    <option value="" className="bg-neutral-900 italic">Select node asset...</option>
+                    <option value="" className="bg-neutral-900 italic">{t('inventory.select_asset')}</option>
                     {products.map(p => (
                       <option key={p.id} value={p.id} className="bg-neutral-900">
-                        {p.name} [{p.stockLevel} units]
+                        {p.name} [{p.stockLevel} {t('inventory.units')}]
                       </option>
                     ))}
                   </select>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label>Vector Type</Label>
+                    <Label>{t('inventory.vector_type')}</Label>
                     <select 
                       className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition-all appearance-none"
                       value={form.type}
                       onChange={e => setForm({...form, type: e.target.value as any})}
                     >
-                      <option value="in" className="bg-neutral-900 text-emerald-500 font-bold uppercase tracking-widest">Inflow [+]</option>
-                      <option value="out" className="bg-neutral-900 text-red-500 font-bold uppercase tracking-widest">Outflow [-]</option>
+                      <option value="in" className="bg-neutral-900 text-emerald-500 font-bold uppercase tracking-widest">{t('inventory.inflow')}</option>
+                      <option value="out" className="bg-neutral-900 text-red-500 font-bold uppercase tracking-widest">{t('inventory.outflow')}</option>
                     </select>
                   </div>
                   <div className="space-y-2">
-                    <Label>Quantity</Label>
+                    <Label>{t('inventory.quantity')}</Label>
                     <Input 
                       type="number" 
                       required 
@@ -181,15 +183,15 @@ export function Inventory() {
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <Label>Adjustment Rationale</Label>
+                  <Label>{t('inventory.rationale')}</Label>
                   <Input 
-                    placeholder="e.g. SYSTEM_SYNC_ERROR" 
+                    placeholder={t('inventory.rationale_placeholder')} 
                     value={form.reason}
                     onChange={e => setForm({...form, reason: e.target.value})}
                   />
                 </div>
                 <Button type="submit" disabled={loading} className="w-full h-12 text-sm font-bold uppercase tracking-widest shadow-lg shadow-blue-600/10">
-                  {loading ? 'Initializing Sync...' : 'Commit Adjustment'}
+                  {loading ? t('settings.syncing_msg') : t('inventory.commit')}
                 </Button>
               </form>
             </Card>
@@ -199,9 +201,9 @@ export function Inventory() {
                 <ShieldAlert className="w-8 h-8 text-red-500" />
               </div>
               <div className="space-y-2">
-                <h3 className="text-white font-bold uppercase tracking-widest text-xs">Vector Lock Active</h3>
+                <h3 className="text-white font-bold uppercase tracking-widest text-xs">{t('inventory.access_denied')}</h3>
                 <p className="text-neutral-500 text-[11px] leading-relaxed italic">
-                  Your designated identity role lack the clearance required for manual stock manipulation.
+                  {t('inventory.access_denied_desc')}
                 </p>
               </div>
             </Card>
@@ -214,7 +216,7 @@ export function Inventory() {
               <div className="w-8 h-8 rounded-lg bg-neutral-800 flex items-center justify-center border border-white/5">
                 <History className="w-4 h-4 text-neutral-400" />
               </div>
-              <h2 className="font-display font-bold text-lg text-white uppercase tracking-tight">Movement Logs</h2>
+              <h2 className="font-display font-bold text-lg text-white uppercase tracking-tight">{t('inventory.movement_logs')}</h2>
             </div>
             <div className="flex gap-2">
               <Button variant="ghost" className="w-9 h-9 p-0 rounded-lg text-neutral-500 hover:text-white border border-white/5 hover:bg-white/5">
@@ -226,10 +228,10 @@ export function Inventory() {
             <table className="w-full border-collapse">
               <thead className="sticky top-0 z-10">
                 <tr className="bg-neutral-900/90 backdrop-blur-md">
-                  <th className="table-header">Timestamp</th>
-                  <th className="table-header">Asset Identity</th>
-                  <th className="table-header">Unit Delta</th>
-                  <th className="table-header">System Reason</th>
+                  <th className="table-header">{t('inventory.table.timestamp')}</th>
+                  <th className="table-header">{t('inventory.table.asset')}</th>
+                  <th className="table-header">{t('inventory.table.delta')}</th>
+                  <th className="table-header">{t('inventory.table.reason')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -237,7 +239,7 @@ export function Inventory() {
                   <tr key={move.id} className="group border-b border-white/[0.02] hover:bg-white/[0.02] transition-colors last:border-0 font-sans">
                     <td className="table-cell">
                       <span className="text-[10px] font-mono font-bold text-neutral-600 uppercase">
-                        {move.createdAt?.toDate ? format(move.createdAt.toDate(), 'MM/dd HH:mm:ss') : 'LIVE_SYNCING'}
+                        {move.createdAt?.toDate ? format(move.createdAt.toDate(), 'MM/dd HH:mm:ss') : t('inventory.table.live')}
                       </span>
                     </td>
                     <td className="table-cell font-bold text-neutral-200">{move.productName}</td>
@@ -247,11 +249,11 @@ export function Inventory() {
                         move.type === 'in' ? 'text-emerald-500' : 'text-red-500'
                       )}>
                         {move.type === 'in' ? <ArrowDownLeft className="w-3 h-3" /> : <ArrowUpRight className="w-3 h-3" />}
-                        {move.type === 'in' ? 'IN' : 'OUT'}:{move.quantity}
+                        {move.type === 'in' ? t('inventory.table.in') : t('inventory.table.out')}:{move.quantity}
                       </span>
                     </td>
                     <td className="table-cell">
-                      <p className="text-[11px] text-neutral-500 italic max-w-xs truncate">{move.reason || 'MANUAL_OVERRIDE'}</p>
+                      <p className="text-[11px] text-neutral-500 italic max-w-xs truncate">{move.reason || t('inventory.table.manual')}</p>
                     </td>
                   </tr>
                 ))}
@@ -264,7 +266,7 @@ export function Inventory() {
               <div key={move.id} className="p-4 space-y-2 active:bg-white/[0.02]">
                 <div className="flex justify-between items-center">
                   <span className="text-[9px] font-mono font-bold text-neutral-600 uppercase">
-                    {move.createdAt?.toDate ? format(move.createdAt.toDate(), 'MM/dd HH:mm:ss') : 'SYNCING'}
+                    {move.createdAt?.toDate ? format(move.createdAt.toDate(), 'MM/dd HH:mm:ss') : t('inventory.table.syncing')}
                   </span>
                   <span className={cn(
                     "text-[10px] font-bold px-2 py-0.5 rounded border",
@@ -275,7 +277,7 @@ export function Inventory() {
                 </div>
                 <div>
                   <p className="text-sm font-bold text-neutral-200">{move.productName}</p>
-                  <p className="text-[10px] text-neutral-500 italic truncate mt-0.5">{move.reason || 'Manual Adjustment'}</p>
+                  <p className="text-[10px] text-neutral-500 italic truncate mt-0.5">{move.reason || t('inventory.manual_adjustment')}</p>
                 </div>
               </div>
             ))}
@@ -288,8 +290,8 @@ export function Inventory() {
                   <History className="w-6 h-6 opacity-20" />
                 </div>
                 <div className="space-y-1">
-                  <p className="text-sm font-bold uppercase tracking-widest text-neutral-500">Log Buffer Empty</p>
-                  <p className="text-xs">System has detected no historical movements.</p>
+                  <p className="text-sm font-bold uppercase tracking-widest text-neutral-500">{t('inventory.empty.title')}</p>
+                  <p className="text-xs">{t('inventory.empty.subtitle')}</p>
                 </div>
               </div>
             </div>

@@ -1,13 +1,16 @@
 import { useState } from 'react';
 import { Card, Button, Input, Label } from '../components/Common';
-import { Shield, CreditCard, Users, Building, Bell, Check, AlertCircle } from 'lucide-react';
+import { Shield, CreditCard, Users, Building, Bell, Check, AlertCircle, Globe, Clock, Calendar, UserRound } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../lib/firebase';
 import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { motion } from 'motion/react';
+import { useLocale } from '../hooks/useLocale';
+import { ImageUpload } from '../components/ImageUpload';
 
 export function Settings() {
-  const { company, user } = useAuth();
+  const { company, user, userProfile, refreshCompany, refreshProfile } = useAuth();
+  const { t, setLanguage, language: currentLang } = useLocale();
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -18,7 +21,27 @@ export function Settings() {
     email: company?.email || '',
     phone: company?.phone || '',
     currency: company?.currency || 'USD',
+    defaultLanguage: company?.defaultLanguage || 'en',
+    timezone: company?.timezone || 'UTC',
+    logoURL: company?.logoURL || '',
   });
+
+  const [avatarForm, setAvatarForm] = useState({
+    displayName: userProfile?.displayName || '',
+    photoURL: userProfile?.photoURL || '',
+  });
+
+  const [avatarLoading, setAvatarLoading] = useState(false);
+  const [avatarSuccess, setAvatarSuccess] = useState(false);
+
+  const [userLang, setUserLang] = useState(userProfile?.language || 'en');
+
+  const handleUserLangChange = async (newLang: string) => {
+    setUserLang(newLang);
+    await setLanguage(newLang);
+    setSuccess(true);
+    setTimeout(() => setSuccess(false), 3000);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -35,26 +58,34 @@ export function Settings() {
         updatedAt: serverTimestamp(),
       });
       
-      // Log Activity
-      try {
-        const { addDoc, collection } = await import('firebase/firestore');
-        await addDoc(collection(db, 'activities'), {
-          type: 'setting_update',
-          title: 'Settings Updated',
-          subtitle: `Company profile was updated by ${user?.email}`,
-          companyId: company.id,
-          createdAt: serverTimestamp(),
-        });
-      } catch (logErr) {
-        console.error("Activity log failed:", logErr);
-      }
-
+      await refreshCompany();
       setSuccess(true);
       setTimeout(() => setSuccess(false), 3000);
     } catch (err: any) {
-      setError(err.message || "Failed to update settings.");
+      setError(err.message || t('settings.sync_error'));
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleAvatarSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!userProfile) return;
+
+    setAvatarLoading(true);
+    try {
+      const userRef = doc(db, 'users', userProfile.uid);
+      await updateDoc(userRef, {
+        ...avatarForm,
+        updatedAt: serverTimestamp(),
+      });
+      await refreshProfile();
+      setAvatarSuccess(true);
+      setTimeout(() => setAvatarSuccess(false), 3000);
+    } catch (err) {
+      console.error("Avatar update failed:", err);
+    } finally {
+      setAvatarLoading(false);
     }
   };
 
@@ -62,23 +93,104 @@ export function Settings() {
     <div className="space-y-10">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
         <div>
-          <h1 className="font-display text-4xl font-bold tracking-tight mb-2 text-white">System Configuration</h1>
-          <p className="text-neutral-500 text-sm">Fine-tune your OS environment, security parameters, and regional metadata.</p>
+          <h1 className="font-display text-4xl font-bold tracking-tight mb-2 text-white">{t('settings.title')}</h1>
+          <p className="text-neutral-500 text-sm">{t('settings.subtitle')}</p>
         </div>
       </div>
 
       <div className="space-y-8">
+        <div className="grid lg:grid-cols-2 gap-8">
+            {/* User Profile Card */}
+            <Card className="p-8 border-white/5 bg-neutral-900 shadow-xl overflow-hidden group">
+                <div className="flex items-center justify-between mb-8">
+                    <div className="flex items-center gap-6">
+                        <div className="w-12 h-12 bg-white/5 rounded-2xl flex items-center justify-center border border-white/10 group-hover:scale-110 transition-transform">
+                            <UserRound className="w-6 h-6 text-white" />
+                        </div>
+                        <div>
+                            <h2 className="font-display font-bold text-xl text-white">{t('settings.security_credentials')}</h2>
+                            <p className="text-xs text-neutral-500 uppercase tracking-widest font-mono">NODE_USER_PROFILE</p>
+                        </div>
+                    </div>
+                </div>
+
+                <form onSubmit={handleAvatarSubmit} className="space-y-6">
+                    <div className="flex gap-8 items-start">
+                        <div className="w-24 shrink-0">
+                            <ImageUpload 
+                                value={avatarForm.photoURL}
+                                onChange={url => setAvatarForm({ ...avatarForm, photoURL: url })}
+                                path={`users/${userProfile?.uid}/avatar`}
+                                label="Avatar"
+                            />
+                        </div>
+                        <div className="flex-1 space-y-4">
+                            <div className="space-y-2">
+                                <Label>{t('settings.display_name')}</Label>
+                                <Input 
+                                    value={avatarForm.displayName}
+                                    onChange={e => setAvatarForm({ ...avatarForm, displayName: e.target.value })}
+                                />
+                            </div>
+                            <Button 
+                                type="submit" 
+                                variant="secondary" 
+                                disabled={avatarLoading}
+                                className="w-full text-[10px] uppercase font-bold tracking-widest"
+                            >
+                                {avatarLoading ? t('common.syncing') : avatarSuccess ? t('settings.profile_updated') : t('settings.update_profile')}
+                            </Button>
+                        </div>
+                    </div>
+                </form>
+            </Card>
+
+            {/* Localization Card */}
+            <Card className="p-8 border-white/5 bg-neutral-900 shadow-xl relative overflow-hidden group">
+                <div className="flex items-center gap-6 mb-8">
+                    <div className="w-12 h-12 bg-blue-500/10 rounded-2xl flex items-center justify-center border border-blue-500/20 group-hover:scale-110 transition-transform">
+                        <Globe className="w-6 h-6 text-blue-500" />
+                    </div>
+                    <div>
+                        <h2 className="font-display font-bold text-xl text-white">{t('settings.localization')}</h2>
+                        <p className="text-xs text-neutral-500 uppercase tracking-widest font-mono">NODE_LOCALE_PARAMS</p>
+                    </div>
+                </div>
+
+                <div className="space-y-4 relative z-10">
+                    <div className="space-y-2">
+                        <Label>{t('settings.language')}</Label>
+                        <select 
+                            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition-all appearance-none"
+                            value={userLang}
+                            onChange={e => handleUserLangChange(e.target.value)}
+                        >
+                            <option value="en" className="bg-neutral-900 text-white">{t('common.languages.en')}</option>
+                            <option value="es" className="bg-neutral-900 text-white">{t('common.languages.es')}</option>
+                            <option value="pt" className="bg-neutral-900 text-white">{t('common.languages.pt')}</option>
+                        </select>
+                        <p className="text-[10px] text-neutral-600 italic">{t('settings.lang_desc')}</p>
+                    </div>
+                </div>
+            </Card>
+        </div>
+
         <form onSubmit={handleSubmit}>
           <Card className="p-8 border-white/5 bg-neutral-900 shadow-2xl relative overflow-hidden group">
             <div className="absolute top-0 right-0 w-64 h-64 bg-blue-600/5 rounded-full blur-3xl pointer-events-none group-hover:bg-blue-600/10 transition-colors" />
             
             <div className="flex flex-col md:flex-row items-center justify-between mb-12 gap-6 relative z-10 text-center md:text-left">
               <div className="flex flex-col md:flex-row items-center gap-6">
-                <div className="w-16 h-16 bg-white/[0.03] rounded-2xl flex items-center justify-center border border-white/[0.05] group-hover:scale-110 transition-transform">
-                  <Building className="w-8 h-8 text-blue-500" />
+                <div className="w-20 shrink-0">
+                    <ImageUpload 
+                        value={form.logoURL}
+                        onChange={url => setForm({ ...form, logoURL: url })}
+                        path={`companies/${company?.id}/logo`}
+                        label="Logo"
+                    />
                 </div>
                 <div>
-                  <h2 className="font-display font-bold text-2xl text-white">Master Entity Profile</h2>
+                  <h2 className="font-display font-bold text-2xl text-white">{t('settings.company_profile')}</h2>
                   <p className="text-sm text-neutral-500 font-mono">NODE_OS_ID: {company?.id.slice(0, 12).toUpperCase()}</p>
                 </div>
               </div>
@@ -86,17 +198,17 @@ export function Settings() {
                 <div className="flex items-center">
                     {success && (
                     <motion.span initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} className="flex items-center gap-1.5 text-emerald-500 text-xs font-bold uppercase tracking-widest mr-4">
-                        <Check className="w-4 h-4" /> Parameters Synced
+                        <Check className="w-4 h-4" /> {t('settings.synced')}
                     </motion.span>
                     )}
                     {error && (
                     <motion.span initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} className="flex items-center gap-1.5 text-red-500 text-xs font-bold uppercase tracking-widest mr-4">
-                        <AlertCircle className="w-4 h-4" /> ERROR_LOG_FAIL
+                        <AlertCircle className="w-4 h-4" /> {t('settings.sync_error')}
                     </motion.span>
                     )}
                 </div>
                 <Button type="submit" disabled={loading} className="px-8 h-12 shadow-xl shadow-blue-600/10">
-                  {loading ? 'Initializing Sync...' : 'Commit Changes'}
+                  {loading ? t('settings.syncing_msg') : t('settings.save')}
                 </Button>
               </div>
             </div>
@@ -105,7 +217,7 @@ export function Settings() {
               <div className="lg:col-span-2 space-y-8">
                 <div className="grid md:grid-cols-2 gap-8">
                     <div className="space-y-2">
-                    <Label>Entity Official Name</Label>
+                    <Label>{t('settings.company_name')}</Label>
                     <Input 
                         required 
                         value={form.name} 
@@ -114,24 +226,24 @@ export function Settings() {
                     />
                     </div>
                     <div className="space-y-2">
-                    <Label>Industry Classification</Label>
+                    <Label>{t('settings.industry')}</Label>
                     <select 
                         className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition-all appearance-none"
                         value={form.industry}
                         onChange={e => setForm({...form, industry: e.target.value})}
                     >
-                        <option className="bg-neutral-900">Retail</option>
-                        <option className="bg-neutral-900">SaaS</option>
-                        <option className="bg-neutral-900">Manufacturing</option>
-                        <option className="bg-neutral-900">Services</option>
-                        <option className="bg-neutral-900">Technology</option>
+                        <option className="bg-neutral-900">{t('common.retail') || 'Retail'}</option>
+                        <option className="bg-neutral-900">{t('common.saas') || 'SaaS'}</option>
+                        <option className="bg-neutral-900">{t('common.manufacturing') || 'Manufacturing'}</option>
+                        <option className="bg-neutral-900">{t('common.services') || 'Services'}</option>
+                        <option className="bg-neutral-900">{t('common.technology') || 'Technology'}</option>
                     </select>
                     </div>
                 </div>
 
                 <div className="grid md:grid-cols-2 gap-8">
                   <div className="space-y-2">
-                    <Label>Currency Unit</Label>
+                    <Label>{t('settings.currency')}</Label>
                     <select 
                       className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition-all appearance-none"
                       value={form.currency}
@@ -139,11 +251,45 @@ export function Settings() {
                     >
                       <option value="USD" className="bg-neutral-900">USD ($) - US Dollars</option>
                       <option value="EUR" className="bg-neutral-900">EUR (€) - Euros</option>
+                      <option value="MXN" className="bg-neutral-900">MXN ($) - Pesos Mexicanos</option>
+                      <option value="COP" className="bg-neutral-900">COP ($) - Pesos Colombianos</option>
+                      <option value="BRL" className="bg-neutral-900">BRL (R$) - Real Brasileiro</option>
                       <option value="GBP" className="bg-neutral-900">GBP (£) - British Pounds</option>
                     </select>
                   </div>
                   <div className="space-y-2">
-                    <Label>Identity Sync Contact</Label>
+                    <Label>{t('settings.timezone')}</Label>
+                    <select 
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition-all appearance-none"
+                      value={form.timezone}
+                      onChange={e => setForm({...form, timezone: e.target.value})}
+                    >
+                      <option value="UTC" className="bg-neutral-900">UTC (Universal)</option>
+                      <option value="America/New_York" className="bg-neutral-900">EST (New York)</option>
+                      <option value="America/Mexico_City" className="bg-neutral-900">CST (Mexico City)</option>
+                      <option value="America/Bogota" className="bg-neutral-900">COT (Bogota)</option>
+                      <option value="America/Sao_Paulo" className="bg-neutral-900">BRT (Sao Paulo)</option>
+                      <option value="Europe/London" className="bg-neutral-900">GMT (London)</option>
+                      <option value="Europe/Madrid" className="bg-neutral-900">CET (Madrid)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid md:grid-cols-2 gap-8">
+                  <div className="space-y-2">
+                    <Label>{t('settings.default_company_lang')}</Label>
+                    <select 
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition-all appearance-none"
+                      value={form.defaultLanguage}
+                      onChange={e => setForm({...form, defaultLanguage: e.target.value})}
+                    >
+                      <option value="en" className="bg-neutral-900">{t('common.languages.en')}</option>
+                      <option value="es" className="bg-neutral-900">{t('common.languages.es')}</option>
+                      <option value="pt" className="bg-neutral-900">{t('common.languages.pt')}</option>
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>{t('settings.sync_contact')}</Label>
                     <Input 
                       value={form.phone} 
                       onChange={e => setForm({...form, phone: e.target.value})} 
@@ -159,17 +305,17 @@ export function Settings() {
                         <div className="w-8 h-8 rounded-lg bg-orange-500/10 border border-orange-500/20 flex items-center justify-center">
                             <Shield className="w-4 h-4 text-orange-500" />
                         </div>
-                        <h3 className="font-bold text-sm text-white uppercase tracking-widest">Protocol Status</h3>
+                        <h3 className="font-bold text-sm text-white uppercase tracking-widest">{t('settings.protocol_status')}</h3>
                     </div>
-                    <p className="text-xs text-neutral-500 leading-relaxed italic">Your node is currently operating on the <span className="text-blue-400 font-bold">REMIX_OS_ENTERPRISE</span> protocol. High-throughput features enabled.</p>
+                    <p className="text-xs text-neutral-500 leading-relaxed italic">{t('settings.protocol_desc', { protocol: 'REMIX_OS_ENTERPRISE' })}</p>
                     
                     <div className="space-y-3 pt-4">
                         <div className="flex items-center justify-between py-2 border-b border-white/[0.03]">
-                            <span className="text-[10px] uppercase font-bold text-neutral-600 tracking-widest">Node Tier</span>
-                            <span className="text-[10px] font-mono bg-blue-500/10 text-blue-400 px-2 py-0.5 rounded border border-blue-500/20 uppercase font-bold">Priority V1</span>
+                            <span className="text-[10px] uppercase font-bold text-neutral-600 tracking-widest">{t('settings.node_tier')}</span>
+                            <span className="text-[10px] font-mono bg-blue-500/10 text-blue-400 px-2 py-0.5 rounded border border-blue-500/20 uppercase font-bold text-center">Priority V1</span>
                         </div>
                         <div className="flex items-center justify-between py-2">
-                            <span className="text-[10px] uppercase font-bold text-neutral-600 tracking-widest">Entity Health</span>
+                            <span className="text-[10px] uppercase font-bold text-neutral-600 tracking-widest">{t('settings.entity_health')}</span>
                             <div className="flex gap-1">
                                 {[1,2,3,4,5].map(i => <div key={i} className="w-2.5 h-1 bg-emerald-500 rounded-full" />)}
                             </div>
@@ -177,7 +323,7 @@ export function Settings() {
                     </div>
                     
                     <Button variant="ghost" type="button" className="w-full mt-2 text-[10px] uppercase font-bold tracking-[0.2em] border border-white/5 h-11">
-                        System Protocol Control
+                        {t('settings.protocol_control')}
                     </Button>
                 </div>
               </div>
@@ -191,9 +337,9 @@ export function Settings() {
               <Users className="w-8 h-8 text-neutral-600" />
             </div>
             <div className="text-center md:text-left">
-              <h2 className="font-display font-bold text-2xl text-white">Identity Access Control</h2>
+              <h2 className="font-display font-bold text-2xl text-white">{t('settings.access_control')}</h2>
               <p className="text-sm text-neutral-500 mt-1 italic">
-                Managed by terminal access: <span className="text-neutral-300 font-mono">{user?.email}</span>
+                {t('settings.managed_by')}: <span className="text-neutral-300 font-mono">{userProfile?.email || user?.email}</span>
               </p>
             </div>
             <div className="md:ml-auto">
