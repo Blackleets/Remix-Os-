@@ -51,7 +51,11 @@ export async function generateBusinessInsights(businessData: any, language: stri
       contents: prompt,
     });
 
-    const text = response.text;
+    const text = response.text ?? "";
+    if (!text.trim()) {
+      console.warn("Gemini returned empty insight response.");
+      return null;
+    }
     // Strip potential markdown code blocks
     const cleanJson = text.replace(/```json|```/g, "").trim();
     return JSON.parse(cleanJson);
@@ -110,19 +114,14 @@ export async function chatCopilot(message: string, history: any[], context: any,
     Maintain a professional, efficient, and supportive persona.
   `;
 
-  try {
-    const chat = ai.chats.create({
-      model: "gemini-2.0-flash",
-      history: history,
-      config: {
-        systemInstruction: systemInstruction,
-      },
-    });
+  const chat = ai.chats.create({
+    model: "gemini-2.0-flash",
+    history: history,
+    config: {
+      systemInstruction: systemInstruction,
+    },
+  });
 
-    const result = await chat.sendMessage({ message: message });
-    return result.text;
-  } catch (error) {
-    console.error("Copilot Chat Error:", error);
-    return "I encountered a connection error. Please try again in a moment.";
-  }
+  const result = await chat.sendMessage({ message: message });
+  return result.text ?? "";
 }

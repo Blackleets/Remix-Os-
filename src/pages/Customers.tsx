@@ -41,7 +41,7 @@ import {
 } from 'firebase/firestore';
 import { motion, AnimatePresence } from 'motion/react';
 import { UpgradeModal } from '../components/UpgradeModal';
-import { PLANS, isLimitReached } from '../lib/plans';
+import { PLANS, isLimitReached, getCompanyUsage } from '../lib/plans';
 import { exportToCSV } from '../lib/exportUtils';
 import { format } from 'date-fns';
 import { ImageUpload } from '../components/ImageUpload';
@@ -210,12 +210,22 @@ export function Customers() {
 
   const [form, setForm] = useState({ name: '', email: '', phone: '', imageURL: '' });
 
-  const handleCreateNew = () => {
-    const planId = company?.subscription?.planId || 'starter';
+  const handleCreateNew = async () => {
+    if (!company) return;
+    const planId = company.subscription?.planId || 'starter';
     const plan = PLANS[planId];
-    if (isLimitReached(customers.length, plan.limits.customers)) {
-      setIsUpgradeModalOpen(true);
-      return;
+    try {
+      const usage = await getCompanyUsage(company.id);
+      if (isLimitReached(usage.customers, plan.limits.customers)) {
+        setIsUpgradeModalOpen(true);
+        return;
+      }
+    } catch (e) {
+      console.warn('Plan usage check failed, falling back to local count', e);
+      if (isLimitReached(customers.length, plan.limits.customers)) {
+        setIsUpgradeModalOpen(true);
+        return;
+      }
     }
     setSelectedCustomer(null);
     setForm({ name: '', email: '', phone: '', imageURL: '' });

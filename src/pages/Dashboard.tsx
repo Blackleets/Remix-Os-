@@ -27,7 +27,6 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../lib/firebase';
 import { collection, query, where, limit, orderBy, Timestamp, onSnapshot, getDocs } from 'firebase/firestore';
-import { OperationType, handleFirestoreError } from '../lib/firebase';
 import { 
   AreaChart, 
   Area, 
@@ -129,7 +128,8 @@ export function Dashboard() {
       });
       setChartData(dayWiseSales);
     }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, 'orders');
+      console.error('Dashboard orders listener error:', error);
+      setLoading(false);
     });
 
     // 2. Customers Listener
@@ -137,23 +137,25 @@ export function Dashboard() {
     const unsubscribeCustomers = onSnapshot(customersQ, (snapshot) => {
       setStats(prev => ({ ...prev, customers: snapshot.size }));
     }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, 'customers');
+      console.error('Dashboard customers listener error:', error);
     });
 
-    // 3. Products Listener
+    // 3. Products Listener — flips loading off on success or error so the
+    // page never hangs on the spinner if products is the failing query.
     const productsQ = query(collection(db, 'products'), where('companyId', '==', company.id));
     const unsubscribeProducts = onSnapshot(productsQ, (snapshot) => {
       setStats(prev => ({ ...prev, products: snapshot.size }));
-      setLoading(false); // First one to return usually resets loading
+      setLoading(false);
     }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, 'products');
+      console.error('Dashboard products listener error:', error);
+      setLoading(false);
     });
 
     // 4. Activity Listener
     const activityQ = query(
-      collection(db, 'activities'), 
-      where('companyId', '==', company.id), 
-      orderBy('createdAt', 'desc'), 
+      collection(db, 'activities'),
+      where('companyId', '==', company.id),
+      orderBy('createdAt', 'desc'),
       limit(8)
     );
     const unsubscribeActivity = onSnapshot(activityQ, (snapshot) => {
@@ -166,7 +168,7 @@ export function Dashboard() {
       }));
       setActivities(activityList as ActivityItem[]);
     }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, 'activities');
+      console.error('Dashboard activities listener error:', error);
     });
 
     return () => {

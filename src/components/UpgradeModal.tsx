@@ -1,4 +1,4 @@
-
+import { useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useNavigate } from 'react-router-dom';
 import { Button, Card } from './Common';
@@ -15,19 +15,33 @@ interface UpgradeModalProps {
 export function UpgradeModal({ isOpen, onClose, title, message, limitName }: UpgradeModalProps) {
   const navigate = useNavigate();
 
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isOpen, onClose]);
+
   return (
     <AnimatePresence>
       {isOpen && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center p-6 bg-black/80 backdrop-blur-md">
+        <div
+          onClick={onClose}
+          className="fixed inset-0 z-[200] flex items-center justify-center p-6 bg-black/80 backdrop-blur-md"
+        >
           <motion.div
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
             initial={{ opacity: 0, scale: 0.95, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
             className="bg-neutral-900 w-full max-w-md rounded-3xl border border-white/10 shadow-2xl overflow-hidden relative"
           >
             <div className="absolute top-0 right-0 p-4">
-              <button 
+              <button
                 onClick={onClose}
+                aria-label="Close"
                 className="p-2 text-neutral-500 hover:text-white transition-colors"
               >
                 <X className="w-5 h-5" />

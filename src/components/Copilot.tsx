@@ -492,7 +492,7 @@ export function Copilot() {
                     <BrainCircuit className="w-5 h-5" />
                   </div>
                   <div className="space-y-0.5">
-                    <h3 className="font-display font-bold text-white tracking-tight text-lg">{t('common.view_assistant')}</h3>
+                    <h3 className="font-display font-bold text-white tracking-tight text-lg">{t('dashboard.view_assistant')}</h3>
                     <div className="flex items-center gap-2">
                         <motion.span 
                           animate={{ opacity: [0.4, 1, 0.4] }}
@@ -806,9 +806,8 @@ export function Copilot() {
                                <button 
                                   key={item.q}
                                   onClick={() => {
-                                    setInputText(item.q);
                                     setActiveTab('chat');
-                                    setTimeout(handleSendMessage, 100);
+                                    handleSendMessage(item.q);
                                   }}
                                   className="flex items-center gap-3.5 p-3.5 rounded-2xl bg-white/[0.02] border border-white/[0.04] hover:bg-white/[0.04] hover:border-blue-500/20 transition-all text-left group"
                                >

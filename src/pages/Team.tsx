@@ -7,7 +7,7 @@ import { db, auth } from '../lib/firebase';
 import { collection, query, where, getDocs, addDoc, serverTimestamp, doc, deleteDoc, updateDoc, getDoc, setDoc } from 'firebase/firestore';
 import { motion, AnimatePresence } from 'motion/react';
 import { UpgradeModal } from '../components/UpgradeModal';
-import { PLANS, isLimitReached } from '../lib/plans';
+import { PLANS, isLimitReached, getCompanyUsage } from '../lib/plans';
 
 interface Member {
   id: string; // membership id
@@ -37,14 +37,23 @@ export function Team() {
   const [loading, setLoading] = useState(false);
   const [inviteForm, setInviteForm] = useState({ email: '', role: 'staff' as any });
 
-  const handleOpenInvite = () => {
-    const planId = company?.subscription?.planId || 'starter';
+  const handleOpenInvite = async () => {
+    if (!company) return;
+    const planId = company.subscription?.planId || 'starter';
     const plan = PLANS[planId];
-    const totalSeats = members.length + invitations.filter(i => i.status === 'pending').length;
-    
-    if (isLimitReached(totalSeats, plan.limits.seats)) {
-      setIsUpgradeModalOpen(true);
-      return;
+    try {
+      const usage = await getCompanyUsage(company.id);
+      if (isLimitReached(usage.seats, plan.limits.seats)) {
+        setIsUpgradeModalOpen(true);
+        return;
+      }
+    } catch (e) {
+      console.warn('Plan usage check failed, falling back to local count', e);
+      const totalSeats = members.length + invitations.filter(i => i.status === 'pending').length;
+      if (isLimitReached(totalSeats, plan.limits.seats)) {
+        setIsUpgradeModalOpen(true);
+        return;
+      }
     }
     setIsInviteModalOpen(true);
   };

@@ -302,8 +302,8 @@ export function Onboarding() {
                   />
                 </div>
                 <div className="flex flex-col sm:flex-row gap-4 sm:gap-6 pt-6">
-                  <Button variant="secondary" onClick={prevStep} className="w-full h-14 sm:h-18 text-lg font-bold rounded-2xl border-white/10 text-neutral-400 hover:bg-white/5 transition-colors order-2 sm:order-1">{t('common.back')}</Button>
-                  <Button onClick={nextStep} className="w-full h-14 sm:h-18 text-lg font-black rounded-2xl bg-white text-black hover:bg-neutral-200 order-1 sm:order-2">{t('common.continue')}</Button>
+                  <Button variant="secondary" onClick={prevStep} className="w-full h-14 sm:h-20 text-lg font-bold rounded-2xl border-white/10 text-neutral-400 hover:bg-white/5 transition-colors order-2 sm:order-1">{t('common.back')}</Button>
+                  <Button onClick={nextStep} className="w-full h-14 sm:h-20 text-lg font-black rounded-2xl bg-white text-black hover:bg-neutral-200 order-1 sm:order-2">{t('common.continue')}</Button>
                 </div>
               </Card>
             </motion.div>
