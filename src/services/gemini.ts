@@ -47,7 +47,7 @@ export async function generateBusinessInsights(businessData: any, language: stri
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model: "gemini-2.0-flash",
       contents: prompt,
     });
 
@@ -112,7 +112,7 @@ export async function chatCopilot(message: string, history: any[], context: any,
 
   try {
     const chat = ai.chats.create({
-      model: "gemini-3-flash-preview",
+      model: "gemini-2.0-flash",
       history: history,
       config: {
         systemInstruction: systemInstruction,
