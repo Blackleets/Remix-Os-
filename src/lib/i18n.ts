@@ -340,7 +340,9 @@ const resources = {
         },
         pulse: {
           label: 'AI Sales Pulse',
-          title: 'Real-time basket intelligence'
+          title: 'Real-time basket intelligence',
+          awaiting_title: 'Awaiting basket signal',
+          awaiting_body: 'Add products to the cart and Remix will surface cross-sells, stock risk, and session advice.'
         },
         quick: {
           label: 'Smart Quick Actions',
@@ -353,6 +355,7 @@ const resources = {
         cash: {
           label: 'Cash Session',
           title: 'Shift register',
+          unavailable: 'Cash sessions are unavailable until the latest Firestore rules are deployed.',
           safe_fallback: 'Cash session controls are in safe fallback mode until cashSessions Firestore rules are deployed.',
           open_session: 'Open session',
           opened_with: 'Opened with {{amount}}',
@@ -403,10 +406,10 @@ const resources = {
           each: 'each'
         },
         integrations: {
-          label: 'Roadmap Surface',
-          title: 'POS Integrations Coming Soon',
-          pending: 'Pending',
-          note: 'Hardware connectors stay visual-only in this rollout.'
+          label: 'Future Integrations',
+          title: 'Coming in a future phase',
+          pending: 'Not active',
+          note: 'These connectors are not yet active. They will be implemented in a future release.'
         }
       },
       team: {
@@ -964,7 +967,9 @@ const resources = {
         },
         pulse: {
           label: 'AI Sales Pulse',
-          title: 'Inteligencia de cesta en tiempo real'
+          title: 'Inteligencia de cesta en tiempo real',
+          awaiting_title: 'Esperando señal del carrito',
+          awaiting_body: 'Añade productos al carrito y Remix mostrará ventas cruzadas, riesgo de stock y consejos de sesión.'
         },
         quick: {
           label: 'Acciones Rápidas Inteligentes',
@@ -977,6 +982,7 @@ const resources = {
         cash: {
           label: 'Sesión de Caja',
           title: 'Control de turno',
+          unavailable: 'Las sesiones de caja no están disponibles hasta desplegar las últimas reglas de Firestore.',
           safe_fallback: 'Los controles de caja están en modo seguro hasta que se desplieguen las reglas de Firestore para cashSessions.',
           open_session: 'Sesión abierta',
           opened_with: 'Abierta con {{amount}}',
@@ -1027,10 +1033,10 @@ const resources = {
           each: 'c/u'
         },
         integrations: {
-          label: 'Superficie de Ruta',
-          title: 'Integraciones POS Próximamente',
-          pending: 'Pendiente',
-          note: 'Los conectores de hardware permanecen solo como vista visual en este rollout.'
+          label: 'Integraciones Futuras',
+          title: 'Próximamente en una fase futura',
+          pending: 'No activo',
+          note: 'Estos conectores aún no están activos. Se implementarán en una próxima fase.'
         }
       },
       team: {
@@ -1554,10 +1560,10 @@ const resources = {
       },
       pos: {
         title: 'Ponto de Venda',
-        subtitle: 'Execute vendas de balcÃ£o rÃ¡pidas enquanto permanece sincronizado com seu inventÃ¡rio ao vivo.',
+        subtitle: 'Execute vendas de balcão rápidas enquanto permanece sincronizado com seu inventário ao vivo.',
         access: {
           title: 'Acesso POS Restrito',
-          description: 'Seu papel pode visualizar o mÃ³dulo operacional, mas nÃ£o concluir transaÃ§Ãµes de ponto de venda.'
+          description: 'Seu papel pode visualizar o módulo operacional, mas não concluir transações de ponto de venda.'
         },
         catalog: {
           title: 'Produtos Ativos',
@@ -1569,17 +1575,27 @@ const resources = {
         },
         cart: {
           title: 'Pista do Carrinho',
-          available: 'DisponÃ­vel {{count}}',
+          available: 'Disponível {{count}}',
           stock_error: 'A quantidade excede o estoque ao vivo.',
-          empty_title: 'O carrinho estÃ¡ vazio.',
-          empty_subtitle: 'Toque nos produtos do catÃ¡logo ao vivo para iniciar a venda.'
+          empty_title: 'O carrinho está vazio.',
+          empty_subtitle: 'Toque nos produtos do catálogo ao vivo para iniciar a venda.'
+        },
+        pulse: {
+          label: 'AI Sales Pulse',
+          title: 'Inteligência de cesta em tempo real',
+          awaiting_title: 'Aguardando sinal do carrinho',
+          awaiting_body: 'Adicione produtos ao carrinho e o Remix mostrará vendas cruzadas, risco de estoque e dicas de sessão.'
+        },
+        cash: {
+          unavailable: 'As sessões de caixa não estão disponíveis até implantar as últimas regras do Firestore.',
+          safe_fallback: 'Os controles de caixa estão em modo seguro até que as regras de Firestore para cashSessions sejam implantadas.'
         },
         checkout: {
-          title: 'Painel de LiquidaÃ§Ã£o',
+          title: 'Painel de Liquidação',
           customer: 'Cliente',
           guest_checkout: 'Compra como convidado',
           current_customer: 'Contraparte atual: {{customerName}}',
-          payment_method: 'MÃ©todo de Pagamento',
+          payment_method: 'Método de Pagamento',
           processing: 'Processando Venda',
           complete_sale: 'Concluir Venda'
         },
@@ -1591,21 +1607,23 @@ const resources = {
           final_total: 'Total Final'
         },
         receipt: {
-          label: 'VisualizaÃ§Ã£o do Recibo',
-          title: 'Venda ConcluÃ­da',
+          label: 'Visualização do Recibo',
+          title: 'Venda Concluída',
           generated_for: 'Recibo #{{orderId}} gerado para {{customerName}}.',
           date: 'Data',
           payment: 'Pagamento',
           items: 'Itens',
           total: 'Total',
           download_pdf: 'Baixar PDF',
-          print_coming_soon: 'ImpressÃ£o em Breve',
+          print_coming_soon: 'Impressão em Breve',
           ledger: 'Livro do Recibo',
           order: 'Pedido'
         },
         integrations: {
-          title: 'IntegraÃ§Ãµes POS em Breve',
-          note: 'Os conectores de hardware permanecem apenas visuais neste rollout.'
+          label: 'Integrações Futuras',
+          title: 'Em breve em uma fase futura',
+          pending: 'Não ativo',
+          note: 'Estes conectores ainda não estão ativos. Serão implementados em uma versão futura.'
         }
       },
       team: {
