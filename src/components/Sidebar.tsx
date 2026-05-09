@@ -6,6 +6,7 @@ import {
   Package, 
   Database, 
   Receipt, 
+  Store,
   Shield, 
   Sparkle, 
   CreditCard, 
@@ -30,13 +31,14 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
     { icon: Package, label: t('nav.products'), path: '/products' },
     { icon: Database, label: t('nav.inventory'), path: '/inventory' },
     { icon: Receipt, label: t('nav.orders'), path: '/orders' },
+    { icon: Store, label: t('nav.pos'), path: '/pos' },
     { icon: Shield, label: t('nav.team'), path: '/team' },
     { icon: Sparkle, label: t('nav.insights'), path: '/insights' },
     { icon: CreditCard, label: t('nav.billing'), path: '/billing' },
   ];
 
   return (
-    <aside className="w-full lg:w-64 border-r border-white/5 h-screen flex flex-col bg-black lg:sticky lg:top-0 overflow-y-auto">
+    <aside className="w-full lg:w-64 border-r border-white/5 h-full lg:h-screen flex flex-col bg-black lg:sticky lg:top-0 overflow-y-auto">
       <div className="p-6">
         <div className="flex items-center justify-between mb-10">
           <Link to="/" className="flex items-center gap-3 group" onClick={onClose}>
