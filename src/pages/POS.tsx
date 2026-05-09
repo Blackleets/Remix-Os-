@@ -155,7 +155,7 @@ export function POS() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDuplicating, setIsDuplicating] = useState(false);
   const [latestReceipt, setLatestReceipt] = useState<POSReceipt | null>(null);
-  const [receiptFooterMessage, setReceiptFooterMessage] = useState('Thank you for shopping with us.');
+  const [receiptFooterMessage, setReceiptFooterMessage] = useState(t('pos.checkout.receipt_placeholder'));
   const [openingCashInput, setOpeningCashInput] = useState('100');
   const [closingNotes, setClosingNotes] = useState('');
   const [cashSessionError, setCashSessionError] = useState<string | null>(null);
@@ -198,7 +198,7 @@ export function POS() {
         console.warn('Cash sessions unavailable:', error);
         setCashSessions([]);
         setCashSessionAccessUnavailable(true);
-        setCashSessionError(t('pos.cash.unavailable'));
+        setCashSessionError(t('pos.cash.unavailable_error'));
       }
     );
 
@@ -371,7 +371,7 @@ export function POS() {
 
       const nextQuantity = existingItem.quantity + 1;
       if (nextQuantity > getAvailableStock(product.id)) {
-        setSaleError(`Insufficient stock for ${product.name}.`);
+        setSaleError(t('pos.errors.insufficient_stock', { name: product.name, count: getAvailableStock(product.id) }));
         return current;
       }
 
@@ -393,7 +393,7 @@ export function POS() {
     const availableStock = getAvailableStock(productId);
     if (nextQuantity > availableStock) {
       const productName = cart.find((item) => item.productId === productId)?.name || 'item';
-      setSaleError(`Insufficient stock for ${productName}.`);
+      setSaleError(t('pos.errors.insufficient_stock', { name: productName, count: availableStock }));
       return;
     }
 
@@ -437,7 +437,7 @@ export function POS() {
 
   const handleDuplicateLastSale = async () => {
     if (!latestPOSOrder) {
-      setSaleError('No previous POS sale is available to duplicate.');
+      setSaleError(t('pos.quick.no_previous_sale'));
       return;
     }
 
@@ -468,12 +468,12 @@ export function POS() {
         });
 
         if (product.stockLevel < item.quantity) {
-          unavailable.push(`${item.productName} (adjusted to stock)`);
+          unavailable.push(t('pos.quick.adjusted_to_stock', { name: item.productName }));
         }
       }
 
       if (rebuiltCart.length === 0) {
-        throw new Error('The last sale cannot be duplicated because those items are no longer available.');
+        throw new Error(t('pos.quick.duplicate_empty'));
       }
 
       setCart(rebuiltCart);
@@ -484,10 +484,10 @@ export function POS() {
       setIsCommandBarOpen(false);
 
       if (unavailable.length > 0) {
-        setSaleError(`Duplicated with adjustments: ${unavailable.join(', ')}`);
+        setSaleError(t('pos.quick.duplicate_adjusted', { items: unavailable.join(', ') }));
       }
     } catch (error) {
-      setSaleError(error instanceof Error ? error.message : 'Failed to duplicate the last sale.');
+      setSaleError(error instanceof Error ? error.message : t('pos.quick.duplicate_failed'));
     } finally {
       setIsDuplicating(false);
     }
@@ -524,7 +524,7 @@ export function POS() {
         createdAt: serverTimestamp(),
       });
     } catch (error) {
-      setCashSessionError(error instanceof Error ? error.message : 'Failed to open cash session.');
+      setCashSessionError(error instanceof Error ? error.message : t('pos.cash.open_failed'));
     } finally {
       setIsCashLoading(false);
     }
@@ -559,7 +559,7 @@ export function POS() {
 
       setClosingNotes('');
     } catch (error) {
-      setCashSessionError(error instanceof Error ? error.message : 'Failed to close cash session.');
+      setCashSessionError(error instanceof Error ? error.message : t('pos.cash.close_failed'));
     } finally {
       setIsCashLoading(false);
     }
@@ -570,8 +570,8 @@ export function POS() {
       return [
         {
           id: 'pulse-idle',
-          title: t('pos.pulse.awaiting_title'),
-          body: t('pos.pulse.awaiting_body'),
+          title: t('pos.pulse.idle_title'),
+          body: t('pos.pulse.idle_body'),
           tone: 'info',
         },
       ];
@@ -605,8 +605,11 @@ export function POS() {
       if (topRelatedCustomerProduct) {
         insights.push({
           id: 'customer-related',
-          title: 'Customer habit detected',
-          body: `${customerName} frequently pairs this basket with ${topRelatedCustomerProduct.name}. Add it as a quick upsell.`,
+          title: t('pos.pulse.customer_habit_title'),
+          body: t('pos.pulse.customer_habit_body', {
+            customerName,
+            productName: topRelatedCustomerProduct.name,
+          }),
           tone: 'success',
         });
       }
@@ -633,8 +636,8 @@ export function POS() {
     if (topCrossSell) {
       insights.push({
         id: 'cross-sell',
-        title: 'Related product ready',
-        body: `${topCrossSell.name} is the strongest co-purchase match for the current basket. One tap can lift ticket size.`,
+        title: t('pos.pulse.related_title'),
+        body: t('pos.pulse.related_body', { productName: topCrossSell.name }),
         tone: 'success',
       });
     }
@@ -651,8 +654,11 @@ export function POS() {
     if (upsellCandidate) {
       insights.push({
         id: 'upsell',
-        title: 'Smart upsell available',
-        body: `Swap ${upsellCandidate.baseItem.name} for ${upsellCandidate.candidate.name} to increase order value with a related premium option.`,
+        title: t('pos.pulse.upsell_title'),
+        body: t('pos.pulse.upsell_body', {
+          baseItem: upsellCandidate.baseItem.name,
+          candidate: upsellCandidate.candidate.name,
+        }),
         tone: 'info',
       });
     }
@@ -666,8 +672,8 @@ export function POS() {
     if (lowMarginItem) {
       insights.push({
         id: 'low-margin',
-        title: 'Margin compression',
-        body: `${lowMarginItem.name} is selling at a thin margin. Pair it with a stronger add-on before checkout.`,
+        title: t('pos.pulse.margin_title'),
+        body: t('pos.pulse.margin_body', { productName: lowMarginItem.name }),
         tone: 'warning',
       });
     }
@@ -676,8 +682,8 @@ export function POS() {
     if (lowStockRisk) {
       insights.push({
         id: 'low-stock',
-        title: 'Stock risk detected',
-        body: `${lowStockRisk.name} is nearing depletion after this sale. Trigger a restock or steer the buyer to an alternative.`,
+        title: t('pos.pulse.stock_title'),
+        body: t('pos.pulse.stock_body', { productName: lowStockRisk.name }),
         tone: 'warning',
       });
     }
@@ -714,8 +720,8 @@ export function POS() {
         movementReason: 'POS Sale',
         activityTitle: 'POS Sale Completed',
         messages: {
-          productNotFound: (name) => `Product ${name} not found.`,
-          insufficientStock: (name, count) => `Insufficient stock for ${name}. Available: ${count}`,
+          productNotFound: (name) => t('pos.errors.product_not_found', { name }),
+          insufficientStock: (name, count) => t('pos.errors.insufficient_stock', { name, count }),
         },
       });
 
@@ -736,7 +742,7 @@ export function POS() {
       setCustomerId('');
       setPaymentMethod('Cash');
     } catch (error) {
-      setSaleError(error instanceof Error ? error.message : 'Failed to complete sale.');
+      setSaleError(error instanceof Error ? error.message : t('pos.errors.sale_failed'));
     } finally {
       setIsSubmitting(false);
     }
@@ -993,7 +999,7 @@ export function POS() {
         </Card>
       )}
 
-      <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[360px_minmax(380px,1fr)_400px]">
+      <div className="grid grid-cols-1 items-start gap-5 md:grid-cols-2 xl:grid-cols-[380px_minmax(420px,1fr)_420px]">
         <Card className="p-0 overflow-hidden border-white/5 bg-neutral-900/40">
           <div className="space-y-4 border-b border-white/[0.05] bg-white/[0.01] p-5">
             <div className="flex items-center justify-between gap-4">
@@ -1215,7 +1221,7 @@ export function POS() {
           </Card>
         </div>
 
-        <div className="custom-scrollbar space-y-5 lg:sticky lg:top-24 lg:max-h-[calc(100vh-120px)] lg:overflow-y-auto lg:pr-1">
+        <div className="custom-scrollbar space-y-5 md:col-span-2 xl:col-span-1 xl:sticky xl:top-24 xl:max-h-[calc(100vh-120px)] xl:overflow-y-auto xl:pr-1">
           <Card className="space-y-4 border-white/5 bg-neutral-900/40 p-5">
             <div className="flex items-center justify-between">
               <div>
@@ -1458,7 +1464,7 @@ export function POS() {
             </Button>
           </Card>
 
-          <Card className="space-y-5 border-white/5 bg-neutral-900/40 p-5 opacity-50 select-none">
+          <Card className="space-y-5 border-white/5 bg-neutral-900/40 p-5">
             <div className="flex items-center justify-between">
               <div>
                 <p className="mb-2 text-[10px] font-black uppercase tracking-[0.35em] text-neutral-600">{t('pos.integrations.label')}</p>
