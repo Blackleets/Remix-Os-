@@ -38,7 +38,7 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
   ];
 
   return (
-    <aside className="w-full lg:w-64 border-r border-white/5 h-screen flex flex-col bg-black lg:sticky lg:top-0 overflow-y-auto">
+    <aside className="w-full lg:w-64 border-r border-white/5 h-full lg:h-screen flex flex-col bg-black lg:sticky lg:top-0 overflow-y-auto">
       <div className="p-6">
         <div className="flex items-center justify-between mb-10">
           <Link to="/" className="flex items-center gap-3 group" onClick={onClose}>

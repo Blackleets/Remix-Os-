@@ -69,15 +69,28 @@ export async function createSaleTransaction(
     throw new Error('At least one sale item is required.');
   }
 
+  const aggregatedByProduct = new Map<string, SaleItemInput>();
+  for (const item of items) {
+    const existing = aggregatedByProduct.get(item.productId);
+    if (existing) {
+      existing.quantity += item.quantity;
+    } else {
+      aggregatedByProduct.set(item.productId, { ...item });
+    }
+  }
+  const aggregatedItems = Array.from(aggregatedByProduct.values());
+
   const createdAt = new Date();
   const orderRef = doc(collection(db, 'orders'));
 
   await runTransaction(db, async (transaction) => {
-    const productRefs = items.map((item) => doc(db, 'products', item.productId));
+    const productRefs = aggregatedItems.map((item) => doc(db, 'products', item.productId));
     const productSnaps = await Promise.all(productRefs.map((ref) => transaction.get(ref)));
+    const customerRef = customerId ? doc(db, 'customers', customerId) : null;
+    const customerSnap = customerRef ? await transaction.get(customerRef) : null;
 
-    for (let index = 0; index < items.length; index += 1) {
-      const item = items[index];
+    for (let index = 0; index < aggregatedItems.length; index += 1) {
+      const item = aggregatedItems[index];
       const snap = productSnaps[index];
 
       if (!snap.exists()) {
@@ -106,16 +119,17 @@ export async function createSaleTransaction(
       tax,
       total,
       totalAmount: total,
-      itemCount: items.reduce((sum, item) => sum + item.quantity, 0),
+      itemCount: aggregatedItems.reduce((sum, item) => sum + item.quantity, 0),
       channel,
       createdAt: serverTimestamp(),
     });
 
-    for (const item of items) {
+    for (const item of aggregatedItems) {
       const itemRef = doc(collection(db, 'orders', orderRef.id, 'items'));
       transaction.set(itemRef, {
         orderId: orderRef.id,
         ...item,
+        companyId,
         createdAt: serverTimestamp(),
       });
 
@@ -137,11 +151,7 @@ export async function createSaleTransaction(
       });
     }
 
-    if (customerId) {
-      const customerRef = doc(db, 'customers', customerId);
-      const customerSnap = await transaction.get(customerRef);
-
-      if (customerSnap.exists()) {
+    if (customerRef && customerSnap?.exists()) {
         const customerData = customerSnap.data();
         const newTotalSpent = (customerData.totalSpent || 0) + total;
         const newTotalOrders = (customerData.totalOrders || 0) + 1;
@@ -157,7 +167,6 @@ export async function createSaleTransaction(
           lastOrderAt: serverTimestamp(),
           segment,
         });
-      }
     }
 
     const activityRef = doc(collection(db, 'activities'));

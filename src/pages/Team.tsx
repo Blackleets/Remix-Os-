@@ -7,7 +7,7 @@ import { db, auth } from '../lib/firebase';
 import { collection, query, where, getDocs, addDoc, serverTimestamp, doc, deleteDoc, updateDoc, getDoc, setDoc } from 'firebase/firestore';
 import { motion, AnimatePresence } from 'motion/react';
 import { UpgradeModal } from '../components/UpgradeModal';
-import { PLANS, isLimitReached } from '../lib/plans';
+import { PLANS, isLimitReached, getCompanyUsage } from '../lib/plans';
 
 interface Member {
   id: string; // membership id
@@ -35,16 +35,26 @@ export function Team() {
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
   const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [inviteError, setInviteError] = useState<string | null>(null);
   const [inviteForm, setInviteForm] = useState({ email: '', role: 'staff' as any });
 
-  const handleOpenInvite = () => {
-    const planId = company?.subscription?.planId || 'starter';
+  const handleOpenInvite = async () => {
+    if (!company) return;
+    const planId = company.subscription?.planId || 'starter';
     const plan = PLANS[planId];
-    const totalSeats = members.length + invitations.filter(i => i.status === 'pending').length;
-    
-    if (isLimitReached(totalSeats, plan.limits.seats)) {
-      setIsUpgradeModalOpen(true);
-      return;
+    try {
+      const usage = await getCompanyUsage(company.id);
+      if (isLimitReached(usage.seats, plan.limits.seats)) {
+        setIsUpgradeModalOpen(true);
+        return;
+      }
+    } catch (e) {
+      console.warn('Plan usage check failed, falling back to local count', e);
+      const totalSeats = members.length + invitations.filter(i => i.status === 'pending').length;
+      if (isLimitReached(totalSeats, plan.limits.seats)) {
+        setIsUpgradeModalOpen(true);
+        return;
+      }
     }
     setIsInviteModalOpen(true);
   };
@@ -88,7 +98,11 @@ export function Team() {
   const handleInvite = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!company || !inviteForm.email) return;
-
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(inviteForm.email)) {
+      setInviteError('Please enter a valid email address.');
+      return;
+    }
+    setInviteError(null);
     setLoading(true);
     try {
       const inviteId = `${inviteForm.email.toLowerCase()}_${company.id}`;
@@ -433,6 +447,9 @@ export function Team() {
                     <option value="viewer">{t('team.modal.viewer_desc')}</option>
                   </select>
                 </div>
+                {inviteError && (
+                  <p className="text-red-400 text-xs bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">{inviteError}</p>
+                )}
                 <div className="flex justify-end gap-3 pt-6">
                   <Button type="button" variant="secondary" onClick={() => setIsInviteModalOpen(false)} className="px-6">{t('team.modal.abort')}</Button>
                   <Button type="submit" disabled={loading} className="px-8 flex gap-2">

@@ -70,6 +70,15 @@
   scrollbar-color: rgba(255, 255, 255, 0.05) transparent;
 }
 
+.scrollbar-hide {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
 /* AI Message Markdown Styles */
 .ai-message-content {
   @apply leading-relaxed;

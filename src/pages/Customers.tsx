@@ -25,23 +25,24 @@ import { useAuth } from '../contexts/AuthContext';
 import { useLocale } from '../hooks/useLocale';
 import { usePermissions } from '../hooks/usePermissions';
 import { db } from '../lib/firebase';
-import { 
-  collection, 
-  query, 
-  where, 
-  getDocs, 
-  addDoc, 
-  serverTimestamp, 
-  doc, 
-  deleteDoc, 
-  updateDoc, 
+import {
+  collection,
+  query,
+  where,
+  getDocs,
+  addDoc,
+  serverTimestamp,
+  doc,
+  deleteDoc,
+  updateDoc,
   orderBy,
   limit,
-  Timestamp 
+  Timestamp,
+  writeBatch
 } from 'firebase/firestore';
 import { motion, AnimatePresence } from 'motion/react';
 import { UpgradeModal } from '../components/UpgradeModal';
-import { PLANS, isLimitReached } from '../lib/plans';
+import { PLANS, isLimitReached, getCompanyUsage } from '../lib/plans';
 import { exportToCSV } from '../lib/exportUtils';
 import { format } from 'date-fns';
 import { ImageUpload } from '../components/ImageUpload';
@@ -112,6 +113,7 @@ export function Customers() {
   const [search, setSearch] = useState('');
   const [segmentFilter, setSegmentFilter] = useState('all');
   const [loading, setLoading] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'info' | 'reminders' | 'messages' | 'history'>('info');
   const { canEditCustomers } = usePermissions();
 
@@ -168,8 +170,13 @@ export function Customers() {
     if (!company || !detailCustomer) return;
 
     try {
+      // Persist dueDate as a Firestore Timestamp so range queries
+      // ("due before now", orderBy('dueDate')) behave correctly across timezones.
+      const due = reminderForm.dueDate ? new Date(reminderForm.dueDate) : new Date();
       await addDoc(collection(db, 'reminders'), {
-        ...reminderForm,
+        type: reminderForm.type,
+        notes: reminderForm.notes,
+        dueDate: Timestamp.fromDate(due),
         companyId: company.id,
         customerId: detailCustomer.id,
         customerName: detailCustomer.name,
@@ -210,12 +217,22 @@ export function Customers() {
 
   const [form, setForm] = useState({ name: '', email: '', phone: '', imageURL: '' });
 
-  const handleCreateNew = () => {
-    const planId = company?.subscription?.planId || 'starter';
+  const handleCreateNew = async () => {
+    if (!company) return;
+    const planId = company.subscription?.planId || 'starter';
     const plan = PLANS[planId];
-    if (isLimitReached(customers.length, plan.limits.customers)) {
-      setIsUpgradeModalOpen(true);
-      return;
+    try {
+      const usage = await getCompanyUsage(company.id);
+      if (isLimitReached(usage.customers, plan.limits.customers)) {
+        setIsUpgradeModalOpen(true);
+        return;
+      }
+    } catch (e) {
+      console.warn('Plan usage check failed, falling back to local count', e);
+      if (isLimitReached(customers.length, plan.limits.customers)) {
+        setIsUpgradeModalOpen(true);
+        return;
+      }
     }
     setSelectedCustomer(null);
     setForm({ name: '', email: '', phone: '', imageURL: '' });
@@ -237,19 +254,23 @@ export function Customers() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!company || !form.name) return;
-
+    if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
+      setFormError('Please enter a valid email address.');
+      return;
+    }
+    setFormError(null);
     setLoading(true);
     try {
+      const batch = writeBatch(db);
+      const activityRef = doc(collection(db, 'activities'));
+
       if (selectedCustomer) {
-        // Update
         const customerRef = doc(db, 'customers', selectedCustomer.id);
-        await updateDoc(customerRef, {
+        batch.update(customerRef, {
           ...form,
           updatedAt: serverTimestamp(),
         });
-
-        // Log Activity
-        await addDoc(collection(db, 'activities'), {
+        batch.set(activityRef, {
           type: 'customer_update',
           title: 'Customer Updated',
           subtitle: `${form.name} profile was modified`,
@@ -257,15 +278,13 @@ export function Customers() {
           createdAt: serverTimestamp(),
         });
       } else {
-        // Create
-        await addDoc(collection(db, 'customers'), {
+        const customerRef = doc(collection(db, 'customers'));
+        batch.set(customerRef, {
           ...form,
           companyId: company.id,
           createdAt: serverTimestamp(),
         });
-
-        // Log Activity
-        await addDoc(collection(db, 'activities'), {
+        batch.set(activityRef, {
           type: 'customer_create',
           title: 'New Customer',
           subtitle: `${form.name} joined the platform`,
@@ -273,12 +292,15 @@ export function Customers() {
           createdAt: serverTimestamp(),
         });
       }
+
+      await batch.commit();
       setIsModalOpen(false);
       setSelectedCustomer(null);
       setForm({ name: '', email: '', phone: '', imageURL: '' });
       fetchCustomers();
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+      alert(err?.message || 'Failed to save customer.');
     } finally {
       setLoading(false);
     }
@@ -298,13 +320,31 @@ export function Customers() {
   const handleCloseModal = () => {
     setIsModalOpen(false);
     setSelectedCustomer(null);
+    setFormError(null);
     setForm({ name: '', email: '', phone: '', imageURL: '' });
   };
 
   const handleDelete = async (id: string) => {
-    if (confirm(t('customers.delete_confirm'))) {
+    if (!company) return;
+    if (!confirm(t('customers.delete_confirm'))) return;
+    try {
+      // Block delete if the customer is referenced by any order so order
+      // history doesn't dangle to a missing customer doc.
+      const ordersSnap = await getDocs(query(
+        collection(db, 'orders'),
+        where('companyId', '==', company.id),
+        where('customerId', '==', id),
+        limit(1)
+      ));
+      if (!ordersSnap.empty) {
+        alert('This customer has orders and cannot be deleted.');
+        return;
+      }
       await deleteDoc(doc(db, 'customers', id));
       fetchCustomers();
+    } catch (err: any) {
+      console.error(err);
+      alert(err?.message || 'Failed to delete customer.');
     }
   };
 
@@ -600,6 +640,9 @@ export function Customers() {
                         </div>
                     </div>
                 </div>
+                {formError && (
+                  <p className="text-red-400 text-xs bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">{formError}</p>
+                )}
                 <div className="flex justify-end gap-3 pt-6 border-t border-white/5">
                   <Button type="button" variant="secondary" onClick={handleCloseModal} className="px-6">{t('common.abort')}</Button>
                   <Button type="submit" disabled={loading} className="px-8">
@@ -780,7 +823,7 @@ export function Customers() {
                             </div>
                           </div>
                           <div className="text-right">
-                            <p className="text-[10px] font-mono text-blue-400">{r.dueDate}</p>
+                            <p className="text-[10px] font-mono text-blue-400">{r.dueDate?.toDate ? format(r.dueDate.toDate(), 'yyyy-MM-dd') : r.dueDate}</p>
                             <p className="text-[8px] font-black text-neutral-600 uppercase mt-0.5">{t('customers.details.reminders.due_node')}</p>
                           </div>
                         </div>

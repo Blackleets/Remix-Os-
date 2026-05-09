@@ -130,19 +130,21 @@ export function ImageUpload({
         ) : value ? (
           <>
             <img src={value} alt="Preview" className="w-full h-full object-cover" />
-            <div className="absolute inset-0 bg-black/60 opacity-0 hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-              <Button 
-                type="button" 
-                variant="secondary" 
+            {/* Always-visible controls on touch devices; reveal on hover for pointer devices. */}
+            <div className="absolute inset-0 bg-black/60 opacity-100 sm:opacity-0 sm:hover:opacity-100 sm:focus-within:opacity-100 transition-opacity flex items-center justify-center gap-2">
+              <Button
+                type="button"
+                variant="secondary"
                 onClick={() => fileInputRef.current?.click()}
                 className="bg-white text-black hover:bg-neutral-200 h-9"
               >
                 Change
               </Button>
-              <Button 
-                type="button" 
-                variant="ghost" 
+              <Button
+                type="button"
+                variant="ghost"
                 onClick={handleRemove}
+                aria-label="Remove image"
                 className="text-white hover:bg-red-500/20 hover:text-red-400 h-9"
               >
                 <X className="w-4 h-4" />

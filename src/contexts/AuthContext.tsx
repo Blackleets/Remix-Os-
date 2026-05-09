@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import { User, onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
-import { auth, db } from '../lib/firebase';
+import { auth, db, handleFirestoreError, OperationType } from '../lib/firebase';
 
 interface Company {
   id: string;
@@ -31,6 +31,7 @@ interface Company {
     planId: 'starter' | 'pro' | 'business';
     status: 'active' | 'past_due' | 'trialing' | 'canceled';
     currentPeriodEnd?: any;
+    trialEndsAt?: any;
   };
 }
 
@@ -72,25 +73,21 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const fetchUserProfile = async (uid: string) => {
     try {
-      const { handleFirestoreError, OperationType } = await import('../lib/firebase');
       const userRef = doc(db, 'users', uid);
       const userSnap = await getDoc(userRef);
       if (userSnap.exists()) {
         setUserProfile({ uid, ...userSnap.data() } as UserProfile);
       } else {
-        // Fallback for new users or missing docs
         setUserProfile(null);
       }
     } catch (error) {
       console.error("Error fetching user profile:", error);
-      const { handleFirestoreError, OperationType } = await import('../lib/firebase');
       handleFirestoreError(error, OperationType.GET, `users/${uid}`);
     }
   };
 
   const fetchUserCompany = async (userId: string) => {
     try {
-      const { handleFirestoreError, OperationType } = await import('../lib/firebase');
       const membershipsRef = collection(db, 'memberships');
       const q = query(membershipsRef, where('userId', '==', userId));
       let querySnapshot;

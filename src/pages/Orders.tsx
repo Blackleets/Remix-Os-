@@ -10,7 +10,7 @@ import { collection, query, where, onSnapshot, orderBy } from 'firebase/firestor
 import { format, startOfMonth, endOfMonth } from 'date-fns';
 import { motion, AnimatePresence } from 'motion/react';
 import { UpgradeModal } from '../components/UpgradeModal';
-import { PLANS, isLimitReached } from '../lib/plans';
+import { PLANS, isLimitReached, getCompanyUsage } from '../lib/plans';
 import { exportToCSV } from '../lib/exportUtils';
 import { createSaleTransaction } from '../services/sales';
 
@@ -80,14 +80,24 @@ export function Orders() {
     }).length;
   };
 
-  const handleCreateNew = () => {
-    const planId = company?.subscription?.planId || 'starter';
+  const handleCreateNew = async () => {
+    if (!company) return;
+    const planId = company.subscription?.planId || 'starter';
     const plan = PLANS[planId];
-    const monthlyCount = getMonthlyOrdersCount();
-    
-    if (isLimitReached(monthlyCount, plan.limits.orders)) {
-      setIsUpgradeModalOpen(true);
-      return;
+    try {
+      const usage = await getCompanyUsage(company.id);
+      if (isLimitReached(usage.orders, plan.limits.orders)) {
+        setIsUpgradeModalOpen(true);
+        return;
+      }
+    } catch (e) {
+      // If usage check fails (network/permissions) fall back to local count to
+      // avoid blocking legitimate users.
+      console.warn('Plan usage check failed, falling back to local count', e);
+      if (isLimitReached(getMonthlyOrdersCount(), plan.limits.orders)) {
+        setIsUpgradeModalOpen(true);
+        return;
+      }
     }
     setForm({ customerId: '', paymentMethod: 'Card', items: [] });
     setIsModalOpen(true);
