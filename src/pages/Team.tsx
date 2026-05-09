@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Card, Button, Input, Label, cn } from '../components/Common';
-import { Plus, UserPlus, Mail, Shield, MoreVertical, Trash2, ShieldCheck, Clock, CheckCircle2, XCircle } from 'lucide-react';
+import { Plus, UserPlus, Mail, Shield, Trash2, ShieldCheck, Clock, XCircle, Copy, CheckCircle2 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useLocale } from '../hooks/useLocale';
 import { useToast } from '../contexts/ToastContext';
@@ -41,6 +41,8 @@ export function Team() {
   const [loading, setLoading] = useState(false);
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [inviteForm, setInviteForm] = useState({ email: '', role: 'staff' as any });
+  const [lastInviteEmail, setLastInviteEmail] = useState<string | null>(null);
+  const [linkCopied, setLinkCopied] = useState(false);
 
   const handleOpenInvite = async () => {
     if (!company) return;
@@ -129,14 +131,28 @@ export function Team() {
         createdAt: serverTimestamp(),
       });
 
+      setLastInviteEmail(inviteForm.email.toLowerCase());
       setIsInviteModalOpen(false);
       setInviteForm({ email: '', role: 'staff' });
       fetchTeam();
+      toast.success(`Invitation created for ${inviteForm.email}`);
     } catch (err) {
       console.error(err);
+      toast.error('Failed to create invitation.');
     } finally {
       setLoading(false);
     }
+  };
+
+  const signupLink = `${window.location.origin}/auth`;
+
+  const copyInviteLink = async () => {
+    const text = lastInviteEmail
+      ? `You've been invited to join ${company?.name} on Remix OS.\n\nSign up or sign in with this email: ${lastInviteEmail}\n${signupLink}`
+      : signupLink;
+    await navigator.clipboard.writeText(text);
+    setLinkCopied(true);
+    setTimeout(() => setLinkCopied(false), 2500);
   };
 
   const handleUpdateRole = async (memberId: string, newRole: string) => {
@@ -418,6 +434,36 @@ export function Team() {
               )}
             </div>
           </Card>
+
+          {/* Invite link card */}
+          {canManage && (
+            <div className="p-5 rounded-2xl bg-emerald-500/5 border border-emerald-500/15 space-y-3">
+              <div className="flex items-center gap-2 text-emerald-400">
+                <Mail className="w-4 h-4" />
+                <span className="text-[10px] font-bold uppercase tracking-widest">Share Invite Link</span>
+              </div>
+              <p className="text-[11px] text-neutral-400 leading-relaxed">
+                {lastInviteEmail
+                  ? `Send this message to ${lastInviteEmail}:`
+                  : 'Copy the sign-up link to share with your team:'}
+              </p>
+              <button
+                onClick={copyInviteLink}
+                className="w-full flex items-center justify-between gap-2 px-3 py-2.5 bg-white/[0.03] border border-white/10 rounded-xl hover:border-emerald-500/30 transition-all group"
+              >
+                <span className="text-[10px] text-neutral-500 truncate font-mono">
+                  {lastInviteEmail ? `Invite: ${lastInviteEmail} → ${signupLink}` : signupLink}
+                </span>
+                {linkCopied
+                  ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                  : <Copy className="w-3.5 h-3.5 text-neutral-600 group-hover:text-emerald-400 shrink-0 transition-colors" />
+                }
+              </button>
+              <p className="text-[10px] text-neutral-600 leading-relaxed">
+                They must sign up or sign in with their invited email address to join.
+              </p>
+            </div>
+          )}
 
           <div className="p-4 rounded-2xl bg-blue-500/5 border border-blue-500/10 space-y-2">
              <div className="flex items-center gap-2 text-blue-400">
