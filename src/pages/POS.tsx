@@ -40,6 +40,7 @@ import { useLocale } from '../hooks/useLocale';
 import { db } from '../lib/firebase';
 import { createSaleTransaction } from '../services/sales';
 import { exportPOSReceiptToPDF } from '../lib/exportUtils';
+import { applyPercent, clampPositive, toMoney } from '../lib/moneyUtils';
 
 interface Product {
   id: string;
@@ -112,10 +113,14 @@ interface POSReceipt {
   paymentMethod: string;
   subtotal: number;
   discount: number;
+  discountPercent: number;
   tax: number;
+  taxPercent: number;
   total: number;
   items: CartItem[];
   footerMessage: string;
+  operator?: string;
+  cashSessionId?: string;
 }
 
 interface PulseInsight {
@@ -127,7 +132,10 @@ interface PulseInsight {
 
 const PAYMENT_METHODS = ['Cash', 'Card', 'Transfer', 'Stripe', 'Crypto'] as const;
 const COMING_SOON = ['Stripe Terminal', 'Square POS', 'Shopify POS', 'SumUp'];
-const QUICK_DISCOUNT_RATE = 0.1;
+const UNCONFIGURED_PAYMENT_METHODS = new Set<(typeof PAYMENT_METHODS)[number]>(['Stripe']);
+const DISCOUNT_PRESETS = [0, 5, 10, 15, 20] as const;
+const TAX_PRESETS = [0, 10, 21] as const;
+const QUICK_DISCOUNT_RATE = 10;
 
 function getTimestampValue(value: any) {
   if (!value) return 0;
@@ -149,8 +157,11 @@ export function POS() {
   const [search, setSearch] = useState('');
   const [customerId, setCustomerId] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<(typeof PAYMENT_METHODS)[number]>('Cash');
-  const [discountInput, setDiscountInput] = useState('0');
-  const [taxInput, setTaxInput] = useState('0');
+  const [discountPreset, setDiscountPreset] = useState<number | 'custom'>(0);
+  const [discountCustom, setDiscountCustom] = useState('0');
+  const [taxPreset, setTaxPreset] = useState<number | 'custom'>(0);
+  const [taxCustom, setTaxCustom] = useState('0');
+  const [closingCashInput, setClosingCashInput] = useState('');
   const [saleError, setSaleError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDuplicating, setIsDuplicating] = useState(false);
@@ -294,10 +305,28 @@ export function POS() {
     return customers.find((customer) => customer.id === customerId)?.name || t('orders.guest') || 'Guest';
   }, [customerId, customers, t]);
 
-  const discount = Math.max(0, parseFloat(discountInput) || 0);
-  const tax = Math.max(0, parseFloat(taxInput) || 0);
-  const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
-  const total = Math.max(0, subtotal - discount + tax);
+  const subtotal = useMemo(
+    () => toMoney(cart.reduce((sum, item) => sum + item.price * item.quantity, 0)),
+    [cart]
+  );
+  const discountPercent = useMemo(() => {
+    if (discountPreset === 'custom') {
+      return Math.min(100, clampPositive(parseFloat(discountCustom)));
+    }
+    return discountPreset;
+  }, [discountPreset, discountCustom]);
+  const taxPercent = useMemo(() => {
+    if (taxPreset === 'custom') {
+      return clampPositive(parseFloat(taxCustom));
+    }
+    return taxPreset;
+  }, [taxPreset, taxCustom]);
+  const discount = useMemo(() => {
+    const raw = applyPercent(subtotal, discountPercent);
+    return Math.min(raw, subtotal);
+  }, [subtotal, discountPercent]);
+  const tax = useMemo(() => applyPercent(subtotal - discount, taxPercent), [subtotal, discount, taxPercent]);
+  const total = useMemo(() => toMoney(Math.max(0, subtotal - discount + tax)), [subtotal, discount, tax]);
 
   const sortedCashSessions = useMemo(
     () => [...cashSessions].sort((a, b) => getTimestampValue(b.openedAt) - getTimestampValue(a.openedAt)),
@@ -335,7 +364,10 @@ export function POS() {
     [currentTurnOrders]
   );
 
-  const expectedCash = (activeCashSession?.openingCash || 0) + turnCashTotal;
+  const expectedCash = toMoney((activeCashSession?.openingCash || 0) + turnCashTotal);
+
+  const closingCashValue = closingCashInput.trim() === '' ? null : clampPositive(parseFloat(closingCashInput));
+  const cashDifference = closingCashValue == null ? null : toMoney(closingCashValue - expectedCash);
 
   const getAvailableStock = (productId: string) =>
     products.find((product) => product.id === productId)?.stockLevel ?? 0;
@@ -344,8 +376,10 @@ export function POS() {
 
   const clearCart = () => {
     setCart([]);
-    setDiscountInput('0');
-    setTaxInput('0');
+    setDiscountPreset(0);
+    setDiscountCustom('0');
+    setTaxPreset(0);
+    setTaxCustom('0');
     setSaleError(null);
   };
 
@@ -413,7 +447,7 @@ export function POS() {
 
   const applyQuickDiscount = () => {
     if (subtotal <= 0) return;
-    setDiscountInput((subtotal * QUICK_DISCOUNT_RATE).toFixed(2));
+    setDiscountPreset(QUICK_DISCOUNT_RATE);
   };
 
   const setGuestCheckout = () => {
@@ -479,8 +513,10 @@ export function POS() {
       setCart(rebuiltCart);
       setPaymentMethod((latestPOSOrder.paymentMethod as (typeof PAYMENT_METHODS)[number]) || 'Cash');
       setCustomerId(latestPOSOrder.customerId || '');
-      setDiscountInput('0');
-      setTaxInput('0');
+      setDiscountPreset(0);
+      setDiscountCustom('0');
+      setTaxPreset(0);
+      setTaxCustom('0');
       setIsCommandBarOpen(false);
 
       if (unavailable.length > 0) {
@@ -537,27 +573,42 @@ export function POS() {
     setIsCashLoading(true);
 
     try {
-      await updateDoc(doc(db, 'cashSessions', activeCashSession.id), {
+      const payload: Record<string, any> = {
         status: 'closed',
         closedAt: serverTimestamp(),
         closedBy: user?.uid || '',
         closedByName: userProfile?.displayName || user?.displayName || user?.email || 'POS Operator',
         closingNotes,
         salesCount: currentTurnOrders.length,
-        salesTotal: turnSalesTotal,
-        cashSalesTotal: turnCashTotal,
+        salesTotal: toMoney(turnSalesTotal),
+        cashSalesTotal: toMoney(turnCashTotal),
         expectedCash,
-      });
+      };
+      if (closingCashValue != null) {
+        payload.closingCash = toMoney(closingCashValue);
+        payload.difference = cashDifference;
+      }
+      await updateDoc(doc(db, 'cashSessions', activeCashSession.id), payload);
+
+      const diffSuffix =
+        cashDifference == null
+          ? ''
+          : cashDifference === 0
+            ? ' (cuadrada)'
+            : cashDifference > 0
+              ? ` (sobrante $${cashDifference.toFixed(2)})`
+              : ` (faltante $${Math.abs(cashDifference).toFixed(2)})`;
 
       await addDoc(collection(db, 'activities'), {
         companyId: company.id,
         type: 'cash_session_close',
         title: 'Cash Session Closed',
-        subtitle: `${currentTurnOrders.length} sales closed with expected cash $${expectedCash.toFixed(2)}`,
+        subtitle: `${currentTurnOrders.length} sales · expected $${expectedCash.toFixed(2)}${diffSuffix}`,
         createdAt: serverTimestamp(),
       });
 
       setClosingNotes('');
+      setClosingCashInput('');
     } catch (error) {
       setCashSessionError(error instanceof Error ? error.message : t('pos.cash.close_failed'));
     } finally {
@@ -691,8 +742,26 @@ export function POS() {
     return insights.slice(0, 4);
   }, [activeProducts, cart, customerId, customerName, orders, products]);
 
+  const operatorName = useMemo(
+    () => userProfile?.displayName || user?.displayName || user?.email || 'POS Operator',
+    [userProfile?.displayName, user?.displayName, user?.email]
+  );
+
   const handleCompleteSale = async () => {
     if (!company || cart.length === 0) return;
+
+    if (subtotal <= 0) {
+      setSaleError(t('pos.errors.subtotal_required'));
+      return;
+    }
+    if (discount > subtotal) {
+      setSaleError(t('pos.errors.discount_exceeds_subtotal'));
+      return;
+    }
+    if (UNCONFIGURED_PAYMENT_METHODS.has(paymentMethod)) {
+      setSaleError(t('pos.checkout.stripe_not_configured'));
+      return;
+    }
 
     setIsSubmitting(true);
     setSaleError(null);
@@ -725,6 +794,22 @@ export function POS() {
         },
       });
 
+      try {
+        await addDoc(collection(db, 'activities'), {
+          companyId: company.id,
+          orderId: result.orderId,
+          type: 'pos_sale_operator',
+          title: 'POS sale by operator',
+          subtitle: `${operatorName} · ${paymentMethod} · $${total.toFixed(2)}`,
+          operatorName,
+          operatorId: user?.uid || '',
+          cashSessionId: activeCashSession?.id || '',
+          createdAt: serverTimestamp(),
+        });
+      } catch (logError) {
+        console.warn('Could not log operator activity:', logError);
+      }
+
       setLatestReceipt({
         orderId: result.orderId,
         createdAt: result.createdAt,
@@ -732,10 +817,14 @@ export function POS() {
         paymentMethod,
         subtotal,
         discount,
+        discountPercent,
         tax,
+        taxPercent,
         total,
         items: receiptItems,
         footerMessage: receiptFooterMessage,
+        operator: operatorName,
+        cashSessionId: activeCashSession?.id || undefined,
       });
 
       clearCart();
@@ -923,9 +1012,13 @@ export function POS() {
                     paymentMethod: latestReceipt.paymentMethod,
                     subtotal: latestReceipt.subtotal,
                     discount: latestReceipt.discount,
+                    discountPercent: latestReceipt.discountPercent,
                     tax: latestReceipt.tax,
+                    taxPercent: latestReceipt.taxPercent,
                     total: latestReceipt.total,
                     footerMessage: latestReceipt.footerMessage,
+                    operator: latestReceipt.operator,
+                    cashSessionId: latestReceipt.cashSessionId,
                     items: latestReceipt.items.map((item) => ({
                       name: item.name,
                       sku: item.sku,
@@ -980,11 +1073,21 @@ export function POS() {
                 <span className="text-white font-mono">{formatCurrency(latestReceipt.subtotal)}</span>
               </div>
               <div className="flex items-center justify-between text-sm">
-                <span className="text-neutral-500">{t('pos.summary.discount')}</span>
+                <span className="text-neutral-500">
+                  {t('pos.summary.discount')}
+                  {latestReceipt.discountPercent > 0 && (
+                    <span className="ml-1 text-neutral-600">({latestReceipt.discountPercent}%)</span>
+                  )}
+                </span>
                 <span className="text-white font-mono">- {formatCurrency(latestReceipt.discount)}</span>
               </div>
               <div className="flex items-center justify-between text-sm">
-                <span className="text-neutral-500">{t('pos.summary.tax')}</span>
+                <span className="text-neutral-500">
+                  {t('pos.summary.tax')}
+                  {latestReceipt.taxPercent > 0 && (
+                    <span className="ml-1 text-neutral-600">({latestReceipt.taxPercent}%)</span>
+                  )}
+                </span>
                 <span className="text-white font-mono">+ {formatCurrency(latestReceipt.tax)}</span>
               </div>
               <div className="pt-3 mt-3 border-t border-white/10 flex items-center justify-between">
@@ -1307,6 +1410,41 @@ export function POS() {
                 </div>
 
                 <div className="space-y-2">
+                  <Label>{t('pos.cash.closing_cash')}</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={closingCashInput}
+                    onChange={(event) => setClosingCashInput(event.target.value)}
+                    placeholder={t('pos.cash.closing_cash_placeholder')}
+                  />
+                  {cashDifference != null && (
+                    <div
+                      className={cn(
+                        'rounded-2xl border px-4 py-3 text-sm',
+                        cashDifference === 0
+                          ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-200'
+                          : cashDifference > 0
+                            ? 'border-blue-500/20 bg-blue-500/10 text-blue-200'
+                            : 'border-red-500/20 bg-red-500/10 text-red-200'
+                      )}
+                    >
+                      <p className="text-[10px] font-black uppercase tracking-[0.2em] mb-1 opacity-80">
+                        {t('pos.cash.difference')}
+                      </p>
+                      <p className="font-mono">
+                        {cashDifference === 0
+                          ? t('pos.cash.difference_match')
+                          : cashDifference > 0
+                            ? t('pos.cash.difference_over', { amount: formatCurrency(cashDifference) })
+                            : t('pos.cash.difference_short', { amount: formatCurrency(Math.abs(cashDifference)) })}
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-2">
                   <Label>{t('pos.cash.closing_notes')}</Label>
                   <textarea
                     value={closingNotes}
@@ -1383,47 +1521,139 @@ export function POS() {
             <div className="space-y-2">
               <Label>{t('pos.checkout.payment_method')}</Label>
               <div className="grid grid-cols-2 gap-2">
-                {PAYMENT_METHODS.map((method) => (
+                {PAYMENT_METHODS.map((method) => {
+                  const isUnconfigured = UNCONFIGURED_PAYMENT_METHODS.has(method);
+                  return (
+                    <button
+                      key={method}
+                      type="button"
+                      onClick={() => {
+                        if (isUnconfigured) return;
+                        setPaymentMethod(method);
+                      }}
+                      disabled={isUnconfigured}
+                      title={isUnconfigured ? t('pos.checkout.stripe_not_configured') : undefined}
+                      className={cn(
+                        'px-3 py-3 rounded-xl border text-xs uppercase tracking-[0.2em] font-bold transition-all',
+                        isUnconfigured
+                          ? 'border-white/5 bg-white/[0.02] text-neutral-600 cursor-not-allowed opacity-60'
+                          : paymentMethod === method
+                            ? 'border-blue-500/30 bg-blue-500/10 text-white'
+                            : 'border-white/10 bg-white/[0.03] text-neutral-500 hover:text-neutral-200'
+                      )}
+                    >
+                      {method}
+                      {isUnconfigured && (
+                        <span className="block text-[9px] tracking-normal text-neutral-600 mt-1 normal-case font-medium">
+                          {t('pos.checkout.stripe_not_configured')}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {paymentMethod === 'Cash' && !activeCashSession && !cashSessionAccessUnavailable && cart.length > 0 && (
+              <div className="p-3 rounded-2xl border border-amber-500/20 bg-amber-500/10 text-amber-200 text-xs flex gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>{t('pos.checkout.cash_no_session_warning')}</span>
+              </div>
+            )}
+
+            <div className="space-y-3">
+              <Label>{t('pos.discount.label')}</Label>
+              <div className="flex flex-wrap gap-2">
+                {DISCOUNT_PRESETS.map((preset) => (
                   <button
-                    key={method}
+                    key={`disc-${preset}`}
                     type="button"
-                    onClick={() => setPaymentMethod(method)}
+                    onClick={() => setDiscountPreset(preset)}
                     className={cn(
-                      'px-3 py-3 rounded-xl border text-xs uppercase tracking-[0.2em] font-bold transition-all',
-                      paymentMethod === method
+                      'px-3 py-2 rounded-xl border text-xs uppercase tracking-[0.15em] font-bold transition-all',
+                      discountPreset === preset
                         ? 'border-blue-500/30 bg-blue-500/10 text-white'
                         : 'border-white/10 bg-white/[0.03] text-neutral-500 hover:text-neutral-200'
                     )}
                   >
-                    {method}
+                    {preset === 0 ? t('pos.discount.none') : `${preset}%`}
                   </button>
                 ))}
+                <button
+                  type="button"
+                  onClick={() => setDiscountPreset('custom')}
+                  className={cn(
+                    'px-3 py-2 rounded-xl border text-xs uppercase tracking-[0.15em] font-bold transition-all',
+                    discountPreset === 'custom'
+                      ? 'border-blue-500/30 bg-blue-500/10 text-white'
+                      : 'border-white/10 bg-white/[0.03] text-neutral-500 hover:text-neutral-200'
+                  )}
+                >
+                  {t('pos.discount.custom_label')}
+                </button>
               </div>
+              {discountPreset === 'custom' && (
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.1"
+                    value={discountCustom}
+                    onChange={(event) => setDiscountCustom(event.target.value)}
+                    placeholder={t('pos.discount.custom_placeholder')}
+                    className="w-32"
+                  />
+                  <span className="text-neutral-500 text-sm">%</span>
+                </div>
+              )}
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>{t('pos.summary.discount')}</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={discountInput}
-                  onChange={(event) => setDiscountInput(event.target.value)}
-                  placeholder="0.00"
-                />
+            <div className="space-y-3">
+              <Label>{t('pos.tax.label')}</Label>
+              <div className="flex flex-wrap gap-2">
+                {TAX_PRESETS.map((preset) => (
+                  <button
+                    key={`tax-${preset}`}
+                    type="button"
+                    onClick={() => setTaxPreset(preset)}
+                    className={cn(
+                      'px-3 py-2 rounded-xl border text-xs uppercase tracking-[0.15em] font-bold transition-all',
+                      taxPreset === preset
+                        ? 'border-blue-500/30 bg-blue-500/10 text-white'
+                        : 'border-white/10 bg-white/[0.03] text-neutral-500 hover:text-neutral-200'
+                    )}
+                  >
+                    {preset === 0 ? t('pos.tax.none') : `${preset}%`}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setTaxPreset('custom')}
+                  className={cn(
+                    'px-3 py-2 rounded-xl border text-xs uppercase tracking-[0.15em] font-bold transition-all',
+                    taxPreset === 'custom'
+                      ? 'border-blue-500/30 bg-blue-500/10 text-white'
+                      : 'border-white/10 bg-white/[0.03] text-neutral-500 hover:text-neutral-200'
+                  )}
+                >
+                  {t('pos.tax.custom_label')}
+                </button>
               </div>
-              <div className="space-y-2">
-                <Label>{t('pos.summary.tax')}</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={taxInput}
-                  onChange={(event) => setTaxInput(event.target.value)}
-                  placeholder="0.00"
-                />
-              </div>
+              {taxPreset === 'custom' && (
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    min="0"
+                    step="0.1"
+                    value={taxCustom}
+                    onChange={(event) => setTaxCustom(event.target.value)}
+                    placeholder={t('pos.tax.custom_placeholder')}
+                    className="w-32"
+                  />
+                  <span className="text-neutral-500 text-sm">%</span>
+                </div>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -1441,11 +1671,17 @@ export function POS() {
                 <span className="text-white font-mono">{formatCurrency(subtotal)}</span>
               </div>
               <div className="flex items-center justify-between text-sm">
-                <span className="text-neutral-500">{t('pos.summary.discount')}</span>
+                <span className="text-neutral-500">
+                  {t('pos.summary.discount')}
+                  {discountPercent > 0 && <span className="ml-1 text-neutral-600">({discountPercent}%)</span>}
+                </span>
                 <span className="text-white font-mono">- {formatCurrency(discount)}</span>
               </div>
               <div className="flex items-center justify-between text-sm">
-                <span className="text-neutral-500">{t('pos.summary.tax')}</span>
+                <span className="text-neutral-500">
+                  {t('pos.summary.tax')}
+                  {taxPercent > 0 && <span className="ml-1 text-neutral-600">({taxPercent}%)</span>}
+                </span>
                 <span className="text-white font-mono">+ {formatCurrency(tax)}</span>
               </div>
               <div className="pt-3 border-t border-white/10 flex items-center justify-between">
@@ -1456,7 +1692,14 @@ export function POS() {
 
             <Button
               className="w-full h-14 text-sm font-bold uppercase tracking-[0.25em] shadow-xl shadow-blue-600/10"
-              disabled={cart.length === 0 || hasCartStockIssue || isSubmitting}
+              disabled={
+                cart.length === 0 ||
+                hasCartStockIssue ||
+                isSubmitting ||
+                UNCONFIGURED_PAYMENT_METHODS.has(paymentMethod) ||
+                subtotal <= 0 ||
+                discount > subtotal
+              }
               onClick={handleCompleteSale}
             >
               <BadgeDollarSign className="w-4 h-4 mr-2" />

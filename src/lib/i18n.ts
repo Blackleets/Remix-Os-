@@ -367,6 +367,20 @@ const resources = {
           duplicate_failed: 'Failed to duplicate the last sale.',
           adjusted_to_stock: '{{name}} (adjusted to stock)'
         },
+        discount: {
+          label: 'Discount',
+          custom_label: 'Custom %',
+          custom_placeholder: 'e.g. 17.5',
+          value: 'Discount value',
+          none: 'No discount'
+        },
+        tax: {
+          label: 'Tax',
+          custom_label: 'Custom %',
+          custom_placeholder: 'e.g. 8.5',
+          value: 'Tax value',
+          none: 'No tax'
+        },
         cash: {
           label: 'Cash Session',
           title: 'Shift register',
@@ -386,7 +400,13 @@ const resources = {
           opening: 'Opening session',
           open: 'Open cash session',
           open_failed: 'Failed to open cash session.',
-          close_failed: 'Failed to close cash session.'
+          close_failed: 'Failed to close cash session.',
+          closing_cash: 'Counted cash at close',
+          closing_cash_placeholder: 'Counted bills + coins',
+          difference: 'Difference',
+          difference_match: 'Cash matches expected',
+          difference_short: 'Short by {{amount}}',
+          difference_over: 'Over by {{amount}}'
         },
         checkout: {
           label: 'Checkout Core',
@@ -398,7 +418,10 @@ const resources = {
           receipt_message: 'Receipt message',
           receipt_placeholder: 'Thank you for shopping with us.',
           processing: 'Processing sale',
-          complete_sale: 'Complete sale'
+          complete_sale: 'Complete sale',
+          stripe_not_configured: 'Stripe Terminal not configured yet',
+          cash_no_session_warning: 'This cash sale will not be tied to an open register session.',
+          operator: 'Operator'
         },
         summary: {
           subtotal: 'Subtotal',
@@ -431,7 +454,9 @@ const resources = {
         errors: {
           product_not_found: 'Product {{name}} not found.',
           insufficient_stock: 'Insufficient stock for {{name}}. Available: {{count}}',
-          sale_failed: 'Failed to complete the sale.'
+          sale_failed: 'Failed to complete the sale.',
+          discount_exceeds_subtotal: 'Discount cannot exceed the subtotal.',
+          subtotal_required: 'Add at least one item with a positive price before charging.'
         }
       },
       team: {
@@ -1016,6 +1041,20 @@ const resources = {
           duplicate_failed: 'No se pudo duplicar la \u00faltima venta.',
           adjusted_to_stock: '{{name}} (ajustado al stock)'
         },
+        discount: {
+          label: 'Descuento',
+          custom_label: 'Personalizado %',
+          custom_placeholder: 'p. ej. 17.5',
+          value: 'Importe del descuento',
+          none: 'Sin descuento'
+        },
+        tax: {
+          label: 'Impuestos',
+          custom_label: 'Personalizado %',
+          custom_placeholder: 'p. ej. 8.5',
+          value: 'Importe del impuesto',
+          none: 'Sin impuestos'
+        },
         cash: {
           label: 'Sesi\u00f3n de caja',
           title: 'Sesi\u00f3n de caja',
@@ -1035,7 +1074,13 @@ const resources = {
           opening: 'Abriendo caja',
           open: 'Abrir caja',
           open_failed: 'No se pudo abrir la sesi\u00f3n de caja.',
-          close_failed: 'No se pudo cerrar la sesi\u00f3n de caja.'
+          close_failed: 'No se pudo cerrar la sesi\u00f3n de caja.',
+          closing_cash: 'Efectivo contado al cerrar',
+          closing_cash_placeholder: 'Billetes + monedas contados',
+          difference: 'Diferencia',
+          difference_match: 'El efectivo cuadra con lo esperado',
+          difference_short: 'Faltan {{amount}}',
+          difference_over: 'Sobran {{amount}}'
         },
         checkout: {
           label: 'Cobro',
@@ -1047,7 +1092,10 @@ const resources = {
           receipt_message: 'Mensaje del recibo',
           receipt_placeholder: 'Gracias por comprar con nosotros.',
           processing: 'Procesando venta',
-          complete_sale: 'Completar venta'
+          complete_sale: 'Completar venta',
+          stripe_not_configured: 'Stripe Terminal todav\u00eda no est\u00e1 configurado',
+          cash_no_session_warning: 'Esta venta en efectivo no quedar\u00e1 asociada a una sesi\u00f3n de caja abierta.',
+          operator: 'Operador'
         },
         summary: {
           subtotal: 'Subtotal',
@@ -1080,7 +1128,9 @@ const resources = {
         errors: {
           product_not_found: 'Producto {{name}} no encontrado.',
           insufficient_stock: 'Stock insuficiente para {{name}}. Disponible: {{count}}',
-          sale_failed: 'No se pudo completar la venta.'
+          sale_failed: 'No se pudo completar la venta.',
+          discount_exceeds_subtotal: 'El descuento no puede superar al subtotal.',
+          subtotal_required: 'Añade al menos un artículo con precio antes de cobrar.'
         }
       },
       team: {

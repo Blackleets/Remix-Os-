@@ -53,11 +53,15 @@ interface POSReceiptPDFData {
   paymentMethod: string;
   subtotal: number;
   discount: number;
+  discountPercent?: number;
   tax: number;
+  taxPercent?: number;
   total: number;
   items: POSReceiptItem[];
   logoURL?: string;
   footerMessage?: string;
+  operator?: string;
+  cashSessionId?: string;
 }
 
 export function exportDashboardToPDF(companyName: string, modules: PDFModule[]) {
@@ -174,8 +178,21 @@ export async function exportPOSReceiptToPDF(data: POSReceiptPDFData) {
   doc.text(`Customer: ${data.customerName}`, 14, 74);
   doc.text(`Payment: ${data.paymentMethod}`, 14, 81);
 
+  let metaY = 88;
+  doc.setFontSize(9);
+  doc.setTextColor(silver[0], silver[1], silver[2]);
+  if (data.operator) {
+    doc.text(`Operator: ${data.operator}`, 14, metaY);
+    metaY += 6;
+  }
+  if (data.cashSessionId) {
+    doc.text(`Cash Session: ${data.cashSessionId}`, 14, metaY);
+    metaY += 6;
+  }
+  const tableStartY = data.operator || data.cashSessionId ? metaY + 4 : 90;
+
   autoTable(doc, {
-    startY: 90,
+    startY: tableStartY,
     head: [['Item', 'SKU', 'Qty', 'Unit', 'Line Total']],
     body: data.items.map((item) => [
       item.name,
@@ -195,15 +212,23 @@ export async function exportPOSReceiptToPDF(data: POSReceiptPDFData) {
   const summaryStart = doc.lastAutoTable.finalY + 12;
   doc.setFontSize(10);
   doc.setTextColor(silver[0], silver[1], silver[2]);
-  doc.text(`Subtotal: $${data.subtotal.toFixed(2)}`, 140, summaryStart);
-  doc.text(`Discount: -$${data.discount.toFixed(2)}`, 140, summaryStart + 7);
-  doc.text(`Tax: +$${data.tax.toFixed(2)}`, 140, summaryStart + 14);
+  const discountLabel =
+    typeof data.discountPercent === 'number' && data.discountPercent > 0
+      ? `Discount (${data.discountPercent}%): -$${data.discount.toFixed(2)}`
+      : `Discount: -$${data.discount.toFixed(2)}`;
+  const taxLabel =
+    typeof data.taxPercent === 'number' && data.taxPercent > 0
+      ? `Tax (${data.taxPercent}%): +$${data.tax.toFixed(2)}`
+      : `Tax: +$${data.tax.toFixed(2)}`;
+  doc.text(`Subtotal: $${data.subtotal.toFixed(2)}`, 130, summaryStart);
+  doc.text(discountLabel, 130, summaryStart + 7);
+  doc.text(taxLabel, 130, summaryStart + 14);
 
   doc.setFillColor(14, 14, 14);
-  doc.roundedRect(130, summaryStart + 18, 66, 16, 4, 4, 'F');
+  doc.roundedRect(120, summaryStart + 18, 76, 16, 4, 4, 'F');
   doc.setFontSize(14);
   doc.setTextColor(accent[0], accent[1], accent[2]);
-  doc.text(`Total: $${data.total.toFixed(2)}`, 136, summaryStart + 29);
+  doc.text(`Total: $${data.total.toFixed(2)}`, 126, summaryStart + 29);
 
   doc.setFontSize(8);
   doc.setTextColor(silver[0], silver[1], silver[2]);
