@@ -82,6 +82,27 @@ const getGenAI = () => {
 // Verifies a Firebase ID token from Authorization: Bearer <token>, then asserts
 // the caller is a member of the companyId in the request body with one of the
 // required roles. On failure, sends an HTTP error and returns null.
+async function requireSuperAdmin(req: any, res: any): Promise<{ uid: string } | null> {
+  const superAdminUid = process.env.SUPER_ADMIN_UID;
+  if (!superAdminUid) {
+    res.status(503).json({ error: "Super admin not configured. Set SUPER_ADMIN_UID env var." });
+    return null;
+  }
+  const authHeader = req.headers.authorization || "";
+  const match = authHeader.match(/^Bearer\s+(.+)$/i);
+  if (!match) { res.status(401).json({ error: "Missing Authorization bearer token" }); return null; }
+  let decoded;
+  try {
+    decoded = await getAuth().verifyIdToken(match[1]);
+  } catch {
+    res.status(401).json({ error: "Invalid or expired token" }); return null;
+  }
+  if (decoded.uid !== superAdminUid) {
+    res.status(403).json({ error: "Forbidden: super admin access only" }); return null;
+  }
+  return { uid: decoded.uid };
+}
+
 async function requireCompanyAccess(
   req: any,
   res: any,
@@ -639,6 +660,71 @@ NO markdown, NO preamble, just valid JSON.`;
     } catch (err: any) {
       console.error("/api/ai/proactive-thoughts error:", err);
       res.status(500).json({ error: err?.message || "AI request failed" });
+    }
+  });
+
+  // ── Super Admin Overview ─────────────────────────────────────────────────
+  app.get("/api/admin/overview", async (req, res) => {
+    const sa = await requireSuperAdmin(req, res);
+    if (!sa) return;
+    try {
+      const db = getDb();
+      if (!db) return res.status(500).json({ error: "DB not initialized" });
+
+      const [companiesSnap, usersSnap, membershipsSnap] = await Promise.all([
+        db.collection("companies").get(),
+        db.collection("users").get(),
+        db.collection("memberships").get(),
+      ]);
+
+      const membershipsByCompany: Record<string, number> = {};
+      membershipsSnap.docs.forEach(doc => {
+        const cid = doc.data().companyId;
+        if (cid) membershipsByCompany[cid] = (membershipsByCompany[cid] || 0) + 1;
+      });
+
+      const ownerUids = [...new Set(
+        companiesSnap.docs.map(d => d.data().ownerId).filter(Boolean)
+      )] as string[];
+
+      const ownerEmails: Record<string, string> = {};
+      await Promise.all(ownerUids.map(async uid => {
+        try {
+          const rec = await getAuth().getUser(uid);
+          ownerEmails[uid] = rec.email || "";
+        } catch (_) { ownerEmails[uid] = ""; }
+      }));
+
+      const companies = companiesSnap.docs
+        .map(doc => {
+          const d = doc.data();
+          return {
+            id: doc.id,
+            name: d.name || "Unnamed",
+            industry: d.industry || "",
+            ownerId: d.ownerId || "",
+            ownerEmail: ownerEmails[d.ownerId] || "",
+            plan: d.subscription?.planId || "starter",
+            status: d.subscription?.status || "active",
+            trialEndsAt: d.subscription?.trialEndsAt?.toDate?.()?.toISOString?.() || null,
+            createdAt: d.createdAt?.toDate?.()?.toISOString?.() || null,
+            memberCount: membershipsByCompany[doc.id] || 0,
+          };
+        })
+        .sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+
+      const stats = {
+        totalCompanies: companies.length,
+        totalUsers: usersSnap.size,
+        trialing: companies.filter(c => c.status === "trialing").length,
+        paid: companies.filter(c => c.plan !== "starter").length,
+        canceled: companies.filter(c => c.status === "canceled").length,
+      };
+
+      return res.json({ stats, companies });
+    } catch (err: any) {
+      console.error("/api/admin/overview error:", err);
+      res.status(500).json({ error: err?.message || "Failed to fetch admin data" });
     }
   });
 

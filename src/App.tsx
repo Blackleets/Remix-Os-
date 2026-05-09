@@ -18,6 +18,7 @@ import { Team } from './pages/Team';
 import { Copilot } from './components/Copilot';
 import { TrialBanner } from './components/TrialBanner';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { Admin } from './pages/Admin';
 import { AnimatePresence, motion } from 'motion/react';
 
 const ProtectedRoute = ({ children, allowedRoles }: { children: React.ReactNode; allowedRoles?: string[] }) => {
@@ -116,6 +117,7 @@ export default function App() {
           <Route path="/team" element={<ProtectedRoute><AppLayout><Team /></AppLayout></ProtectedRoute>} />
           <Route path="/settings" element={<ProtectedRoute><AppLayout><Settings /></AppLayout></ProtectedRoute>} />
           <Route path="/billing" element={<ProtectedRoute><AppLayout><Billing /></AppLayout></ProtectedRoute>} />
+          <Route path="/admin" element={<ProtectedRoute><AppLayout><Admin /></AppLayout></ProtectedRoute>} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </BrowserRouter>

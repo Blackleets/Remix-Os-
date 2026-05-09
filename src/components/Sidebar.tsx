@@ -1,17 +1,18 @@
 import { Link, useLocation } from 'react-router-dom';
 import { motion } from 'motion/react';
-import { 
-  Grip, 
-  User, 
-  Package, 
-  Database, 
-  Receipt, 
-  Shield, 
-  Sparkle, 
-  CreditCard, 
-  Settings, 
+import {
+  Grip,
+  User,
+  Package,
+  Database,
+  Receipt,
+  Shield,
+  Sparkle,
+  CreditCard,
+  Settings,
   LogOut,
-  X
+  X,
+  ShieldCheck
 } from 'lucide-react';
 import { cn } from './Common';
 import { useAuth } from '../contexts/AuthContext';
@@ -21,8 +22,9 @@ import { useTranslation } from 'react-i18next';
 
 export function Sidebar({ onClose }: { onClose?: () => void }) {
   const location = useLocation();
-  const { company, role } = useAuth();
+  const { company, role, user } = useAuth();
   const { t } = useTranslation();
+  const isSuperAdmin = user?.uid === import.meta.env.VITE_SUPER_ADMIN_UID;
 
   const navItems = [
     { icon: Grip, label: t('nav.dashboard'), path: '/dashboard' },
@@ -115,6 +117,28 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
             );
           })}
         </nav>
+
+        {/* Super Admin link */}
+        {isSuperAdmin && (
+          <div className="mt-6 pt-4 border-t border-white/[0.04]">
+            <p className="text-[9px] font-black text-neutral-800 uppercase tracking-[0.4em] mb-3">Platform</p>
+            <Link to="/admin" onClick={onClose} className="block">
+              <motion.div
+                whileHover={{ x: 4 }}
+                whileTap={{ scale: 0.98 }}
+                className={cn(
+                  'flex items-center gap-3 px-4 py-2.5 rounded-xl text-[11px] transition-all duration-300 group relative uppercase tracking-widest font-black',
+                  location.pathname === '/admin'
+                    ? 'bg-red-500/10 text-red-300 border border-red-500/10'
+                    : 'text-neutral-600 hover:text-red-400 hover:bg-red-500/5'
+                )}
+              >
+                <ShieldCheck className="w-3.5 h-3.5" />
+                Super Admin
+              </motion.div>
+            </Link>
+          </div>
+        )}
       </div>
 
       <div className="mt-auto p-6 space-y-2">
