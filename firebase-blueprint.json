@@ -130,6 +130,28 @@
       },
       "required": ["companyId", "productId", "type", "quantity"]
     },
+    "CashSession": {
+      "title": "Cash Session",
+      "description": "POS till session with opening and closing reconciliation",
+      "type": "object",
+      "properties": {
+        "companyId": { "type": "string" },
+        "status": { "type": "string", "enum": ["open", "closed"] },
+        "openingCash": { "type": "number" },
+        "openedAt": { "type": "string", "format": "date-time" },
+        "openedBy": { "type": "string" },
+        "openedByName": { "type": "string" },
+        "closedAt": { "type": "string", "format": "date-time" },
+        "closedBy": { "type": "string" },
+        "closedByName": { "type": "string" },
+        "closingNotes": { "type": "string" },
+        "salesCount": { "type": "number" },
+        "salesTotal": { "type": "number" },
+        "cashSalesTotal": { "type": "number" },
+        "expectedCash": { "type": "number" }
+      },
+      "required": ["companyId", "status", "openingCash"]
+    },
     "Order": {
       "title": "Order",
       "description": "Sales order",
@@ -251,6 +273,10 @@
     "/inventoryMovements/{movementId}": {
       "schema": "InventoryMovement",
       "description": "Stock logs"
+    },
+    "/cashSessions/{cashSessionId}": {
+      "schema": "CashSession",
+      "description": "POS cash drawer sessions"
     },
     "/orders/{orderId}": {
       "schema": "Order",

@@ -12,6 +12,7 @@ export interface SaleItemInput {
   productName: string;
   quantity: number;
   price: number;
+  sku?: string;
 }
 
 interface SaleMessageOptions {
@@ -30,6 +31,7 @@ export interface CreateSaleTransactionInput {
   tax?: number;
   total: number;
   channel?: string;
+  cashSessionId?: string | null;
   status?: 'pending' | 'completed' | 'cancelled';
   movementReason?: string;
   activityTitle?: string;
@@ -55,6 +57,7 @@ export async function createSaleTransaction(
     tax = 0,
     total,
     channel = 'manual',
+    cashSessionId = null,
     status = 'completed',
     movementReason = 'Sale',
     activityTitle = 'Order Confirmed',
@@ -121,6 +124,8 @@ export async function createSaleTransaction(
       totalAmount: total,
       itemCount: aggregatedItems.reduce((sum, item) => sum + item.quantity, 0),
       channel,
+      cashSessionId: cashSessionId || '',
+      itemsSnapshot: aggregatedItems,
       createdAt: serverTimestamp(),
     });
 
@@ -152,21 +157,21 @@ export async function createSaleTransaction(
     }
 
     if (customerRef && customerSnap?.exists()) {
-        const customerData = customerSnap.data();
-        const newTotalSpent = (customerData.totalSpent || 0) + total;
-        const newTotalOrders = (customerData.totalOrders || 0) + 1;
+      const customerData = customerSnap.data();
+      const newTotalSpent = (customerData.totalSpent || 0) + total;
+      const newTotalOrders = (customerData.totalOrders || 0) + 1;
 
-        let segment = 'regular';
-        if (newTotalSpent > 5000) segment = 'whale';
-        else if (newTotalSpent > 1000) segment = 'vip';
-        else if (newTotalOrders === 1) segment = 'new';
+      let segment = 'regular';
+      if (newTotalSpent > 5000) segment = 'whale';
+      else if (newTotalSpent > 1000) segment = 'vip';
+      else if (newTotalOrders === 1) segment = 'new';
 
-        transaction.update(customerRef, {
-          totalSpent: newTotalSpent,
-          totalOrders: newTotalOrders,
-          lastOrderAt: serverTimestamp(),
-          segment,
-        });
+      transaction.update(customerRef, {
+        totalSpent: newTotalSpent,
+        totalOrders: newTotalOrders,
+        lastOrderAt: serverTimestamp(),
+        segment,
+      });
     }
 
     const activityRef = doc(collection(db, 'activities'));

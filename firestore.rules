@@ -242,6 +242,15 @@ service cloud.firestore {
       allow create: if hasRole(incoming().companyId, ['owner', 'admin', 'staff']);
     }
 
+    match /cashSessions/{id} {
+      allow get: if isMember(resource.data.companyId);
+      allow list: if isSignedIn() && exists(/databases/$(database)/documents/memberships/$(request.auth.uid + '_' + resource.data.companyId));
+      allow create: if hasRole(incoming().companyId, ['owner', 'admin', 'staff']);
+      allow update: if hasRole(existing().companyId, ['owner', 'admin', 'staff']) &&
+                    incoming().companyId == existing().companyId;
+      allow delete: if hasRole(existing().companyId, ['owner', 'admin']);
+    }
+
     match /activities/{id} {
       allow read: if isMember(resource.data.companyId);
       allow create: if isMember(incoming().companyId) || isMemberAfter(incoming().companyId);

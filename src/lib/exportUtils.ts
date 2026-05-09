@@ -56,6 +56,8 @@ interface POSReceiptPDFData {
   tax: number;
   total: number;
   items: POSReceiptItem[];
+  logoURL?: string;
+  footerMessage?: string;
 }
 
 export function exportDashboardToPDF(companyName: string, modules: PDFModule[]) {
@@ -119,33 +121,61 @@ export function exportDashboardToPDF(companyName: string, modules: PDFModule[]) 
   doc.save(`${companyName.toLowerCase().replace(/\s+/g, '_')}_operational_report.pdf`);
 }
 
-export function exportPOSReceiptToPDF(data: POSReceiptPDFData) {
+async function imageUrlToDataUrl(url: string) {
+  const response = await fetch(url);
+  const blob = await response.blob();
+
+  return await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(String(reader.result));
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+export async function exportPOSReceiptToPDF(data: POSReceiptPDFData) {
   const doc = new jsPDF();
   const safeCompanyName = data.companyName.toLowerCase().replace(/\s+/g, '_');
+  const accent = [59, 130, 246] as const;
+  const silver = [163, 163, 163] as const;
+  const ivory = [245, 245, 245] as const;
 
   doc.setFillColor(8, 8, 8);
   doc.rect(0, 0, 210, 297, 'F');
 
+  doc.setFillColor(accent[0], accent[1], accent[2]);
+  doc.roundedRect(14, 14, 182, 26, 6, 6, 'F');
+
+  if (data.logoURL) {
+    try {
+      const image = await imageUrlToDataUrl(data.logoURL);
+      doc.addImage(image, 'PNG', 18, 18, 12, 12);
+    } catch (error) {
+      console.warn('Receipt logo skipped:', error);
+    }
+  }
+
   doc.setTextColor(255, 255, 255);
-  doc.setFontSize(22);
-  doc.text('REMIX POS RECEIPT', 14, 20);
+  doc.setFontSize(11);
+  doc.text(data.companyName.toUpperCase(), 34, 23);
+  doc.setFontSize(20);
+  doc.text('POS RECEIPT', 34, 31);
 
   doc.setFontSize(10);
-  doc.setTextColor(160, 160, 160);
-  doc.text(`Entity: ${data.companyName}`, 14, 28);
-  doc.text(`Order: ${data.orderId}`, 14, 34);
-  doc.text(`Generated: ${data.createdAt.toLocaleString()}`, 14, 40);
+  doc.setTextColor(silver[0], silver[1], silver[2]);
+  doc.text(`Order: ${data.orderId}`, 14, 52);
+  doc.text(`Generated: ${data.createdAt.toLocaleString()}`, 14, 58);
 
   doc.setDrawColor(60, 60, 60);
-  doc.line(14, 46, 196, 46);
+  doc.line(14, 64, 196, 64);
 
   doc.setFontSize(11);
-  doc.setTextColor(230, 230, 230);
-  doc.text(`Customer: ${data.customerName}`, 14, 56);
-  doc.text(`Payment: ${data.paymentMethod}`, 14, 63);
+  doc.setTextColor(ivory[0], ivory[1], ivory[2]);
+  doc.text(`Customer: ${data.customerName}`, 14, 74);
+  doc.text(`Payment: ${data.paymentMethod}`, 14, 81);
 
   autoTable(doc, {
-    startY: 72,
+    startY: 90,
     head: [['Item', 'SKU', 'Qty', 'Unit', 'Line Total']],
     body: data.items.map((item) => [
       item.name,
@@ -155,7 +185,7 @@ export function exportPOSReceiptToPDF(data: POSReceiptPDFData) {
       `$${(item.price * item.quantity).toFixed(2)}`,
     ]),
     theme: 'grid',
-    headStyles: { fillColor: [22, 22, 22], textColor: [255, 255, 255], fontSize: 9 },
+    headStyles: { fillColor: [20, 20, 20], textColor: [255, 255, 255], fontSize: 9 },
     bodyStyles: { fillColor: [8, 8, 8], textColor: [220, 220, 220], fontSize: 8 },
     alternateRowStyles: { fillColor: [12, 12, 12] },
     margin: { left: 14, right: 14 },
@@ -164,18 +194,22 @@ export function exportPOSReceiptToPDF(data: POSReceiptPDFData) {
   // @ts-ignore
   const summaryStart = doc.lastAutoTable.finalY + 12;
   doc.setFontSize(10);
-  doc.setTextColor(160, 160, 160);
+  doc.setTextColor(silver[0], silver[1], silver[2]);
   doc.text(`Subtotal: $${data.subtotal.toFixed(2)}`, 140, summaryStart);
   doc.text(`Discount: -$${data.discount.toFixed(2)}`, 140, summaryStart + 7);
   doc.text(`Tax: +$${data.tax.toFixed(2)}`, 140, summaryStart + 14);
 
+  doc.setFillColor(14, 14, 14);
+  doc.roundedRect(130, summaryStart + 18, 66, 16, 4, 4, 'F');
   doc.setFontSize(14);
-  doc.setTextColor(255, 255, 255);
-  doc.text(`Total: $${data.total.toFixed(2)}`, 140, summaryStart + 24);
+  doc.setTextColor(accent[0], accent[1], accent[2]);
+  doc.text(`Total: $${data.total.toFixed(2)}`, 136, summaryStart + 29);
 
   doc.setFontSize(8);
-  doc.setTextColor(120, 120, 120);
-  doc.text('Prepared for digital download. Print connector pending future hardware rollout.', 14, 285);
+  doc.setTextColor(silver[0], silver[1], silver[2]);
+  doc.text(data.footerMessage || 'Thank you for choosing Remix OS. Print connector pending future hardware rollout.', 14, 278, {
+    maxWidth: 182,
+  });
 
   doc.save(`${safeCompanyName}_pos_receipt_${data.orderId}.pdf`);
 }
