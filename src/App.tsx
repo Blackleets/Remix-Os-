@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { Sidebar } from './components/Sidebar';
 import { Topbar } from './components/Topbar';
@@ -16,15 +16,31 @@ import { Settings } from './pages/Settings';
 import { Billing } from './pages/Billing';
 import { Team } from './pages/Team';
 import { Copilot } from './components/Copilot';
+import { TrialBanner } from './components/TrialBanner';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { AnimatePresence, motion } from 'motion/react';
 
 const ProtectedRoute = ({ children, allowedRoles }: { children: React.ReactNode; allowedRoles?: string[] }) => {
   const { user, company, role, loading } = useAuth();
+  const { pathname } = useLocation();
 
-  if (loading) return <div className="flex items-center justify-center h-screen font-medium">Loading OS...</div>;
+  if (loading) return (
+    <div className="flex items-center justify-center h-screen bg-black font-medium text-neutral-500 text-sm tracking-widest uppercase">
+      Loading OS...
+    </div>
+  );
   if (!user) return <Navigate to="/auth" />;
-  if (!company && window.location.pathname !== '/onboarding') return <Navigate to="/onboarding" />;
+  if (!company && pathname !== '/onboarding') return <Navigate to="/onboarding" />;
   if (allowedRoles && role && !allowedRoles.includes(role)) return <Navigate to="/dashboard" />;
+
+  // Trial expiry gate: redirect to billing if trial has ended
+  if (company && company.subscription?.status === 'trialing' && pathname !== '/billing') {
+    const trialEndsAt = company.subscription.trialEndsAt;
+    if (trialEndsAt) {
+      const endDate: Date = trialEndsAt?.toDate ? trialEndsAt.toDate() : new Date(trialEndsAt);
+      if (endDate < new Date()) return <Navigate to="/billing" />;
+    }
+  }
 
   return <>{children}</>;
 };
@@ -67,7 +83,8 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
         {/* Abstract Background Elements */}
         <div className="absolute top-0 right-0 w-[300px] lg:w-[500px] h-[300px] lg:h-[500px] bg-blue-600/5 rounded-full blur-[120px] -z-10 pointer-events-none" />
         <div className="absolute bottom-0 left-0 w-[300px] lg:w-[500px] h-[300px] lg:h-[500px] bg-purple-600/5 rounded-full blur-[120px] -z-10 pointer-events-none" />
-        
+
+        <TrialBanner />
         <Topbar onMenuClick={() => setIsSidebarOpen(true)} />
         <main className="flex-1 p-4 lg:p-10">
           <div className="max-w-7xl mx-auto">
@@ -82,6 +99,7 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
 
 export default function App() {
   return (
+    <ErrorBoundary>
     <AuthProvider>
       <BrowserRouter>
         <Routes>
@@ -102,5 +120,6 @@ export default function App() {
         </Routes>
       </BrowserRouter>
     </AuthProvider>
+    </ErrorBoundary>
   );
 }

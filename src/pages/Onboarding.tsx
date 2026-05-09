@@ -120,7 +120,8 @@ export function Onboarding() {
         },
         subscription: {
           planId: 'starter',
-          status: 'active'
+          status: 'trialing',
+          trialEndsAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
         }
       });
 

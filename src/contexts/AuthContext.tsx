@@ -31,6 +31,7 @@ interface Company {
     planId: 'starter' | 'pro' | 'business';
     status: 'active' | 'past_due' | 'trialing' | 'canceled';
     currentPeriodEnd?: any;
+    trialEndsAt?: any;
   };
 }
 
