@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, Button } from '../components/Common';
 import { 
@@ -27,17 +27,19 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../lib/firebase';
 import { collection, query, where, limit, orderBy, Timestamp, onSnapshot, getDocs } from 'firebase/firestore';
-import { 
-  AreaChart, 
-  Area, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
-  ResponsiveContainer 
+import {
+  AreaChart,
+  Area,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer
 } from 'recharts';
 import { motion } from 'motion/react';
-import { format, subDays, startOfDay, eachDayOfInterval, isSameDay } from 'date-fns';
+import { format, subDays, startOfDay, eachDayOfInterval, isSameDay, startOfWeek, isSameWeek } from 'date-fns';
 import { exportDashboardToPDF } from '../lib/exportUtils';
 import { cn } from '../components/Common';
 import { useLocale } from '../hooks/useLocale';
@@ -48,6 +50,13 @@ interface ActivityItem {
   title: string;
   subtitle: string;
   createdAt: Timestamp;
+}
+
+interface LowStockProduct {
+  id: string;
+  name: string;
+  stockLevel: number;
+  sku: string;
 }
 
 export function Dashboard() {
@@ -64,7 +73,10 @@ export function Dashboard() {
   });
 
   const [chartData, setChartData] = useState<{ name: string; sales: number }[]>([]);
+  const [allOrderDocs, setAllOrderDocs] = useState<any[]>([]);
   const [activities, setActivities] = useState<ActivityItem[]>([]);
+  const [lowStockProducts, setLowStockProducts] = useState<LowStockProduct[]>([]);
+  const [timeRange, setTimeRange] = useState<'7d' | '30d'>('7d');
 
   useEffect(() => {
     if (!company) return;
@@ -104,29 +116,8 @@ export function Dashboard() {
         revenueChange = 'NEW';
       }
 
-      setStats(prev => ({
-        ...prev,
-        orders: snapshot.size,
-        revenue: totalRev,
-        revenueChange
-      }));
-
-      // Process Chart Data (reuse now/sevenDaysAgo already declared above)
-      const days = eachDayOfInterval({ start: sevenDaysAgo, end: now });
-      const dayWiseSales = days.map(day => {
-        const salesForDay = snapshot.docs
-          .filter(doc => {
-            const date = doc.data().createdAt?.toDate();
-            return date && isSameDay(date, day);
-          })
-          .reduce((sum, doc) => sum + (doc.data().total || 0), 0);
-
-        return {
-          name: format(day, 'EEE'),
-          sales: salesForDay
-        };
-      });
-      setChartData(dayWiseSales);
+      setStats(prev => ({ ...prev, orders: snapshot.size, revenue: totalRev, revenueChange }));
+      setAllOrderDocs(snapshot.docs.map(d => d.data()));
     }, (error) => {
       console.error('Dashboard orders listener error:', error);
       setLoading(false);
@@ -140,11 +131,16 @@ export function Dashboard() {
       console.error('Dashboard customers listener error:', error);
     });
 
-    // 3. Products Listener — flips loading off on success or error so the
-    // page never hangs on the spinner if products is the failing query.
+    // 3. Products Listener
     const productsQ = query(collection(db, 'products'), where('companyId', '==', company.id));
     const unsubscribeProducts = onSnapshot(productsQ, (snapshot) => {
       setStats(prev => ({ ...prev, products: snapshot.size }));
+      const low = snapshot.docs
+        .map(d => ({ id: d.id, ...d.data() } as LowStockProduct & { status?: string }))
+        .filter(p => p.status !== 'archived' && p.stockLevel <= 5)
+        .sort((a, b) => a.stockLevel - b.stockLevel)
+        .slice(0, 5);
+      setLowStockProducts(low);
       setLoading(false);
     }, (error) => {
       console.error('Dashboard products listener error:', error);
@@ -178,6 +174,36 @@ export function Dashboard() {
       unsubscribeActivity();
     };
   }, [company]);
+
+  const computedChartData = useMemo(() => {
+    const now = new Date();
+    if (timeRange === '7d') {
+      const sevenDaysAgo = subDays(startOfDay(now), 6);
+      const days = eachDayOfInterval({ start: sevenDaysAgo, end: now });
+      return days.map(day => ({
+        name: format(day, 'EEE'),
+        sales: allOrderDocs
+          .filter(d => { const dt = d.createdAt?.toDate?.(); return dt && isSameDay(dt, day); })
+          .reduce((s, d) => s + (d.total || 0), 0),
+      }));
+    } else {
+      // 30d: aggregate by week (4-5 data points)
+      const thirtyDaysAgo = subDays(startOfDay(now), 29);
+      const days = eachDayOfInterval({ start: thirtyDaysAgo, end: now });
+      const weeks: { name: string; sales: number }[] = [];
+      days.forEach(day => {
+        const weekStart = startOfWeek(day, { weekStartsOn: 1 });
+        const label = format(weekStart, 'MMM d');
+        const existing = weeks.find(w => w.name === label);
+        const salesForDay = allOrderDocs
+          .filter(d => { const dt = d.createdAt?.toDate?.(); return dt && isSameDay(dt, day); })
+          .reduce((s, d) => s + (d.total || 0), 0);
+        if (existing) existing.sales += salesForDay;
+        else weeks.push({ name: label, sales: salesForDay });
+      });
+      return weeks;
+    }
+  }, [allOrderDocs, timeRange]);
 
   const [exporting, setExporting] = useState(false);
   const showChecklist = stats.products === 0 || stats.customers === 0 || stats.orders === 0;
@@ -417,43 +443,52 @@ export function Dashboard() {
           {/* Charts Row */}
           <div className="grid lg:grid-cols-2 gap-8">
             <Card className="relative overflow-hidden group p-6">
-              <div className="flex justify-between items-center mb-8">
+              <div className="flex justify-between items-center mb-6">
                 <div className="space-y-1">
                   <h3 className="font-display font-bold text-xl tracking-tight">{t('dashboard.financial_intelligence')}</h3>
                   <p className="text-[10px] text-neutral-500 font-bold uppercase tracking-widest">{t('dashboard.revenue_optimization')}</p>
                 </div>
-                <div className="w-9 h-9 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-500">
-                  <TrendingUp className="w-4 h-4" />
+                <div className="flex items-center gap-2">
+                  {(['7d', '30d'] as const).map(r => (
+                    <button
+                      key={r}
+                      onClick={() => setTimeRange(r)}
+                      className={cn(
+                        'text-[10px] font-bold uppercase tracking-widest px-3 py-1.5 rounded-lg transition-all',
+                        timeRange === r
+                          ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
+                          : 'text-neutral-600 hover:text-neutral-400'
+                      )}
+                    >
+                      {r}
+                    </button>
+                  ))}
                 </div>
               </div>
-              <div className="h-[280px] -mx-2">
-                {chartData.some(d => d.sales > 0) ? (
+              <div className="h-[260px] -mx-2">
+                {computedChartData.some(d => d.sales > 0) ? (
                   <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={chartData}>
-                      <defs>
-                        <linearGradient id="colorSales" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.2}/>
-                          <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.03)" />
-                      <XAxis 
-                        dataKey="name" 
-                        axisLine={false} 
-                        tickLine={false} 
-                        tick={{ fontSize: 10, fill: '#666', fontWeight: 600 }} 
-                        dy={10}
-                      />
-                      <Tooltip 
-                        contentStyle={{ 
-                          backgroundColor: '#0A0A0A', 
-                          border: '1px solid rgba(255,255,255,0.1)', 
-                          borderRadius: '16px',
-                          fontSize: '12px'
-                        }}
-                      />
-                      <Area type="monotone" dataKey="sales" stroke="#3b82f6" strokeWidth={3} fillOpacity={1} fill="url(#colorSales)" />
-                    </AreaChart>
+                    {timeRange === '7d' ? (
+                      <AreaChart data={computedChartData}>
+                        <defs>
+                          <linearGradient id="colorSales" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.2}/>
+                            <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.03)" />
+                        <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#666', fontWeight: 600 }} dy={10} />
+                        <Tooltip contentStyle={{ backgroundColor: '#0A0A0A', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '16px', fontSize: '12px' }} />
+                        <Area type="monotone" dataKey="sales" stroke="#3b82f6" strokeWidth={3} fillOpacity={1} fill="url(#colorSales)" />
+                      </AreaChart>
+                    ) : (
+                      <BarChart data={computedChartData} barSize={28}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.03)" />
+                        <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#666', fontWeight: 600 }} dy={10} />
+                        <Tooltip contentStyle={{ backgroundColor: '#0A0A0A', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '16px', fontSize: '12px' }} />
+                        <Bar dataKey="sales" fill="#3b82f6" radius={[6, 6, 0, 0]} fillOpacity={0.85} />
+                      </BarChart>
+                    )}
                   </ResponsiveContainer>
                 ) : (
                   <div className="h-full flex flex-col items-center justify-center text-neutral-600 border border-dashed border-white/5 rounded-2xl bg-white/[0.01]">
@@ -498,6 +533,54 @@ export function Dashboard() {
               </div>
             </Card>
           </div>
+          {/* Low Stock Alert */}
+          {lowStockProducts.length > 0 && (
+            <Card className="p-6 border-amber-500/20 bg-amber-500/[0.02]">
+              <div className="flex items-center justify-between mb-6">
+                <div className="space-y-1">
+                  <h3 className="font-display font-bold text-lg tracking-tight flex items-center gap-2">
+                    <Zap className="w-4 h-4 text-amber-400" />
+                    {t('dashboard.low_stock_alert') || 'Low Stock Alert'}
+                  </h3>
+                  <p className="text-[10px] text-neutral-500 font-bold uppercase tracking-widest">
+                    {lowStockProducts.length} {t('dashboard.low_stock_items') || 'items need attention'}
+                  </p>
+                </div>
+                <button
+                  onClick={() => navigate('/inventory')}
+                  className="text-[10px] font-bold text-amber-400 hover:text-amber-300 uppercase tracking-widest flex items-center gap-1 transition-colors"
+                >
+                  {t('dashboard.manage') || 'Manage'} <ArrowUpRight className="w-3 h-3" />
+                </button>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
+                {lowStockProducts.map(p => (
+                  <div
+                    key={p.id}
+                    onClick={() => navigate('/inventory')}
+                    className="p-4 rounded-2xl bg-white/[0.02] border border-white/[0.05] hover:border-amber-500/30 cursor-pointer transition-all group"
+                  >
+                    <div className="flex justify-between items-start mb-2">
+                      <span className={cn(
+                        'text-lg font-black tabular-nums',
+                        p.stockLevel === 0 ? 'text-red-400' : 'text-amber-400'
+                      )}>
+                        {p.stockLevel}
+                      </span>
+                      <span className={cn(
+                        'text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded',
+                        p.stockLevel === 0 ? 'bg-red-500/10 text-red-400' : 'bg-amber-500/10 text-amber-400'
+                      )}>
+                        {p.stockLevel === 0 ? (t('dashboard.out_of_stock') || 'OUT') : (t('dashboard.low') || 'LOW')}
+                      </span>
+                    </div>
+                    <p className="text-xs font-bold text-neutral-300 truncate group-hover:text-white transition-colors">{p.name}</p>
+                    {p.sku && <p className="text-[9px] text-neutral-600 font-mono mt-0.5 truncate">{p.sku}</p>}
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
         </div>
 
         {/* AI Assistant Sidebar */}

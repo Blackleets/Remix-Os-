@@ -5,6 +5,8 @@ import { Plus, Search, Box, Trash2, Tag, DollarSign, Layers, Edit2, Download } f
 import { useAuth } from '../contexts/AuthContext';
 import { useLocale } from '../hooks/useLocale';
 import { usePermissions } from '../hooks/usePermissions';
+import { useToast } from '../contexts/ToastContext';
+import { useConfirm } from '../contexts/ConfirmContext';
 import { db } from '../lib/firebase';
 import { collection, query, where, getDocs, addDoc, serverTimestamp, doc, deleteDoc, updateDoc, writeBatch } from 'firebase/firestore';
 import { motion, AnimatePresence } from 'motion/react';
@@ -30,6 +32,8 @@ export function Products() {
   const { t, formatCurrency } = useLocale();
   const location = useLocation();
   const navigate = useNavigate();
+  const toast = useToast();
+  const confirm = useConfirm();
   const [products, setProducts] = useState<Product[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false);
@@ -151,6 +155,7 @@ export function Products() {
       setSelectedProduct(null);
       setForm({ name: '', price: '', stockLevel: '', category: '', sku: '', description: '', status: 'active', imageURL: '' });
       fetchProducts();
+      toast.success(selectedProduct ? t('products.updated_ok') || 'Product updated.' : t('products.created_ok') || 'Product added to catalog.');
     } catch (err: any) {
       setFormError(err?.message || 'Failed to save product.');
     } finally {
@@ -182,23 +187,28 @@ export function Products() {
 
   const handleDelete = async (id: string) => {
     if (!company) return;
-    if (!confirm(t('products.delete_confirm'))) return;
+    const ok = await confirm({
+      title: t('products.delete_confirm_title') || 'Delete product?',
+      message: t('products.delete_confirm') || 'This action cannot be undone.',
+      confirmLabel: t('common.delete') || 'Delete',
+      danger: true,
+    });
+    if (!ok) return;
     try {
-      // Block delete if the product has been part of any sale (movements
-      // reference orphaned product ids otherwise).
       const movementsSnap = await getDocs(query(
         collection(db, 'inventoryMovements'),
         where('companyId', '==', company.id),
         where('productId', '==', id)
       ));
       if (!movementsSnap.empty) {
-        setFormError('This product has sales history and cannot be deleted. Mark it inactive instead.');
+        toast.warning('This product has sales history. Mark it inactive instead.');
         return;
       }
       await deleteDoc(doc(db, 'products', id));
       fetchProducts();
+      toast.success(t('products.deleted_ok') || 'Product deleted.');
     } catch (err: any) {
-      setFormError(err?.message || 'Failed to delete product.');
+      toast.error(err?.message || 'Failed to delete product.');
     }
   };
 

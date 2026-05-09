@@ -24,6 +24,8 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { useLocale } from '../hooks/useLocale';
 import { usePermissions } from '../hooks/usePermissions';
+import { useToast } from '../contexts/ToastContext';
+import { useConfirm } from '../contexts/ConfirmContext';
 import { db } from '../lib/firebase';
 import {
   collection,
@@ -99,6 +101,8 @@ const MESSAGE_TEMPLATES_LOCALIZED = (t: any) => [
 export function Customers() {
   const { company, role } = useAuth();
   const { t, formatCurrency, formatDate } = useLocale();
+  const toast = useToast();
+  const confirm = useConfirm();
   const SEGMENTS = SEGMENTS_LOCALIZED(t);
   const MESSAGE_TEMPLATES = MESSAGE_TEMPLATES_LOCALIZED(t);
   const location = useLocation();
@@ -298,9 +302,10 @@ export function Customers() {
       setSelectedCustomer(null);
       setForm({ name: '', email: '', phone: '', imageURL: '' });
       fetchCustomers();
+      toast.success(selectedCustomer ? 'Customer updated.' : 'Customer added.');
     } catch (err: any) {
       console.error(err);
-      alert(err?.message || 'Failed to save customer.');
+      toast.error(err?.message || 'Failed to save customer.');
     } finally {
       setLoading(false);
     }
@@ -326,10 +331,14 @@ export function Customers() {
 
   const handleDelete = async (id: string) => {
     if (!company) return;
-    if (!confirm(t('customers.delete_confirm'))) return;
+    const ok = await confirm({
+      title: t('customers.delete_confirm_title') || 'Delete customer?',
+      message: t('customers.delete_confirm') || 'This action cannot be undone.',
+      confirmLabel: t('common.delete') || 'Delete',
+      danger: true,
+    });
+    if (!ok) return;
     try {
-      // Block delete if the customer is referenced by any order so order
-      // history doesn't dangle to a missing customer doc.
       const ordersSnap = await getDocs(query(
         collection(db, 'orders'),
         where('companyId', '==', company.id),
@@ -337,14 +346,15 @@ export function Customers() {
         limit(1)
       ));
       if (!ordersSnap.empty) {
-        alert('This customer has orders and cannot be deleted.');
+        toast.warning('This customer has orders and cannot be deleted.');
         return;
       }
       await deleteDoc(doc(db, 'customers', id));
       fetchCustomers();
+      toast.success('Customer deleted.');
     } catch (err: any) {
       console.error(err);
-      alert(err?.message || 'Failed to delete customer.');
+      toast.error(err?.message || 'Failed to delete customer.');
     }
   };
 

@@ -3,6 +3,8 @@ import { Card, Button, Input, Label, cn } from '../components/Common';
 import { Plus, UserPlus, Mail, Shield, MoreVertical, Trash2, ShieldCheck, Clock, CheckCircle2, XCircle } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useLocale } from '../hooks/useLocale';
+import { useToast } from '../contexts/ToastContext';
+import { useConfirm } from '../contexts/ConfirmContext';
 import { db, auth } from '../lib/firebase';
 import { collection, query, where, getDocs, addDoc, serverTimestamp, doc, deleteDoc, updateDoc, getDoc, setDoc } from 'firebase/firestore';
 import { motion, AnimatePresence } from 'motion/react';
@@ -30,6 +32,8 @@ interface Invitation {
 export function Team() {
   const { company, role: myRole } = useAuth();
   const { t } = useLocale();
+  const toast = useToast();
+  const confirm = useConfirm();
   const [members, setMembers] = useState<Member[]>([]);
   const [invitations, setInvitations] = useState<Invitation[]>([]);
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
@@ -136,16 +140,23 @@ export function Team() {
   };
 
   const handleUpdateRole = async (memberId: string, newRole: string) => {
-    if (!confirm(t('team.alerts.change_role', { role: newRole }))) return;
-    
+    const ok = await confirm({
+      title: t('team.alerts.change_role_title') || 'Change role?',
+      message: t('team.alerts.change_role', { role: newRole }) || `Set role to ${newRole}?`,
+      confirmLabel: t('common.confirm') || 'Confirm',
+    });
+    if (!ok) return;
+
     try {
       await updateDoc(doc(db, 'memberships', memberId), {
         role: newRole,
         updatedAt: serverTimestamp(),
       });
       fetchTeam();
+      toast.success(t('team.role_updated') || 'Role updated.');
     } catch (err) {
       console.error(err);
+      toast.error(t('common.error') || 'Something went wrong.');
     }
   };
 
@@ -153,17 +164,21 @@ export function Team() {
     if (member.role === 'owner') {
       const owners = members.filter(m => m.role === 'owner');
       if (owners.length <= 1) {
-        alert(t('team.alerts.owner_termination'));
+        toast.error(t('team.alerts.owner_termination') || 'Cannot remove the only owner.');
         return;
       }
     }
-    
-    if (!confirm(t('team.alerts.remove_member', { email: member.email }))) return;
+
+    const ok = await confirm({
+      title: t('team.alerts.remove_title') || 'Remove member?',
+      message: t('team.alerts.remove_member', { email: member.email }) || `Remove ${member.email} from the team?`,
+      confirmLabel: t('common.remove') || 'Remove',
+      danger: true,
+    });
+    if (!ok) return;
 
     try {
       await deleteDoc(doc(db, 'memberships', member.id));
-      
-      // Log Activity
       await addDoc(collection(db, 'activities'), {
         type: 'team_remove',
         title: t('team.activity.remove_title'),
@@ -171,23 +186,32 @@ export function Team() {
         companyId: company?.id,
         createdAt: serverTimestamp(),
       });
-
       fetchTeam();
+      toast.success(t('team.member_removed') || 'Member removed.');
     } catch (err) {
       console.error(err);
+      toast.error(t('common.error') || 'Something went wrong.');
     }
   };
 
   const handleRevokeInvite = async (inviteId: string) => {
-    if (!confirm(t('team.alerts.revoke_invite'))) return;
+    const ok = await confirm({
+      title: t('team.alerts.revoke_title') || 'Revoke invitation?',
+      message: t('team.alerts.revoke_invite') || 'The invitation link will be invalidated.',
+      confirmLabel: t('common.revoke') || 'Revoke',
+      danger: true,
+    });
+    if (!ok) return;
     try {
       await updateDoc(doc(db, 'invitations', inviteId), {
         status: 'revoked',
         updatedAt: serverTimestamp(),
       });
       fetchTeam();
+      toast.info(t('team.invite_revoked') || 'Invitation revoked.');
     } catch (err) {
       console.error(err);
+      toast.error(t('common.error') || 'Something went wrong.');
     }
   };
 
