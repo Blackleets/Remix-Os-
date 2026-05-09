@@ -311,27 +311,72 @@ const resources = {
           title: 'POS Access Restricted',
           description: 'Your role can view the operational shell, but cannot complete point-of-sale transactions.'
         },
+        command: {
+          title: 'POS Command Bar',
+          placeholder: 'Search products and press Enter to add',
+          empty: 'No products match the current command.',
+          enter_hint: 'Enter add selected',
+          escape_hint: 'Esc clear selection',
+          reopen_hint: 'Cmd/Ctrl+K reopen'
+        },
         catalog: {
+          label: 'Catalog Feed',
           title: 'Active Products',
           search_placeholder: 'Search by name or SKU',
+          live: '{{count}} live',
           stock: 'Stock {{count}}',
           add: 'Add',
+          out_of_stock: 'No Stock',
           empty_title: 'No active products match this scan.',
           empty_subtitle: 'Try another name or SKU to populate the sales lane.'
         },
         cart: {
+          label: 'Sale Builder',
           title: 'Cart Lane',
           available: 'Available {{count}}',
           stock_error: 'Quantity exceeds live stock.',
           empty_title: 'Cart is empty.',
           empty_subtitle: 'Tap products from the live catalog to start the sale.'
         },
+        pulse: {
+          label: 'AI Sales Pulse',
+          title: 'Real-time basket intelligence'
+        },
+        quick: {
+          label: 'Smart Quick Actions',
+          title: 'Speed controls',
+          discount: 'Quick 10%',
+          guest: 'Guest Sale',
+          clear: 'Clear Cart',
+          duplicate: 'Duplicate Last'
+        },
+        cash: {
+          label: 'Cash Session',
+          title: 'Shift register',
+          safe_fallback: 'Cash session controls are in safe fallback mode until cashSessions Firestore rules are deployed.',
+          open_session: 'Open session',
+          opened_with: 'Opened with {{amount}}',
+          turn_sales: 'Turn sales',
+          cash_expected: 'Cash expected',
+          sales_count: 'Sales count',
+          cash_sales: 'Cash sales',
+          closing_notes: 'Closing notes',
+          closing_placeholder: 'Capture variance notes, payouts, or operator remarks.',
+          closing: 'Closing Session',
+          close: 'Close Cash Session',
+          opening_cash: 'Opening cash',
+          opening: 'Opening Session',
+          open: 'Open Cash Session'
+        },
         checkout: {
+          label: 'Checkout Core',
           title: 'Settlement Panel',
           customer: 'Customer',
           guest_checkout: 'Guest checkout',
           current_customer: 'Current counterparty: {{customerName}}',
           payment_method: 'Payment Method',
+          receipt_message: 'Receipt message',
+          receipt_placeholder: 'Thank you for shopping with us.',
           processing: 'Processing Sale',
           complete_sale: 'Complete Sale'
         },
@@ -353,10 +398,14 @@ const resources = {
           download_pdf: 'Download PDF',
           print_coming_soon: 'Print Coming Soon',
           ledger: 'Receipt Ledger',
-          order: 'Order'
+          order: 'Order',
+          qty: 'Qty {{count}}',
+          each: 'each'
         },
         integrations: {
+          label: 'Roadmap Surface',
           title: 'POS Integrations Coming Soon',
+          pending: 'Pending',
           note: 'Hardware connectors stay visual-only in this rollout.'
         }
       },
@@ -881,32 +930,77 @@ const resources = {
       },
       pos: {
         title: 'Punto de Venta',
-        subtitle: 'Ejecuta ventas de mostrador rÃ¡pidas mientras sigues sincronizado con tu inventario en vivo.',
+        subtitle: 'Ejecuta ventas de mostrador rápidas mientras sigues sincronizado con tu inventario en vivo.',
         access: {
           title: 'Acceso POS Restringido',
-          description: 'Tu rol puede ver el mÃ³dulo operativo, pero no completar transacciones de punto de venta.'
+          description: 'Tu rol puede ver el módulo operativo, pero no completar transacciones de punto de venta.'
+        },
+        command: {
+          title: 'Barra de Comandos POS',
+          placeholder: 'Busca productos y presiona Enter para agregar',
+          empty: 'No hay productos que coincidan con el comando actual.',
+          enter_hint: 'Enter agrega selección',
+          escape_hint: 'Esc limpia selección',
+          reopen_hint: 'Cmd/Ctrl+K reabre'
         },
         catalog: {
+          label: 'Flujo de Catálogo',
           title: 'Productos Activos',
           search_placeholder: 'Buscar por nombre o SKU',
+          live: '{{count}} en vivo',
           stock: 'Stock {{count}}',
           add: 'Agregar',
-          empty_title: 'No hay productos activos que coincidan con la bÃºsqueda.',
-          empty_subtitle: 'Prueba con otro nombre o SKU para poblar la lÃ­nea de venta.'
+          out_of_stock: 'Sin stock',
+          empty_title: 'No hay productos activos que coincidan con la búsqueda.',
+          empty_subtitle: 'Prueba con otro nombre o SKU para poblar la línea de venta.'
         },
         cart: {
+          label: 'Constructor de Venta',
           title: 'Carril del Carrito',
           available: 'Disponible {{count}}',
           stock_error: 'La cantidad supera el stock en vivo.',
-          empty_title: 'El carrito estÃ¡ vacÃ­o.',
-          empty_subtitle: 'Toca productos del catÃ¡logo en vivo para iniciar la venta.'
+          empty_title: 'El carrito está vacío.',
+          empty_subtitle: 'Toca productos del catálogo en vivo para iniciar la venta.'
+        },
+        pulse: {
+          label: 'AI Sales Pulse',
+          title: 'Inteligencia de cesta en tiempo real'
+        },
+        quick: {
+          label: 'Acciones Rápidas Inteligentes',
+          title: 'Controles rápidos',
+          discount: 'Descuento 10%',
+          guest: 'Venta invitado',
+          clear: 'Limpiar carrito',
+          duplicate: 'Duplicar última'
+        },
+        cash: {
+          label: 'Sesión de Caja',
+          title: 'Control de turno',
+          safe_fallback: 'Los controles de caja están en modo seguro hasta que se desplieguen las reglas de Firestore para cashSessions.',
+          open_session: 'Sesión abierta',
+          opened_with: 'Abierta con {{amount}}',
+          turn_sales: 'Ventas del turno',
+          cash_expected: 'Efectivo esperado',
+          sales_count: 'Cantidad de ventas',
+          cash_sales: 'Ventas en efectivo',
+          closing_notes: 'Notas de cierre',
+          closing_placeholder: 'Registra diferencias, pagos o comentarios del operador.',
+          closing: 'Cerrando sesión',
+          close: 'Cerrar sesión de caja',
+          opening_cash: 'Efectivo inicial',
+          opening: 'Abriendo sesión',
+          open: 'Abrir sesión de caja'
         },
         checkout: {
+          label: 'Núcleo de Cobro',
           title: 'Panel de Cobro',
           customer: 'Cliente',
           guest_checkout: 'Compra como invitado',
           current_customer: 'Contraparte actual: {{customerName}}',
-          payment_method: 'MÃ©todo de Pago',
+          payment_method: 'Método de Pago',
+          receipt_message: 'Mensaje del recibo',
+          receipt_placeholder: 'Gracias por comprar con nosotros.',
           processing: 'Procesando Venta',
           complete_sale: 'Completar Venta'
         },
@@ -923,15 +1017,19 @@ const resources = {
           generated_for: 'Recibo #{{orderId}} generado para {{customerName}}.',
           date: 'Fecha',
           payment: 'Pago',
-          items: 'ArtÃ­culos',
+          items: 'Artículos',
           total: 'Total',
           download_pdf: 'Descargar PDF',
-          print_coming_soon: 'ImpresiÃ³n PrÃ³ximamente',
+          print_coming_soon: 'Impresión Próximamente',
           ledger: 'Libro del Recibo',
-          order: 'Orden'
+          order: 'Orden',
+          qty: 'Cant. {{count}}',
+          each: 'c/u'
         },
         integrations: {
-          title: 'Integraciones POS PrÃ³ximamente',
+          label: 'Superficie de Ruta',
+          title: 'Integraciones POS Próximamente',
+          pending: 'Pendiente',
           note: 'Los conectores de hardware permanecen solo como vista visual en este rollout.'
         }
       },

@@ -340,6 +340,8 @@ export function POS() {
   const getAvailableStock = (productId: string) =>
     products.find((product) => product.id === productId)?.stockLevel ?? 0;
 
+  const hasCartStockIssue = cart.some((item) => item.quantity > getAvailableStock(item.productId));
+
   const clearCart = () => {
     setCart([]);
     setDiscountInput('0');
@@ -757,7 +759,7 @@ export function POS() {
   }
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6 pb-28 xl:pb-10 xl:pr-24 2xl:pr-28">
       <AnimatePresence>
         {isCommandBarOpen && (
           <>
@@ -781,7 +783,7 @@ export function POS() {
                     ref={commandBarInputRef}
                     value={search}
                     onChange={(event) => setSearch(event.target.value)}
-                    placeholder="Search products and hit Enter to add"
+                    placeholder={t('pos.command.placeholder')}
                     className="border-0 bg-transparent px-0 py-0 h-auto focus:ring-0"
                   />
                   <button
@@ -812,7 +814,7 @@ export function POS() {
                         <div>
                           <p className="text-white font-bold">{product.name}</p>
                           <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-600 font-black">
-                            {product.sku || 'NO_SKU'} · Stock {product.stockLevel}
+                            {(product.sku || 'NO_SKU')} / {t('pos.catalog.stock', { count: product.stockLevel })}
                           </p>
                         </div>
                         <p className="text-white font-mono">{formatCurrency(product.price)}</p>
@@ -820,15 +822,13 @@ export function POS() {
                     </button>
                   ))}
                   {filteredProducts.length === 0 && (
-                    <div className="px-4 py-10 text-center text-neutral-500 text-sm">
-                      No products match the current command.
-                    </div>
+                    <div className="px-4 py-10 text-center text-neutral-500 text-sm">{t('pos.command.empty')}</div>
                   )}
                 </div>
                 <div className="px-5 py-3 border-t border-white/[0.06] text-[11px] text-neutral-600 flex flex-wrap gap-4 uppercase tracking-[0.2em]">
-                  <span>Enter add selected</span>
-                  <span>Esc clear selection</span>
-                  <span>Cmd/Ctrl+K reopen</span>
+                  <span>{t('pos.command.enter_hint')}</span>
+                  <span>{t('pos.command.escape_hint')}</span>
+                  <span>{t('pos.command.reopen_hint')}</span>
                 </div>
               </div>
             </motion.div>
@@ -854,7 +854,7 @@ export function POS() {
             className="px-4 py-2 rounded-2xl border border-blue-500/20 bg-blue-500/10 text-xs uppercase tracking-[0.25em] text-blue-300 font-bold flex items-center gap-2"
           >
             <Command className="w-3.5 h-3.5" />
-            POS Command Bar
+            {t('pos.command.title')}
           </button>
         </div>
       </div>
@@ -943,7 +943,7 @@ export function POS() {
             <div className="px-6 py-4 border-b border-white/10 flex items-center justify-between">
               <div>
                 <p className="text-xs font-black uppercase tracking-[0.25em] text-neutral-600">{t('pos.receipt.ledger')}</p>
-                <p className="text-sm text-neutral-400 mt-1">{latestReceipt.customerName} · {latestReceipt.paymentMethod}</p>
+                <p className="text-sm text-neutral-400 mt-1">{latestReceipt.customerName} / {latestReceipt.paymentMethod}</p>
               </div>
               <div className="text-right">
                 <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-600 font-black">{t('pos.receipt.order')}</p>
@@ -957,12 +957,12 @@ export function POS() {
                   <div className="min-w-0">
                     <p className="text-white font-bold truncate">{item.name}</p>
                     <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-600 font-black">
-                      {item.sku || 'NO_SKU'} · Qty {item.quantity}
+                      {(item.sku || 'NO_SKU')} / {t('pos.receipt.qty', { count: item.quantity })}
                     </p>
                   </div>
                   <div className="text-right shrink-0">
                     <p className="text-sm font-mono text-white">{formatCurrency(item.price * item.quantity)}</p>
-                    <p className="text-[10px] text-neutral-600">{formatCurrency(item.price)} each</p>
+                    <p className="text-[10px] text-neutral-600">{formatCurrency(item.price)} {t('pos.receipt.each')}</p>
                   </div>
                 </div>
               ))}
@@ -993,16 +993,16 @@ export function POS() {
         </Card>
       )}
 
-      <div className="grid grid-cols-1 xl:grid-cols-[1.2fr_1fr_380px] gap-6">
+      <div className="grid grid-cols-1 items-start gap-5 md:grid-cols-2 xl:grid-cols-[380px_minmax(420px,1fr)_420px]">
         <Card className="p-0 overflow-hidden border-white/5 bg-neutral-900/40">
-          <div className="p-6 border-b border-white/[0.05] bg-white/[0.01] space-y-4">
+          <div className="space-y-4 border-b border-white/[0.05] bg-white/[0.01] p-5">
             <div className="flex items-center justify-between gap-4">
               <div>
-                <p className="text-[10px] font-black text-neutral-600 uppercase tracking-[0.35em] mb-2">Catalog Feed</p>
+                <p className="mb-2 text-[10px] font-black uppercase tracking-[0.35em] text-neutral-600">{t('pos.catalog.label')}</p>
                 <h2 className="text-white font-bold text-lg">{t('pos.catalog.title')}</h2>
               </div>
-              <div className="px-3 py-2 rounded-xl border border-white/10 bg-black/30 text-[10px] uppercase tracking-[0.2em] text-neutral-500 font-bold">
-                {activeProducts.length} live
+              <div className="rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-[10px] font-bold uppercase tracking-[0.2em] text-neutral-500">
+                {t('pos.catalog.live', { count: activeProducts.length })}
               </div>
             </div>
             <div className="relative">
@@ -1016,25 +1016,25 @@ export function POS() {
             </div>
           </div>
 
-          <div className="max-h-[920px] overflow-y-auto p-4 space-y-3 custom-scrollbar">
+          <div className="custom-scrollbar min-h-[560px] max-h-[calc(100vh-240px)] overflow-y-auto p-4 space-y-3">
             {filteredProducts.map((product, index) => {
               const isLowStock = product.stockLevel <= 10;
+              const isOutOfStock = product.stockLevel <= 0;
               return (
-                <motion.button
+                <motion.div
                   key={product.id}
-                  type="button"
                   initial={{ opacity: 0, y: 6 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: index * 0.02 }}
-                  onClick={() => addToCart(product)}
                   className={cn(
-                    'w-full text-left p-4 rounded-2xl border bg-white/[0.02] hover:bg-white/[0.04] hover:border-blue-500/20 transition-all',
+                    'w-full rounded-2xl border bg-white/[0.02] transition-all',
                     isCommandBarOpen && selectedProductIndex === index
                       ? 'border-blue-500/30'
-                      : 'border-white/[0.06]'
+                      : 'border-white/[0.06]',
+                    isOutOfStock ? 'opacity-70' : 'hover:bg-white/[0.04] hover:border-blue-500/20'
                   )}
                 >
-                  <div className="flex items-start justify-between gap-4">
+                  <div className="flex items-start justify-between gap-4 p-4">
                     <div className="min-w-0">
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-xl border border-white/10 bg-black/30 flex items-center justify-center overflow-hidden">
@@ -1071,13 +1071,20 @@ export function POS() {
                       </div>
                     </div>
                     <div className="shrink-0">
-                      <Button className="gap-2 px-4 h-10">
+                      <Button
+                        className="gap-2 px-4 h-10"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          addToCart(product);
+                        }}
+                        disabled={isOutOfStock}
+                      >
                         <Plus className="w-4 h-4" />
-                        {t('pos.catalog.add')}
+                        {isOutOfStock ? t('pos.catalog.out_of_stock') : t('pos.catalog.add')}
                       </Button>
                     </div>
                   </div>
-                </motion.button>
+                </motion.div>
               );
             })}
 
@@ -1091,11 +1098,11 @@ export function POS() {
           </div>
         </Card>
 
-        <div className="space-y-6">
-          <Card className="p-0 overflow-hidden border-white/5 bg-neutral-900/40">
-            <div className="p-6 border-b border-white/[0.05] bg-white/[0.01] flex items-center justify-between">
+        <div className="space-y-5">
+          <Card className="flex min-h-[680px] flex-col overflow-hidden border-white/5 bg-neutral-900/40 p-0">
+            <div className="flex items-center justify-between border-b border-white/[0.05] bg-white/[0.01] p-5">
               <div>
-                <p className="text-[10px] font-black text-neutral-600 uppercase tracking-[0.35em] mb-2">Sale Builder</p>
+                <p className="mb-2 text-[10px] font-black uppercase tracking-[0.35em] text-neutral-600">{t('pos.cart.label')}</p>
                 <h2 className="text-white font-bold text-lg">{t('pos.cart.title')}</h2>
               </div>
               <div className="w-11 h-11 rounded-2xl bg-blue-600/10 border border-blue-500/20 flex items-center justify-center">
@@ -1103,7 +1110,7 @@ export function POS() {
               </div>
             </div>
 
-            <div className="p-4 space-y-3 max-h-[720px] overflow-y-auto custom-scrollbar">
+            <div className="custom-scrollbar flex-1 min-h-[360px] max-h-[calc(100vh-310px)] overflow-y-auto p-4 space-y-3">
               {cart.map((item) => {
                 const availableStock = getAvailableStock(item.productId);
                 const lineTotal = item.price * item.quantity;
@@ -1160,20 +1167,22 @@ export function POS() {
               })}
 
               {cart.length === 0 && (
-                <div className="py-20 text-center border border-dashed border-white/10 rounded-2xl bg-white/[0.01]">
-                  <ShoppingCart className="w-10 h-10 mx-auto text-neutral-700 mb-4" />
-                  <p className="text-sm font-bold text-neutral-300">{t('pos.cart.empty_title')}</p>
-                  <p className="text-xs text-neutral-600 mt-2">{t('pos.cart.empty_subtitle')}</p>
+                <div className="flex min-h-[260px] items-center justify-center rounded-2xl border border-dashed border-white/10 bg-white/[0.01] px-6 text-center">
+                  <div>
+                    <ShoppingCart className="mx-auto mb-4 w-10 h-10 text-neutral-700" />
+                    <p className="text-sm font-bold text-neutral-300">{t('pos.cart.empty_title')}</p>
+                    <p className="text-xs text-neutral-600 mt-2">{t('pos.cart.empty_subtitle')}</p>
+                  </div>
                 </div>
               )}
             </div>
           </Card>
 
-          <Card className="p-6 border-white/5 bg-neutral-900/40 space-y-4">
+          <Card className="space-y-4 border-white/5 bg-neutral-900/40 p-5">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-[10px] font-black text-neutral-600 uppercase tracking-[0.35em] mb-2">AI Sales Pulse</p>
-                <h2 className="text-white font-bold text-lg">Real-time basket intelligence</h2>
+                <p className="mb-2 text-[10px] font-black uppercase tracking-[0.35em] text-neutral-600">{t('pos.pulse.label')}</p>
+                <h2 className="text-white font-bold text-lg">{t('pos.pulse.title')}</h2>
               </div>
               <div className="w-11 h-11 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
                 <BrainCircuit className="w-5 h-5 text-blue-400" />
@@ -1206,12 +1215,12 @@ export function POS() {
           </Card>
         </div>
 
-        <div className="space-y-6">
-          <Card className="p-6 border-white/5 bg-neutral-900/40 space-y-4">
+        <div className="custom-scrollbar space-y-5 md:col-span-2 xl:col-span-1 xl:sticky xl:top-24 xl:max-h-[calc(100vh-120px)] xl:overflow-y-auto xl:pr-1">
+          <Card className="space-y-4 border-white/5 bg-neutral-900/40 p-5">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-[10px] font-black text-neutral-600 uppercase tracking-[0.35em] mb-2">Smart Quick Actions</p>
-                <h2 className="text-white font-bold text-lg">Speed controls</h2>
+                <p className="mb-2 text-[10px] font-black uppercase tracking-[0.35em] text-neutral-600">{t('pos.quick.label')}</p>
+                <h2 className="text-white font-bold text-lg">{t('pos.quick.title')}</h2>
               </div>
               <div className="w-11 h-11 rounded-2xl bg-white/[0.03] border border-white/10 flex items-center justify-center">
                 <Command className="w-5 h-5 text-neutral-300" />
@@ -1220,28 +1229,28 @@ export function POS() {
             <div className="grid grid-cols-2 gap-3">
               <Button variant="secondary" className="h-12 gap-2" onClick={applyQuickDiscount} disabled={subtotal <= 0}>
                 <BadgeDollarSign className="w-4 h-4" />
-                Quick 10%
+                {t('pos.quick.discount')}
               </Button>
               <Button variant="secondary" className="h-12 gap-2" onClick={setGuestCheckout}>
                 <UserRound className="w-4 h-4" />
-                Guest Sale
+                {t('pos.quick.guest')}
               </Button>
               <Button variant="secondary" className="h-12 gap-2" onClick={clearCart} disabled={cart.length === 0}>
                 <Eraser className="w-4 h-4" />
-                Clear Cart
+                {t('pos.quick.clear')}
               </Button>
               <Button variant="secondary" className="h-12 gap-2" onClick={handleDuplicateLastSale} disabled={!latestPOSOrder || isDuplicating}>
                 <Copy className="w-4 h-4" />
-                {isDuplicating ? 'Loading…' : 'Duplicate Last'}
+                {isDuplicating ? t('common.processing') : t('pos.quick.duplicate')}
               </Button>
             </div>
           </Card>
 
-          <Card className="p-6 border-white/5 bg-neutral-900/40 space-y-5">
+          <Card className="space-y-5 border-white/5 bg-neutral-900/40 p-5">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-[10px] font-black text-neutral-600 uppercase tracking-[0.35em] mb-2">Cash Session</p>
-                <h2 className="text-white font-bold text-lg">Shift register</h2>
+                <p className="mb-2 text-[10px] font-black uppercase tracking-[0.35em] text-neutral-600">{t('pos.cash.label')}</p>
+                <h2 className="text-white font-bold text-lg">{t('pos.cash.title')}</h2>
               </div>
               <div className="w-11 h-11 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
                 <Wallet className="w-5 h-5 text-emerald-400" />
@@ -1251,7 +1260,7 @@ export function POS() {
             {cashSessionAccessUnavailable && (
               <div className="p-4 rounded-2xl border border-amber-500/20 bg-amber-500/10 text-amber-200 text-sm flex gap-3">
                 <ShieldAlert className="w-5 h-5 shrink-0" />
-                <span>Cash session controls are in safe fallback mode until `cashSessions` Firestore rules are deployed.</span>
+                <span>{t('pos.cash.safe_fallback')}</span>
               </div>
             )}
 
@@ -1265,70 +1274,72 @@ export function POS() {
             {activeCashSession ? (
               <div className="space-y-4">
                 <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3">
-                  <p className="text-[10px] uppercase tracking-[0.2em] text-emerald-300/80 font-black mb-1">Open session</p>
+                  <p className="mb-1 text-[10px] font-black uppercase tracking-[0.2em] text-emerald-300/80">{t('pos.cash.open_session')}</p>
                   <p className="text-white font-bold">{activeCashSession.openedByName || 'POS Operator'}</p>
                   <p className="text-xs text-neutral-300 mt-1">
-                    Opened with {formatCurrency(activeCashSession.openingCash || 0)}
+                    {t('pos.cash.opened_with', { amount: formatCurrency(activeCashSession.openingCash || 0) })}
                   </p>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
                   <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
-                    <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-600 font-black mb-2">Turn sales</p>
+                    <p className="mb-2 text-[10px] font-black uppercase tracking-[0.2em] text-neutral-600">{t('pos.cash.turn_sales')}</p>
                     <p className="text-white font-mono">{formatCurrency(turnSalesTotal)}</p>
                   </div>
                   <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
-                    <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-600 font-black mb-2">Cash expected</p>
+                    <p className="mb-2 text-[10px] font-black uppercase tracking-[0.2em] text-neutral-600">{t('pos.cash.cash_expected')}</p>
                     <p className="text-white font-mono">{formatCurrency(expectedCash)}</p>
                   </div>
                   <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
-                    <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-600 font-black mb-2">Sales count</p>
+                    <p className="mb-2 text-[10px] font-black uppercase tracking-[0.2em] text-neutral-600">{t('pos.cash.sales_count')}</p>
                     <p className="text-white">{currentTurnOrders.length}</p>
                   </div>
                   <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
-                    <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-600 font-black mb-2">Cash sales</p>
+                    <p className="mb-2 text-[10px] font-black uppercase tracking-[0.2em] text-neutral-600">{t('pos.cash.cash_sales')}</p>
                     <p className="text-white font-mono">{formatCurrency(turnCashTotal)}</p>
                   </div>
                 </div>
 
                 <div className="space-y-2">
-                  <Label>Closing notes</Label>
+                  <Label>{t('pos.cash.closing_notes')}</Label>
                   <textarea
                     value={closingNotes}
                     onChange={(event) => setClosingNotes(event.target.value)}
                     className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition-all min-h-[90px]"
-                    placeholder="Capture variance notes, payouts, or operator remarks."
+                    placeholder={t('pos.cash.closing_placeholder')}
                   />
                 </div>
 
                 <Button className="w-full h-12" onClick={handleCloseCashSession} disabled={isCashLoading || cashSessionAccessUnavailable}>
-                  {isCashLoading ? 'Closing Session' : 'Close Cash Session'}
+                  {isCashLoading ? t('pos.cash.closing') : t('pos.cash.close')}
                 </Button>
               </div>
             ) : (
               <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label>Opening cash</Label>
-                  <Input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={openingCashInput}
-                    onChange={(event) => setOpeningCashInput(event.target.value)}
-                    placeholder="100.00"
-                  />
-                </div>
+                {!cashSessionAccessUnavailable && (
+                  <div className="space-y-2">
+                    <Label>{t('pos.cash.opening_cash')}</Label>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={openingCashInput}
+                      onChange={(event) => setOpeningCashInput(event.target.value)}
+                      placeholder="100.00"
+                    />
+                  </div>
+                )}
                 <Button className="w-full h-12" onClick={handleOpenCashSession} disabled={isCashLoading || cashSessionAccessUnavailable}>
-                  {isCashLoading ? 'Opening Session' : 'Open Cash Session'}
+                  {isCashLoading ? t('pos.cash.opening') : t('pos.cash.open')}
                 </Button>
               </div>
             )}
           </Card>
 
-          <Card className="p-6 border-white/5 bg-neutral-900/40 space-y-6">
+          <Card className="space-y-6 border-white/5 bg-neutral-900/40 p-5">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-[10px] font-black text-neutral-600 uppercase tracking-[0.35em] mb-2">Checkout Core</p>
+                <p className="mb-2 text-[10px] font-black uppercase tracking-[0.35em] text-neutral-600">{t('pos.checkout.label')}</p>
                 <h2 className="text-white font-bold text-lg">{t('pos.checkout.title')}</h2>
               </div>
               <div className="w-11 h-11 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
@@ -1410,11 +1421,11 @@ export function POS() {
             </div>
 
             <div className="space-y-2">
-              <Label>Receipt message</Label>
+              <Label>{t('pos.checkout.receipt_message')}</Label>
               <Input
                 value={receiptFooterMessage}
                 onChange={(event) => setReceiptFooterMessage(event.target.value)}
-                placeholder="Thank you for shopping with us."
+                placeholder={t('pos.checkout.receipt_placeholder')}
               />
             </div>
 
@@ -1439,7 +1450,7 @@ export function POS() {
 
             <Button
               className="w-full h-14 text-sm font-bold uppercase tracking-[0.25em] shadow-xl shadow-blue-600/10"
-              disabled={cart.length === 0 || isSubmitting}
+              disabled={cart.length === 0 || hasCartStockIssue || isSubmitting}
               onClick={handleCompleteSale}
             >
               <BadgeDollarSign className="w-4 h-4 mr-2" />
@@ -1447,10 +1458,10 @@ export function POS() {
             </Button>
           </Card>
 
-          <Card className="p-6 border-white/5 bg-neutral-900/40 space-y-5">
+          <Card className="space-y-5 border-white/5 bg-neutral-900/40 p-5">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-[10px] font-black text-neutral-600 uppercase tracking-[0.35em] mb-2">Roadmap Surface</p>
+                <p className="mb-2 text-[10px] font-black uppercase tracking-[0.35em] text-neutral-600">{t('pos.integrations.label')}</p>
                 <h3 className="text-white font-bold text-lg">{t('pos.integrations.title')}</h3>
               </div>
               <div className="w-11 h-11 rounded-2xl bg-white/[0.03] border border-white/10 flex items-center justify-center">
@@ -1467,7 +1478,7 @@ export function POS() {
                     <CreditCard className="w-4 h-4 text-neutral-500" />
                     <span className="text-sm font-medium text-neutral-200">{integration}</span>
                   </div>
-                  <span className="text-[10px] uppercase tracking-[0.2em] text-neutral-600 font-bold">Pending</span>
+                  <span className="text-[10px] uppercase tracking-[0.2em] text-neutral-600 font-bold">{t('pos.integrations.pending')}</span>
                 </div>
               ))}
             </div>
