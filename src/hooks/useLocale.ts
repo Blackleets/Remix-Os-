@@ -45,7 +45,9 @@ export function useLocale() {
   const setLanguage = async (newLang: string) => {
     try {
       const { handleFirestoreError, OperationType } = await import('../lib/firebase');
-      
+
+      // Persist so LanguageDetector picks it up on next load
+      localStorage.setItem('remixos_language', newLang);
       // Update i18n immediately for visual feedback
       await i18n.changeLanguage(newLang);
       

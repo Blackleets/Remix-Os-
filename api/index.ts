@@ -299,9 +299,9 @@ app.post("/api/ai/insights", async (req, res) => {
     const { businessData, language } = req.body || {};
     if (!businessData) return res.status(400).json({ error: "businessData required" });
     const langMap: Record<string, string> = {
-      en: "Output all text in English.",
-      es: "Entrega toda la salida de texto en Español.",
-      pt: "Entregue toda a saída de texto em Português.",
+      en: "You MUST respond entirely in English. Every word must be in English.",
+      es: "DEBES responder completamente en Español. Cada palabra debe estar en Español. NUNCA uses inglés.",
+      pt: "VOCÊ DEVE responder completamente em Português. Cada palavra deve estar em Português. NUNCA use inglês.",
     };
     const langInstruction = langMap[language] || langMap.en;
     const prompt = `
@@ -350,9 +350,9 @@ app.post("/api/ai/chat", async (req, res) => {
     const { message, history, context, language } = req.body || {};
     if (typeof message !== "string" || !message.trim()) return res.status(400).json({ error: "message required" });
     const langMap: Record<string, string> = {
-      en: "Communicate in English.",
-      es: "Comunícate en Español. Mantén un tono profesional y premium.",
-      pt: "Comunique-se em Português. Mantenha um tom profissional e premium.",
+      en: "You MUST respond entirely in English. Every word must be in English.",
+      es: "DEBES responder completamente en Español. Cada palabra debe estar en Español. NUNCA uses inglés.",
+      pt: "VOCÊ DEVE responder completamente em Português. Cada palavra deve estar em Português. NUNCA use inglês.",
     };
     const langInstruction = langMap[language] || langMap.en;
     const ctx = context || {};
@@ -416,9 +416,9 @@ app.post("/api/ai/proactive-thoughts", async (req, res) => {
     const ai = getGenAI();
     if (!ai) return res.status(503).json({ error: "AI not configured" });
     const langMap: Record<string, string> = {
-      en: "Respond in English.",
-      es: "Responde en Español. Sé directo y útil.",
-      pt: "Responda em Português. Seja direto e útil.",
+      en: "You MUST respond entirely in English. Every word must be in English.",
+      es: "DEBES responder completamente en Español. Cada palabra debe estar en Español. NUNCA uses inglés.",
+      pt: "VOCÊ DEVE responder completamente em Português. Cada palavra deve estar em Português. NUNCA use inglês.",
     };
     const langInstruction = langMap[language] || langMap.en;
     const prompt = `

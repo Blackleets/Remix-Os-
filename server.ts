@@ -453,17 +453,16 @@ async function startServer() {
       if (!businessData) return res.status(400).json({ error: "businessData required" });
 
       const langMap: Record<string, string> = {
-        en: "Output all text in English.",
-        es: "Entrega toda la salida de texto en Español.",
-        pt: "Entregue toda a saída de texto em Português.",
+        en: "You MUST respond entirely in English. Every word of your response must be in English.",
+        es: "DEBES responder completamente en Español. Cada palabra de tu respuesta debe estar en Español. NO uses inglés bajo ninguna circunstancia.",
+        pt: "VOCÊ DEVE responder completamente em Português. Cada palavra da sua resposta deve estar em Português. NÃO use inglês em hipótese alguma.",
       };
       const langInstruction = langMap[language] || langMap.en;
 
-      const prompt = `
+      const prompt = `LANGUAGE REQUIREMENT (MANDATORY): ${langInstruction}
+
 You are an expert business consultant for Remix OS.
 Analyze the following small business data and provide a set of actionable insights.
-
-CRITICAL: ${langInstruction}
 
 Business: ${businessData.companyName} (${businessData.industry})
 Current Plan: ${businessData.planLevel}
@@ -518,18 +517,17 @@ No markdown, no preamble.`;
       }
 
       const langMap: Record<string, string> = {
-        en: "Communicate in English.",
-        es: "Comunícate en Español. Mantén un tono profesional y premium.",
-        pt: "Comunique-se em Português. Mantenha um tom profissional e premium.",
+        en: "You MUST respond entirely in English. Every word must be in English.",
+        es: "DEBES responder completamente en Español. Cada palabra debe estar en Español. NUNCA uses inglés.",
+        pt: "VOCÊ DEVE responder completamente em Português. Cada palavra deve estar em Português. NUNCA use inglês.",
       };
       const langInstruction = langMap[language] || langMap.en;
 
       const ctx = context || {};
-      const systemInstruction = `
+      const systemInstruction = `LANGUAGE REQUIREMENT (NON-NEGOTIABLE): ${langInstruction}
+
 You are the Remix OS AI Operator, a premium business intelligence system.
 You are a proactive business advisor and operational assistant.
-
-CRITICAL: ${langInstruction}
 
 SYSTEM STATUS:
 - Company: ${ctx.companyName} (${ctx.industry})
@@ -589,9 +587,9 @@ Maintain a professional, efficient, and supportive persona.`;
       if (!ai) return res.status(503).json({ error: "AI not configured" });
 
       const langMap: Record<string, string> = {
-        en: "Respond in English.",
-        es: "Responde en Español. Sé directo y útil.",
-        pt: "Responda em Português. Seja direto e útil.",
+        en: "You MUST respond entirely in English. Every word must be in English.",
+        es: "DEBES responder completamente en Español. Cada palabra debe estar en Español. NUNCA uses inglés.",
+        pt: "VOCÊ DEVE responder completamente em Português. Cada palavra deve estar em Português. NUNCA use inglês.",
       };
       const langInstruction = langMap[language] || langMap.en;
 
@@ -609,11 +607,11 @@ Maintain a professional, efficient, and supportive persona.`;
 
       const salesTrend = context.salesVelocity?.trend === "up" ? "Increasing" : "Decreasing";
 
-      const prompt = `You are the Remix OS AI Operator thinking about business insights in real-time.
+      const prompt = `LANGUAGE REQUIREMENT (NON-NEGOTIABLE): ${langInstruction}
+
+You are the Remix OS AI Operator thinking about business insights in real-time.
 Analyze the current business context and generate 1-2 specific, actionable insights.
 Be direct, logical, and practical. Focus on what matters NOW.
-
-CRITICAL: ${langInstruction}
 
 CURRENT BUSINESS STATE:
 - Company: ${context.companyName}

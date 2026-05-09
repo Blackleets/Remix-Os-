@@ -1,0 +1,38 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // Block everything by default
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+
+    // Product images: any authenticated member can upload/read
+    // Path pattern used by ImageUpload: companies/{companyId}/products/...
+    match /companies/{companyId}/products/{allImages=**} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.resource.size < 2 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+
+    // Company logos
+    // Path pattern: companies/{companyId}/logo/...
+    match /companies/{companyId}/logo/{allImages=**} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.resource.size < 2 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+
+    // User avatars — only the user themselves can write their own avatar
+    // Path pattern: users/{userId}/avatar/...
+    match /users/{userId}/avatar/{allImages=**} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.auth.uid == userId
+        && request.resource.size < 2 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+  }
+}
