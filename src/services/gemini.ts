@@ -56,3 +56,21 @@ export async function chatCopilot(
   });
   return data?.text ?? '';
 }
+
+export async function getProactiveThoughts(context: any, language: string = 'en') {
+  if (!context?.companyId) {
+    console.warn('getProactiveThoughts: missing companyId');
+    return [];
+  }
+  try {
+    const data = await authedFetchJSON('/api/ai/proactive-thoughts', {
+      companyId: context.companyId,
+      context,
+      language,
+    });
+    return data?.insights ?? [];
+  } catch (error) {
+    console.error('Proactive Thoughts Error:', error);
+    return [];
+  }
+}

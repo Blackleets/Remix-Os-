@@ -395,4 +395,68 @@ Maintain a professional, efficient, and supportive persona.`;
   }
 });
 
+app.post("/api/ai/proactive-thoughts", async (req, res) => {
+  try {
+    const { context, language } = req.body || {};
+    if (!context) return res.status(400).json({ error: "context required" });
+    const ai = getGenAI();
+    if (!ai) return res.status(503).json({ error: "AI not configured" });
+    const langMap: Record<string, string> = {
+      en: "Respond in English.",
+      es: "Responde en Español. Sé directo y útil.",
+      pt: "Responda em Português. Seja direto e útil.",
+    };
+    const langInstruction = langMap[language] || langMap.en;
+    const prompt = `
+You are the Remix OS AI Operator thinking about business insights in real-time.
+Analyze the current business context and generate 1-2 specific, actionable insights.
+Be direct, logical, and practical. Focus on what matters NOW.
+
+CRITICAL: ${langInstruction}
+
+CURRENT BUSINESS STATE:
+- Company: ${context.companyName}
+- Total Customers: ${context.customersCount}
+- Total Products: ${context.productsCount}
+- 7-Day Revenue: $${context.recentRevenue}
+- Sales Trend: ${context.salesVelocity?.trend === 'up' ? 'Increasing' : 'Decreasing'} (${context.salesVelocity?.currentPeriodOrders} vs ${context.salesVelocity?.previousPeriodOrders} orders)
+- Low Stock Items: ${context.lowStockCount}
+
+TOP PERFORMERS:
+${(context.topProducts?.slice(0, 3) || []).map((p: any, i: number) =>
+  `${i + 1}. ${p.name}: ${p.quantity} sold ($${p.revenue})`).join('\n') || 'No data'}
+
+TOP CUSTOMERS:
+${(context.topCustomers?.slice(0, 3) || []).map((c: any, i: number) =>
+  `${i + 1}. ${c.name}: $${c.total} total (${c.count} orders)`).join('\n') || 'No data'}
+
+LOW INVENTORY:
+${(context.inventoryStatus?.slice(0, 3) || []).map((p: any) =>
+  `- ${p.name}: ${p.stock} units`).join('\n') || 'All stock healthy'}
+
+Generate HONEST, SPECIFIC insights based on real data patterns. Examples:
+- "Coca-Cola dominates with 250 units sold—increase stock by 20% next week to avoid shortages."
+- "Your top customer María hasn't ordered in 2 weeks—follow up today with a special offer."
+- "Mobile cases are sitting at 5 units but sell 30/week—critical restock needed ASAP."
+
+Format: Return ONLY a JSON object with:
+{ "insights": [ { "text": "specific insight", "priority": "high"|"medium"|"low" } ] }
+
+NO markdown, NO preamble, just valid JSON.`;
+    const response = await ai.models.generateContent({ model: "gemini-2.0-flash", contents: prompt });
+    const text = (response.text ?? "").replace(/```json|```/g, "").trim();
+    if (!text) return res.json({ insights: [] });
+    try {
+      const parsed = JSON.parse(text);
+      return res.json({ insights: parsed.insights || [] });
+    } catch (e) {
+      console.error("Proactive thoughts JSON parse error:", e);
+      return res.json({ insights: [] });
+    }
+  } catch (err: any) {
+    console.error("/api/ai/proactive-thoughts error:", err);
+    res.status(500).json({ error: err?.message || "AI request failed" });
+  }
+});
+
 export default app;

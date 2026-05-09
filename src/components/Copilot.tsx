@@ -25,7 +25,7 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../lib/firebase';
 import { collection, query, where, getDocs, limit, orderBy, onSnapshot } from 'firebase/firestore';
-import { chatCopilot } from '../services/gemini';
+import { chatCopilot, getProactiveThoughts } from '../services/gemini';
 import { cn } from './Common';
 import { useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
@@ -217,6 +217,70 @@ export function Copilot() {
             return [...fresh, ...prev].slice(0, 10);
           });
           setHasNewAlerts(true);
+        }
+
+        // Generate proactive insights from bot (AI thinks about the business)
+        try {
+          const productOrders: Record<string, { name: string; quantity: number; revenue: number }> = {};
+          ordersSnap.docs.forEach(doc => {
+            const data = doc.data();
+            const items = data.items || [];
+            items.forEach((item: any) => {
+              if (!productOrders[item.productId]) {
+                productOrders[item.productId] = { name: item.productName || 'Unknown', quantity: 0, revenue: 0 };
+              }
+              productOrders[item.productId].quantity += item.quantity || 0;
+              productOrders[item.productId].revenue += item.price * (item.quantity || 0) || 0;
+            });
+          });
+
+          const topProducts = Object.values(productOrders)
+            .sort((a, b) => b.quantity - a.quantity)
+            .slice(0, 5);
+
+          const customerOrders: Record<string, { name: string; count: number; total: number }> = {};
+          ordersSnap.docs.forEach(doc => {
+            const data = doc.data();
+            if (!customerOrders[data.customerId]) {
+              customerOrders[data.customerId] = { name: data.customerName || 'Unknown', count: 0, total: 0 };
+            }
+            customerOrders[data.customerId].count++;
+            customerOrders[data.customerId].total += data.totalAmount || 0;
+          });
+
+          const topCustomers = Object.values(customerOrders)
+            .sort((a, b) => b.total - a.total)
+            .slice(0, 3);
+
+          const thoughtContext = {
+            companyId: company.id,
+            companyName: company.name,
+            customersCount: customersSnap.size,
+            productsCount: productsSnap.size,
+            recentRevenue: totalRevenue.toFixed(2),
+            salesVelocity: {
+              currentPeriodOrders: recentOrders.length,
+              previousPeriodOrders: prevOrders.length,
+              trend: recentOrders.length >= prevOrders.length ? 'up' : 'down',
+            },
+            lowStockCount: lowStockProducts.length,
+            inventoryStatus: lowStockProducts.slice(0, 3),
+            topProducts,
+            topCustomers,
+          };
+
+          const thoughts = await getProactiveThoughts(thoughtContext, language);
+          if (thoughts && thoughts.length > 0) {
+            // Only show 1 proactive thought every monitoring cycle to avoid spam
+            const insight = thoughts[0];
+            const thoughtMessage = `💡 ${insight.text}`;
+            setMessages(prev => {
+              const hasThisThought = prev.some(m => m.text === thoughtMessage && m.role === 'model');
+              return hasThisThought ? prev : [...prev, { role: 'model', text: thoughtMessage }];
+            });
+          }
+        } catch (err) {
+          console.warn("Proactive thoughts fetch failed:", err);
         }
       } catch (error) {
         const { handleFirestoreError, OperationType } = await import('../lib/firebase');
