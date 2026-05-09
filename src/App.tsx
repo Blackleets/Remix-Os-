@@ -48,6 +48,7 @@ const ProtectedRoute = ({ children, allowedRoles }: { children: React.ReactNode;
 
 const AppLayout = ({ children }: { children: React.ReactNode }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const { pathname } = useLocation();
 
   return (
     <div className="flex bg-black min-h-screen text-white font-sans selection:bg-blue-500/30 overflow-x-hidden">
@@ -92,7 +93,7 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
             {children}
           </div>
         </main>
-        <Copilot />
+        {pathname !== '/pos' && <Copilot />}
       </div>
     </div>
   );
