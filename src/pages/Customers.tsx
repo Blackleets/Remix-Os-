@@ -113,6 +113,7 @@ export function Customers() {
   const [search, setSearch] = useState('');
   const [segmentFilter, setSegmentFilter] = useState('all');
   const [loading, setLoading] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'info' | 'reminders' | 'messages' | 'history'>('info');
   const { canEditCustomers } = usePermissions();
 
@@ -253,7 +254,11 @@ export function Customers() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!company || !form.name) return;
-
+    if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
+      setFormError('Please enter a valid email address.');
+      return;
+    }
+    setFormError(null);
     setLoading(true);
     try {
       const batch = writeBatch(db);
@@ -315,6 +320,7 @@ export function Customers() {
   const handleCloseModal = () => {
     setIsModalOpen(false);
     setSelectedCustomer(null);
+    setFormError(null);
     setForm({ name: '', email: '', phone: '', imageURL: '' });
   };
 
@@ -634,6 +640,9 @@ export function Customers() {
                         </div>
                     </div>
                 </div>
+                {formError && (
+                  <p className="text-red-400 text-xs bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">{formError}</p>
+                )}
                 <div className="flex justify-end gap-3 pt-6 border-t border-white/5">
                   <Button type="button" variant="secondary" onClick={handleCloseModal} className="px-6">{t('common.abort')}</Button>
                   <Button type="submit" disabled={loading} className="px-8">

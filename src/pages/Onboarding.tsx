@@ -22,6 +22,7 @@ export function Onboarding() {
   const { user, company, refreshCompany } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
+  const [onboardingError, setOnboardingError] = useState<string | null>(null);
   const [step, setStep] = useState(1);
   const [invitations, setInvitations] = useState<Invitation[]>([]);
   const [form, setForm] = useState({
@@ -29,6 +30,7 @@ export function Onboarding() {
     industry: 'Retail',
     country: 'United States',
     currency: 'USD',
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
     email: user?.email || '',
     phone: '',
     useSeedData: true
@@ -82,9 +84,8 @@ export function Onboarding() {
 
       await refreshCompany();
       navigate('/dashboard');
-    } catch (err) {
-      console.error(err);
-      alert(t('onboarding.alerts.join_failed'));
+    } catch (err: any) {
+      setOnboardingError(err?.message || t('onboarding.alerts.join_failed'));
     } finally {
       setLoading(false);
     }
@@ -102,6 +103,7 @@ export function Onboarding() {
         industry: form.industry,
         country: form.country,
         currency: form.currency,
+        timezone: form.timezone,
         email: form.email,
         phone: form.phone,
         ownerId: user.uid,
@@ -139,9 +141,8 @@ export function Onboarding() {
 
       await refreshCompany();
       navigate('/dashboard');
-    } catch (err) {
-      console.error(err);
-      alert(t('onboarding.alerts.init_failed'));
+    } catch (err: any) {
+      setOnboardingError(err?.message || t('onboarding.alerts.init_failed'));
     } finally {
       setLoading(false);
     }
@@ -294,13 +295,30 @@ export function Onboarding() {
                 </div>
                 <div className="space-y-4">
                   <span className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-500 ml-1">{t('onboarding.communication.location')}</span>
-                  <Input 
+                  <Input
                     placeholder={t('onboarding.communication.location_placeholder')}
                     className="h-14 sm:h-16 text-lg sm:text-xl font-bold px-6 rounded-2xl bg-white/[0.03] border-white/10 text-white placeholder:text-neutral-700 focus:bg-white/[0.05] focus:border-white/20 transition-all"
                     value={form.country}
                     onChange={(e) => setForm({ ...form, country: e.target.value })}
                   />
                 </div>
+                <div className="space-y-4">
+                  <span className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-500 ml-1">Timezone</span>
+                  <div className="relative">
+                    <select
+                      className="w-full h-14 sm:h-16 bg-white/[0.03] border border-white/10 rounded-2xl px-6 text-base font-bold text-white outline-none focus:ring-4 focus:ring-white/5 transition-all appearance-none cursor-pointer"
+                      value={form.timezone}
+                      onChange={(e) => setForm({ ...form, timezone: e.target.value })}
+                    >
+                      {['UTC','America/New_York','America/Chicago','America/Denver','America/Los_Angeles','America/Bogota','America/Lima','America/Santiago','America/Sao_Paulo','America/Buenos_Aires','Europe/London','Europe/Madrid','Europe/Paris','Europe/Berlin','Asia/Tokyo','Asia/Shanghai','Asia/Kolkata','Australia/Sydney'].map(tz => (
+                        <option key={tz} value={tz} className="bg-neutral-900">{tz.replace('_',' ')}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                {onboardingError && (
+                  <p className="text-red-400 text-xs bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">{onboardingError}</p>
+                )}
                 <div className="flex flex-col sm:flex-row gap-4 sm:gap-6 pt-6">
                   <Button variant="secondary" onClick={prevStep} className="w-full h-14 sm:h-20 text-lg font-bold rounded-2xl border-white/10 text-neutral-400 hover:bg-white/5 transition-colors order-2 sm:order-1">{t('common.back')}</Button>
                   <Button onClick={nextStep} className="w-full h-14 sm:h-20 text-lg font-black rounded-2xl bg-white text-black hover:bg-neutral-200 order-1 sm:order-2">{t('common.continue')}</Button>
