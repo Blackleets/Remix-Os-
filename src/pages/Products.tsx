@@ -36,6 +36,7 @@ export function Products() {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
   const { canEditProducts } = usePermissions();
 
   useEffect(() => {
@@ -145,13 +146,13 @@ export function Products() {
       }
 
       await batch.commit();
+      setFormError(null);
       setIsModalOpen(false);
       setSelectedProduct(null);
       setForm({ name: '', price: '', stockLevel: '', category: '', sku: '', description: '', status: 'active', imageURL: '' });
       fetchProducts();
     } catch (err: any) {
-      console.error(err);
-      alert(err?.message || 'Failed to save product.');
+      setFormError(err?.message || 'Failed to save product.');
     } finally {
       setLoading(false);
     }
@@ -175,6 +176,7 @@ export function Products() {
   const handleCloseModal = () => {
     setIsModalOpen(false);
     setSelectedProduct(null);
+    setFormError(null);
     setForm({ name: '', price: '', stockLevel: '', category: '', sku: '', description: '', status: 'active', imageURL: '' });
   };
 
@@ -190,14 +192,13 @@ export function Products() {
         where('productId', '==', id)
       ));
       if (!movementsSnap.empty) {
-        alert('This product has sales history and cannot be deleted. Mark it inactive instead.');
+        setFormError('This product has sales history and cannot be deleted. Mark it inactive instead.');
         return;
       }
       await deleteDoc(doc(db, 'products', id));
       fetchProducts();
     } catch (err: any) {
-      console.error(err);
-      alert(err?.message || 'Failed to delete product.');
+      setFormError(err?.message || 'Failed to delete product.');
     }
   };
 
@@ -472,6 +473,9 @@ export function Products() {
                     />
                   </div>
                 </div>
+                {formError && (
+                  <p className="text-red-400 text-xs bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">{formError}</p>
+                )}
                 <div className="flex justify-end gap-3 pt-6 border-t border-white/5">
                   <Button type="button" variant="secondary" onClick={handleCloseModal} className="px-6">{t('common.abort')}</Button>
                   <Button type="submit" disabled={loading} className="px-8">

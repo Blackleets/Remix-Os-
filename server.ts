@@ -559,6 +559,8 @@ Maintain a professional, efficient, and supportive persona.`;
   // AI: Proactive Thoughts (Bot generates insights without user prompting)
   app.post("/api/ai/proactive-thoughts", async (req, res) => {
     try {
+      const access = await requireCompanyAccess(req, res, ["owner", "admin", "staff", "viewer"]);
+      if (!access) return;
       const { context, language } = req.body || {};
       if (!context) return res.status(400).json({ error: "context required" });
 

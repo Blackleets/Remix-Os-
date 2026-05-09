@@ -24,6 +24,7 @@ export function Inventory() {
   const [movements, setMovements] = useState<Movement[]>([]);
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [adjustError, setAdjustError] = useState<string | null>(null);
   const [form, setForm] = useState({ productId: '', quantity: '', type: 'in', reason: '' });
 
   const { canEditInventory } = usePermissions();
@@ -55,11 +56,13 @@ export function Inventory() {
 
   const handleAdjust = async (e: React.FormEvent) => {
     e.preventDefault();
+    setAdjustError(null);
     if (!form.productId || !form.quantity || !company) return;
+    const qty = parseInt(form.quantity);
+    if (!qty || qty < 1) { setAdjustError('Quantity must be at least 1.'); return; }
 
     setLoading(true);
     try {
-      const qty = parseInt(form.quantity);
       const product = products.find(p => p.id === form.productId);
       
       await runTransaction(db, async (transaction) => {
@@ -101,8 +104,7 @@ export function Inventory() {
 
       setForm({ productId: '', quantity: '', type: 'in', reason: '' });
     } catch (err: any) {
-      console.error(err);
-      alert(err.message || t('inventory.alerts.failed'));
+      setAdjustError(err.message || t('inventory.alerts.failed'));
     } finally {
       setLoading(false);
     }
@@ -190,6 +192,9 @@ export function Inventory() {
                     onChange={e => setForm({...form, reason: e.target.value})}
                   />
                 </div>
+                {adjustError && (
+                  <p className="text-red-400 text-xs bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">{adjustError}</p>
+                )}
                 <Button type="submit" disabled={loading} className="w-full h-12 text-sm font-bold uppercase tracking-widest shadow-lg shadow-blue-600/10">
                   {loading ? t('settings.syncing_msg') : t('inventory.commit')}
                 </Button>

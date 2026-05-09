@@ -294,7 +294,7 @@ export function Copilot() {
     };
 
     runMonitoring();
-    const interval = setInterval(runMonitoring, 60000 * 5); // Every 5 minutes
+    const interval = setInterval(runMonitoring, 60000 * 2); // Every 2 minutes
     return () => clearInterval(interval);
   }, [company?.id]);
 
