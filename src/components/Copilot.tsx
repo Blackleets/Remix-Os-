@@ -386,7 +386,7 @@ export function Copilot() {
 
       if (type === 'NAVIGATE') {
         const targetPath = params.trim().toLowerCase().split('?')[0];
-        const validRoutes = ['/dashboard', '/customers', '/products', '/inventory', '/orders', '/insights', '/team', '/settings', '/billing'];
+        const validRoutes = ['/dashboard', '/customers', '/products', '/inventory', '/orders', '/pos', '/insights', '/team', '/settings', '/billing'];
         
         // Stricter route validation
         const isValid = validRoutes.some(route => targetPath === route || targetPath.startsWith(route + '/'));

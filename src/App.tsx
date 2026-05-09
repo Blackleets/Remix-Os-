@@ -15,6 +15,7 @@ import { Insights } from './pages/Insights';
 import { Settings } from './pages/Settings';
 import { Billing } from './pages/Billing';
 import { Team } from './pages/Team';
+import { POS } from './pages/POS';
 import { Copilot } from './components/Copilot';
 import { AnimatePresence, motion } from 'motion/react';
 
@@ -93,6 +94,7 @@ export default function App() {
           <Route path="/products" element={<ProtectedRoute><AppLayout><Products /></AppLayout></ProtectedRoute>} />
           <Route path="/inventory" element={<ProtectedRoute><AppLayout><Inventory /></AppLayout></ProtectedRoute>} />
           <Route path="/orders" element={<ProtectedRoute><AppLayout><Orders /></AppLayout></ProtectedRoute>} />
+          <Route path="/pos" element={<ProtectedRoute><AppLayout><POS /></AppLayout></ProtectedRoute>} />
           <Route path="/insights" element={<ProtectedRoute><AppLayout><Insights /></AppLayout></ProtectedRoute>} />
           <Route path="/team" element={<ProtectedRoute><AppLayout><Team /></AppLayout></ProtectedRoute>} />
           <Route path="/settings" element={<ProtectedRoute><AppLayout><Settings /></AppLayout></ProtectedRoute>} />
