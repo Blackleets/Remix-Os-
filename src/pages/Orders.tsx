@@ -6,12 +6,13 @@ import { useAuth } from '../contexts/AuthContext';
 import { useLocale } from '../hooks/useLocale';
 import { usePermissions } from '../hooks/usePermissions';
 import { db } from '../lib/firebase';
-import { collection, query, where, serverTimestamp, doc, increment, runTransaction, onSnapshot, orderBy } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, orderBy } from 'firebase/firestore';
 import { format, startOfMonth, endOfMonth } from 'date-fns';
 import { motion, AnimatePresence } from 'motion/react';
 import { UpgradeModal } from '../components/UpgradeModal';
 import { PLANS, isLimitReached, getCompanyUsage } from '../lib/plans';
 import { exportToCSV } from '../lib/exportUtils';
+import { createSaleTransaction } from '../services/sales';
 
 interface OrderItem {
   productId: string;
@@ -185,108 +186,23 @@ export function Orders() {
     try {
       const customer = customers.find(c => c.id === form.customerId);
       const total = calculateTotal();
-
-      // Aggregate duplicate line items by productId so cumulative quantity is checked.
-      const aggregated = new Map<string, OrderItem>();
-      for (const item of form.items) {
-        const existing = aggregated.get(item.productId);
-        if (existing) {
-          existing.quantity += item.quantity;
-        } else {
-          aggregated.set(item.productId, { ...item });
-        }
-      }
-      const aggregatedItems = Array.from(aggregated.values());
-
-      await runTransaction(db, async (transaction) => {
-        // === ALL READS FIRST (Firestore transaction requirement) ===
-        const productRefs = aggregatedItems.map(item => doc(db, 'products', item.productId));
-        const productSnaps = await Promise.all(productRefs.map(ref => transaction.get(ref)));
-
-        const cRef = doc(db, 'customers', form.customerId);
-        const cSnap = await transaction.get(cRef);
-
-        // === VALIDATE ===
-        for (let i = 0; i < aggregatedItems.length; i++) {
-          const item = aggregatedItems[i];
-          const snap = productSnaps[i];
-          if (!snap.exists()) throw new Error(t('orders.errors.not_found', { name: item.productName }));
-
-          const currentStock = snap.data().stockLevel || 0;
-          if (currentStock < item.quantity) {
-            throw new Error(t('orders.errors.insufficient', { name: snap.data().name, count: currentStock }));
-          }
-        }
-
-        // Pre-compute customer update so it can run with the other writes.
-        let customerUpdate: Record<string, any> | null = null;
-        if (cSnap.exists()) {
-          const cData = cSnap.data();
-          const newTotalSpent = (cData.totalSpent || 0) + total;
-          const newTotalOrders = (cData.totalOrders || 0) + 1;
-
-          let segment = 'regular';
-          if (newTotalSpent > 5000) segment = 'whale';
-          else if (newTotalSpent > 1000) segment = 'vip';
-          else if (newTotalOrders === 1) segment = 'new';
-
-          customerUpdate = {
-            totalSpent: newTotalSpent,
-            totalOrders: newTotalOrders,
-            lastOrderAt: serverTimestamp(),
-            segment
-          };
-        }
-
-        // === ALL WRITES AFTER ===
-        const orderRef = doc(collection(db, 'orders'));
-        transaction.set(orderRef, {
-          customerId: form.customerId,
-          customerName: customer?.name || t('orders.guest'),
-          total,
-          paymentMethod: form.paymentMethod,
-          status: 'completed',
-          companyId: company.id,
-          createdAt: serverTimestamp(),
-        });
-
-        for (const item of aggregatedItems) {
-          const itemRef = doc(collection(db, 'orders', orderRef.id, 'items'));
-          transaction.set(itemRef, {
-            ...item,
-            companyId: company.id,
-            createdAt: serverTimestamp()
-          });
-
-          const pRef = doc(db, 'products', item.productId);
-          transaction.update(pRef, { stockLevel: increment(-item.quantity) });
-
-          const mRef = doc(collection(db, 'inventoryMovements'));
-          transaction.set(mRef, {
-            productId: item.productId,
-            productName: item.productName,
-            quantity: item.quantity,
-            type: 'out',
-            reason: 'Sale',
-            orderId: orderRef.id,
-            companyId: company.id,
-            createdAt: serverTimestamp()
-          });
-        }
-
-        if (customerUpdate) {
-          transaction.update(cRef, customerUpdate);
-        }
-
-        const aRef = doc(collection(db, 'activities'));
-        transaction.set(aRef, {
-          type: 'order_create',
-          title: 'Order Confirmed',
-          subtitle: `${customer?.name || 'Guest'} purchased items ($${total.toFixed(2)})`,
-          orderId: orderRef.id,
-          companyId: company.id,
-          createdAt: serverTimestamp()
-        });
+      await createSaleTransaction({
+        companyId: company.id,
+        customerId: form.customerId,
+        customerName: customer?.name || t('orders.guest'),
+        paymentMethod: form.paymentMethod,
+        items: form.items,
+        subtotal: total,
+        discount: 0,
+        tax: 0,
+        total,
+        channel: 'orders',
+        movementReason: 'Sale',
+        activityTitle: 'Order Confirmed',
+        messages: {
+          productNotFound: (name) => t('orders.errors.not_found', { name }),
+          insufficientStock: (name, count) => t('orders.errors.insufficient', { name, count }),
+        },
       });
 
       setIsModalOpen(false);

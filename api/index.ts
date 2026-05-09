@@ -369,7 +369,7 @@ OPERATIONAL PRINCIPLES:
 5. SECURITY PROTOCOL: Respect user roles.
 
 COMMAND PROTOCOLS (MUST appear at the END of the response, on their own line):
-- [COMMAND: NAVIGATE | /path] - ONLY for changing screens. Valid paths: /dashboard, /customers, /products, /inventory, /orders, /insights, /team, /settings.
+- [COMMAND: NAVIGATE | /path] - ONLY for changing screens. Valid paths: /dashboard, /customers, /products, /inventory, /orders, /pos, /insights, /team, /settings.
 - [COMMAND: OPEN_FILTER | module | payload] - For complex data views.
 - [COMMAND: DRAFT_REPORT | summary] - When generating an analysis or report. (REVIEW_ONLY)
 - [COMMAND: REVIEW_ONLY | summary] - For complex advice without automated path.

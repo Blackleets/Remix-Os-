@@ -20,6 +20,7 @@ export function usePermissions() {
   const canEditProducts = isOwner || isAdmin || isStaff;
   const canEditOrders = isOwner || isAdmin || isStaff;
   const canEditInventory = isOwner || isAdmin || isStaff;
+  const canUsePOS = isOwner || isAdmin || isStaff;
 
   return {
     role,
@@ -34,6 +35,7 @@ export function usePermissions() {
     canEditCustomers,
     canEditProducts,
     canEditOrders,
-    canEditInventory
+    canEditInventory,
+    canUsePOS
   };
 }

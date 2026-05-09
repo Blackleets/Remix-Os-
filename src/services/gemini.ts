@@ -13,10 +13,12 @@ async function authedFetchJSON(url: string, body: Record<string, any>) {
     },
     body: JSON.stringify(body),
   });
+
   if (!res.ok) {
     const err = await res.text();
     throw new Error(err || `Request failed (${res.status})`);
   }
+
   return res.json();
 }
 
@@ -25,6 +27,7 @@ export async function generateBusinessInsights(businessData: any, language: stri
     console.warn('generateBusinessInsights: missing companyId');
     return null;
   }
+
   try {
     const data = await authedFetchJSON('/api/ai/insights', {
       companyId: businessData.companyId,
@@ -47,6 +50,7 @@ export async function chatCopilot(
   if (!context?.companyId) {
     throw new Error('chatCopilot: missing companyId in context');
   }
+
   const data = await authedFetchJSON('/api/ai/chat', {
     companyId: context.companyId,
     message,
@@ -54,6 +58,7 @@ export async function chatCopilot(
     context,
     language,
   });
+
   return data?.text ?? '';
 }
 
@@ -62,6 +67,7 @@ export async function getProactiveThoughts(context: any, language: string = 'en'
     console.warn('getProactiveThoughts: missing companyId');
     return [];
   }
+
   try {
     const data = await authedFetchJSON('/api/ai/proactive-thoughts', {
       companyId: context.companyId,

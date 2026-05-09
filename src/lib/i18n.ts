@@ -11,6 +11,7 @@ const resources = {
         products: 'Products',
         inventory: 'Inventory',
         orders: 'Orders',
+        pos: 'POS',
         team: 'Team',
         insights: 'AI Copilot',
         billing: 'Billing',
@@ -303,6 +304,62 @@ const resources = {
         },
         guest: 'Guest'
       },
+      pos: {
+        title: 'Point of Sale',
+        subtitle: 'Run fast counter sales while staying synced with your live inventory grid.',
+        access: {
+          title: 'POS Access Restricted',
+          description: 'Your role can view the operational shell, but cannot complete point-of-sale transactions.'
+        },
+        catalog: {
+          title: 'Active Products',
+          search_placeholder: 'Search by name or SKU',
+          stock: 'Stock {{count}}',
+          add: 'Add',
+          empty_title: 'No active products match this scan.',
+          empty_subtitle: 'Try another name or SKU to populate the sales lane.'
+        },
+        cart: {
+          title: 'Cart Lane',
+          available: 'Available {{count}}',
+          stock_error: 'Quantity exceeds live stock.',
+          empty_title: 'Cart is empty.',
+          empty_subtitle: 'Tap products from the live catalog to start the sale.'
+        },
+        checkout: {
+          title: 'Settlement Panel',
+          customer: 'Customer',
+          guest_checkout: 'Guest checkout',
+          current_customer: 'Current counterparty: {{customerName}}',
+          payment_method: 'Payment Method',
+          processing: 'Processing Sale',
+          complete_sale: 'Complete Sale'
+        },
+        summary: {
+          subtotal: 'Subtotal',
+          discount: 'Discount',
+          tax: 'Tax',
+          total: 'Total',
+          final_total: 'Final Total'
+        },
+        receipt: {
+          label: 'Receipt View',
+          title: 'Sale Completed',
+          generated_for: 'Receipt #{{orderId}} generated for {{customerName}}.',
+          date: 'Date',
+          payment: 'Payment',
+          items: 'Items',
+          total: 'Total',
+          download_pdf: 'Download PDF',
+          print_coming_soon: 'Print Coming Soon',
+          ledger: 'Receipt Ledger',
+          order: 'Order'
+        },
+        integrations: {
+          title: 'POS Integrations Coming Soon',
+          note: 'Hardware connectors stay visual-only in this rollout.'
+        }
+      },
       team: {
         title: 'Personnel Protocol',
         subtitle: 'Manage multi-user access and role-based operational permissions.',
@@ -529,6 +586,7 @@ const resources = {
         products: 'Productos',
         inventory: 'Inventario',
         orders: 'Pedidos',
+        pos: 'POS',
         team: 'Equipo',
         insights: 'Copiloto IA',
         billing: 'Facturación',
@@ -821,6 +879,62 @@ const resources = {
         },
         guest: 'Invitado'
       },
+      pos: {
+        title: 'Punto de Venta',
+        subtitle: 'Ejecuta ventas de mostrador rÃ¡pidas mientras sigues sincronizado con tu inventario en vivo.',
+        access: {
+          title: 'Acceso POS Restringido',
+          description: 'Tu rol puede ver el mÃ³dulo operativo, pero no completar transacciones de punto de venta.'
+        },
+        catalog: {
+          title: 'Productos Activos',
+          search_placeholder: 'Buscar por nombre o SKU',
+          stock: 'Stock {{count}}',
+          add: 'Agregar',
+          empty_title: 'No hay productos activos que coincidan con la bÃºsqueda.',
+          empty_subtitle: 'Prueba con otro nombre o SKU para poblar la lÃ­nea de venta.'
+        },
+        cart: {
+          title: 'Carril del Carrito',
+          available: 'Disponible {{count}}',
+          stock_error: 'La cantidad supera el stock en vivo.',
+          empty_title: 'El carrito estÃ¡ vacÃ­o.',
+          empty_subtitle: 'Toca productos del catÃ¡logo en vivo para iniciar la venta.'
+        },
+        checkout: {
+          title: 'Panel de Cobro',
+          customer: 'Cliente',
+          guest_checkout: 'Compra como invitado',
+          current_customer: 'Contraparte actual: {{customerName}}',
+          payment_method: 'MÃ©todo de Pago',
+          processing: 'Procesando Venta',
+          complete_sale: 'Completar Venta'
+        },
+        summary: {
+          subtotal: 'Subtotal',
+          discount: 'Descuento',
+          tax: 'Impuestos',
+          total: 'Total',
+          final_total: 'Total Final'
+        },
+        receipt: {
+          label: 'Vista del Recibo',
+          title: 'Venta Completada',
+          generated_for: 'Recibo #{{orderId}} generado para {{customerName}}.',
+          date: 'Fecha',
+          payment: 'Pago',
+          items: 'ArtÃ­culos',
+          total: 'Total',
+          download_pdf: 'Descargar PDF',
+          print_coming_soon: 'ImpresiÃ³n PrÃ³ximamente',
+          ledger: 'Libro del Recibo',
+          order: 'Orden'
+        },
+        integrations: {
+          title: 'Integraciones POS PrÃ³ximamente',
+          note: 'Los conectores de hardware permanecen solo como vista visual en este rollout.'
+        }
+      },
       team: {
         title: 'Protocolo de Personal',
         subtitle: 'Gestione el acceso multiusuario y los permisos operativos basados en roles.',
@@ -1047,6 +1161,7 @@ const resources = {
         products: 'Produtos',
         inventory: 'Inventário',
         orders: 'Pedidos',
+        pos: 'POS',
         team: 'Equipe',
         insights: 'Copiloto IA',
         billing: 'Faturamento',
@@ -1338,6 +1453,62 @@ const resources = {
           failed: 'Ocorreu um erro ao fazer o pedido.'
         },
         guest: 'Convidado'
+      },
+      pos: {
+        title: 'Ponto de Venda',
+        subtitle: 'Execute vendas de balcÃ£o rÃ¡pidas enquanto permanece sincronizado com seu inventÃ¡rio ao vivo.',
+        access: {
+          title: 'Acesso POS Restrito',
+          description: 'Seu papel pode visualizar o mÃ³dulo operacional, mas nÃ£o concluir transaÃ§Ãµes de ponto de venda.'
+        },
+        catalog: {
+          title: 'Produtos Ativos',
+          search_placeholder: 'Buscar por nome ou SKU',
+          stock: 'Estoque {{count}}',
+          add: 'Adicionar',
+          empty_title: 'Nenhum produto ativo corresponde a esta busca.',
+          empty_subtitle: 'Tente outro nome ou SKU para preencher a pista de venda.'
+        },
+        cart: {
+          title: 'Pista do Carrinho',
+          available: 'DisponÃ­vel {{count}}',
+          stock_error: 'A quantidade excede o estoque ao vivo.',
+          empty_title: 'O carrinho estÃ¡ vazio.',
+          empty_subtitle: 'Toque nos produtos do catÃ¡logo ao vivo para iniciar a venda.'
+        },
+        checkout: {
+          title: 'Painel de LiquidaÃ§Ã£o',
+          customer: 'Cliente',
+          guest_checkout: 'Compra como convidado',
+          current_customer: 'Contraparte atual: {{customerName}}',
+          payment_method: 'MÃ©todo de Pagamento',
+          processing: 'Processando Venda',
+          complete_sale: 'Concluir Venda'
+        },
+        summary: {
+          subtotal: 'Subtotal',
+          discount: 'Desconto',
+          tax: 'Imposto',
+          total: 'Total',
+          final_total: 'Total Final'
+        },
+        receipt: {
+          label: 'VisualizaÃ§Ã£o do Recibo',
+          title: 'Venda ConcluÃ­da',
+          generated_for: 'Recibo #{{orderId}} gerado para {{customerName}}.',
+          date: 'Data',
+          payment: 'Pagamento',
+          items: 'Itens',
+          total: 'Total',
+          download_pdf: 'Baixar PDF',
+          print_coming_soon: 'ImpressÃ£o em Breve',
+          ledger: 'Livro do Recibo',
+          order: 'Pedido'
+        },
+        integrations: {
+          title: 'IntegraÃ§Ãµes POS em Breve',
+          note: 'Os conectores de hardware permanecem apenas visuais neste rollout.'
+        }
       },
       team: {
         title: 'Protocolo de Pessoal',

@@ -428,7 +428,7 @@ export function Copilot() {
 
       if (command.type === 'NAVIGATE') {
         const targetPath = command.params.trim().toLowerCase().split('?')[0];
-        const validRoutes = ['/dashboard', '/customers', '/products', '/inventory', '/orders', '/insights', '/team', '/settings', '/billing'];
+        const validRoutes = ['/dashboard', '/customers', '/products', '/inventory', '/orders', '/pos', '/insights', '/team', '/settings', '/billing'];
         const isValid = validRoutes.some(r => targetPath === r || targetPath.startsWith(r + '/'));
         if (!isValid) throw new Error(`Restricted target: ${targetPath}`);
         navigate(command.params.trim());
