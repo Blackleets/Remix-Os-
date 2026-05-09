@@ -198,7 +198,7 @@ export function POS() {
         console.warn('Cash sessions unavailable:', error);
         setCashSessions([]);
         setCashSessionAccessUnavailable(true);
-        setCashSessionError('Cash sessions are unavailable until the latest Firestore rules are deployed.');
+        setCashSessionError(t('pos.cash.unavailable'));
       }
     );
 
@@ -570,8 +570,8 @@ export function POS() {
       return [
         {
           id: 'pulse-idle',
-          title: 'Awaiting basket signal',
-          body: 'Add products to the cart and Remix will surface cross-sells, stock risk, and session advice.',
+          title: t('pos.pulse.awaiting_title'),
+          body: t('pos.pulse.awaiting_body'),
           tone: 'info',
         },
       ];
@@ -993,7 +993,7 @@ export function POS() {
         </Card>
       )}
 
-      <div className="grid grid-cols-1 items-start gap-5 md:grid-cols-2 xl:grid-cols-[380px_minmax(420px,1fr)_420px]">
+      <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[360px_minmax(380px,1fr)_400px]">
         <Card className="p-0 overflow-hidden border-white/5 bg-neutral-900/40">
           <div className="space-y-4 border-b border-white/[0.05] bg-white/[0.01] p-5">
             <div className="flex items-center justify-between gap-4">
@@ -1215,7 +1215,7 @@ export function POS() {
           </Card>
         </div>
 
-        <div className="custom-scrollbar space-y-5 md:col-span-2 xl:col-span-1 xl:sticky xl:top-24 xl:max-h-[calc(100vh-120px)] xl:overflow-y-auto xl:pr-1">
+        <div className="custom-scrollbar space-y-5 lg:sticky lg:top-24 lg:max-h-[calc(100vh-120px)] lg:overflow-y-auto lg:pr-1">
           <Card className="space-y-4 border-white/5 bg-neutral-900/40 p-5">
             <div className="flex items-center justify-between">
               <div>
@@ -1458,7 +1458,7 @@ export function POS() {
             </Button>
           </Card>
 
-          <Card className="space-y-5 border-white/5 bg-neutral-900/40 p-5">
+          <Card className="space-y-5 border-white/5 bg-neutral-900/40 p-5 opacity-50 select-none">
             <div className="flex items-center justify-between">
               <div>
                 <p className="mb-2 text-[10px] font-black uppercase tracking-[0.35em] text-neutral-600">{t('pos.integrations.label')}</p>
