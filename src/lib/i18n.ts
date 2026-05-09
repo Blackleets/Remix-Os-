@@ -311,29 +311,107 @@ const resources = {
           title: 'POS Access Restricted',
           description: 'Your role can view the operational shell, but cannot complete point-of-sale transactions.'
         },
+        command_bar: {
+          button: 'POS Command Bar',
+          title: 'POS Command Bar',
+          placeholder: 'Search products and press Enter to add',
+          no_results: 'No products match the current command.',
+          hint_add: 'Enter adds selected item',
+          hint_clear: 'Esc clears selection',
+          hint_reopen: 'Cmd/Ctrl + K reopens search'
+        },
         catalog: {
+          kicker: 'Catalog Feed',
           title: 'Active Products',
+          live_count: '{{count}} live',
           search_placeholder: 'Search by name or SKU',
           stock: 'Stock {{count}}',
           add: 'Add',
+          out_of_stock: 'Out of stock',
           empty_title: 'No active products match this scan.',
           empty_subtitle: 'Try another name or SKU to populate the sales lane.'
         },
         cart: {
+          kicker: 'Sale Builder',
           title: 'Cart Lane',
           available: 'Available {{count}}',
+          quantity: 'Qty {{count}}',
+          each: '{{price}} each',
           stock_error: 'Quantity exceeds live stock.',
           empty_title: 'Cart is empty.',
           empty_subtitle: 'Tap products from the live catalog to start the sale.'
         },
+        pulse: {
+          kicker: 'AI Sales Pulse',
+          title: 'Real-time basket intelligence',
+          idle_title: 'Awaiting basket signal',
+          idle_body: 'Add products to the cart and Remix will surface cross-sells, stock risk, and session advice.',
+          customer_habit_title: 'Customer habit detected',
+          customer_habit_body: '{{customerName}} frequently pairs this basket with {{productName}}. Add it as a quick upsell.',
+          related_title: 'Related product ready',
+          related_body: '{{productName}} is the strongest co-purchase match for the current basket. One tap can lift ticket size.',
+          upsell_title: 'Smart upsell available',
+          upsell_body: 'Swap {{baseItem}} for {{candidate}} to increase order value with a related premium option.',
+          margin_title: 'Margin compression',
+          margin_body: '{{productName}} is selling at a thin margin. Pair it with a stronger add-on before checkout.',
+          stock_title: 'Stock risk detected',
+          stock_body: '{{productName}} is nearing depletion after this sale. Trigger a restock or steer the buyer to an alternative.'
+        },
+        quick_actions: {
+          kicker: 'Smart Quick Actions',
+          title: 'Speed controls',
+          quick_discount: 'Quick 10%',
+          guest_sale: 'Guest Sale',
+          clear_cart: 'Clear Cart',
+          duplicate_last: 'Duplicate Last',
+          loading_duplicate: 'Loading...',
+          no_previous_sale: 'No previous POS sale is available to duplicate.',
+          duplicate_empty: 'The last sale cannot be duplicated because those items are no longer available.',
+          duplicate_adjusted: 'Duplicated with adjustments: {{items}}',
+          duplicate_failed: 'Failed to duplicate the last sale.',
+          adjusted_to_stock: '{{name}} (adjusted to stock)'
+        },
+        cash_session: {
+          kicker: 'Cash Session',
+          title: 'Shift register',
+          unavailable_title: 'Cash session unavailable',
+          unavailable_body: 'Cash session controls are in safe fallback mode until the latest Firestore rules are deployed.',
+          unavailable_error: 'Cash sessions are unavailable until the latest Firestore rules are deployed.',
+          open_session: 'Open session',
+          opened_with: 'Opened with {{amount}}',
+          opening_cash: 'Opening cash',
+          opening_placeholder: '100.00',
+          open_button: 'Open Cash Session',
+          opening_button: 'Opening Session',
+          close_button: 'Close Cash Session',
+          closing_button: 'Closing Session',
+          closing_notes: 'Closing notes',
+          closing_placeholder: 'Capture variance notes, payouts, or operator remarks.',
+          turn_sales: 'Turn sales',
+          cash_expected: 'Cash expected',
+          sales_count: 'Sales count',
+          cash_sales: 'Cash sales',
+          open_failed: 'Failed to open cash session.',
+          close_failed: 'Failed to close cash session.'
+        },
         checkout: {
+          kicker: 'Checkout Core',
           title: 'Settlement Panel',
           customer: 'Customer',
           guest_checkout: 'Guest checkout',
           current_customer: 'Current counterparty: {{customerName}}',
           payment_method: 'Payment Method',
+          receipt_message: 'Receipt message',
+          receipt_placeholder: 'Thank you for shopping with us.',
           processing: 'Processing Sale',
           complete_sale: 'Complete Sale'
+        },
+        payment_methods: {
+          cash: 'Cash',
+          card: 'Card',
+          transfer: 'Transfer',
+          stripe: 'Stripe',
+          crypto: 'Crypto'
         },
         summary: {
           subtotal: 'Subtotal',
@@ -351,13 +429,21 @@ const resources = {
           items: 'Items',
           total: 'Total',
           download_pdf: 'Download PDF',
-          print_coming_soon: 'Print Coming Soon',
+          print_coming_soon: 'Print coming soon',
           ledger: 'Receipt Ledger',
           order: 'Order'
         },
         integrations: {
+          kicker: 'Roadmap Surface',
           title: 'POS Integrations Coming Soon',
+          pending: 'Pending',
           note: 'Hardware connectors stay visual-only in this rollout.'
+        },
+        errors: {
+          out_of_stock: '{{name}} is out of stock.',
+          insufficient_stock: 'Insufficient stock for {{name}}. Available: {{count}}',
+          product_not_found: 'Product {{name}} not found.',
+          sale_failed: 'Failed to complete sale.'
         }
       },
       team: {
@@ -881,58 +967,144 @@ const resources = {
       },
       pos: {
         title: 'Punto de Venta',
-        subtitle: 'Ejecuta ventas de mostrador rÃ¡pidas mientras sigues sincronizado con tu inventario en vivo.',
+        subtitle: 'Ejecuta ventas de mostrador r\u00e1pidas mientras sigues sincronizado con tu inventario en vivo.',
         access: {
-          title: 'Acceso POS Restringido',
-          description: 'Tu rol puede ver el mÃ³dulo operativo, pero no completar transacciones de punto de venta.'
+          title: 'Acceso POS restringido',
+          description: 'Tu rol puede ver el m\u00f3dulo operativo, pero no completar transacciones de punto de venta.'
+        },
+        command_bar: {
+          button: 'Barra de comandos POS',
+          title: 'Barra de comandos POS',
+          placeholder: 'Busca productos y pulsa Enter para agregarlos',
+          no_results: 'No hay productos que coincidan con el comando actual.',
+          hint_add: 'Enter agrega el producto seleccionado',
+          hint_clear: 'Esc limpia la selecci\u00f3n',
+          hint_reopen: 'Ctrl/Cmd + K vuelve a abrir la b\u00fasqueda'
         },
         catalog: {
-          title: 'Productos Activos',
+          kicker: 'Cat\u00e1logo activo',
+          title: 'Productos activos',
+          live_count: '{{count}} en vivo',
           search_placeholder: 'Buscar por nombre o SKU',
           stock: 'Stock {{count}}',
           add: 'Agregar',
-          empty_title: 'No hay productos activos que coincidan con la bÃºsqueda.',
-          empty_subtitle: 'Prueba con otro nombre o SKU para poblar la lÃ­nea de venta.'
+          out_of_stock: 'Sin stock',
+          empty_title: 'No hay productos activos que coincidan con la b\u00fasqueda.',
+          empty_subtitle: 'Prueba con otro nombre o SKU para poblar la l\u00ednea de venta.'
         },
         cart: {
-          title: 'Carril del Carrito',
+          kicker: 'Constructor de venta',
+          title: 'Carrito',
           available: 'Disponible {{count}}',
-          stock_error: 'La cantidad supera el stock en vivo.',
-          empty_title: 'El carrito estÃ¡ vacÃ­o.',
-          empty_subtitle: 'Toca productos del catÃ¡logo en vivo para iniciar la venta.'
+          quantity: 'Cant. {{count}}',
+          each: '{{price}} c/u',
+          stock_error: 'La cantidad supera el stock disponible.',
+          empty_title: 'El carrito est\u00e1 vac\u00edo.',
+          empty_subtitle: 'Toca productos del cat\u00e1logo en vivo para iniciar la venta.'
+        },
+        pulse: {
+          kicker: 'AI Sales Pulse',
+          title: 'Inteligencia de cesta en tiempo real',
+          idle_title: 'Esperando se\u00f1al del carrito',
+          idle_body: 'Agrega productos al carrito y Remix mostrar\u00e1 ventas cruzadas, riesgo de stock y recomendaciones de sesi\u00f3n.',
+          customer_habit_title: 'H\u00e1bito del cliente detectado',
+          customer_habit_body: '{{customerName}} suele combinar esta compra con {{productName}}. A\u00f1\u00e1delo como upsell r\u00e1pido.',
+          related_title: 'Producto relacionado listo',
+          related_body: '{{productName}} es la mejor compra cruzada para la cesta actual. Un toque puede subir el ticket medio.',
+          upsell_title: 'Upsell inteligente disponible',
+          upsell_body: 'Cambia {{baseItem}} por {{candidate}} para elevar el valor de la venta con una opci\u00f3n premium relacionada.',
+          margin_title: 'Margen bajo detectado',
+          margin_body: '{{productName}} se est\u00e1 vendiendo con margen ajustado. Comp\u00e9nsalo con un complemento de mayor margen.',
+          stock_title: 'Riesgo de stock detectado',
+          stock_body: '{{productName}} quedar\u00e1 casi agotado tras esta venta. Activa reposici\u00f3n o gu\u00eda al cliente hacia una alternativa.'
+        },
+        quick_actions: {
+          kicker: 'Acciones r\u00e1pidas',
+          title: 'Controles de velocidad',
+          quick_discount: 'Descuento 10%',
+          guest_sale: 'Venta a invitado',
+          clear_cart: 'Vaciar carrito',
+          duplicate_last: 'Duplicar \u00faltima',
+          loading_duplicate: 'Cargando...',
+          no_previous_sale: 'No hay una venta POS previa para duplicar.',
+          duplicate_empty: 'La \u00faltima venta no se puede duplicar porque esos productos ya no est\u00e1n disponibles.',
+          duplicate_adjusted: 'Venta duplicada con ajustes: {{items}}',
+          duplicate_failed: 'No se pudo duplicar la \u00faltima venta.',
+          adjusted_to_stock: '{{name}} (ajustado al stock)'
+        },
+        cash_session: {
+          kicker: 'Sesi\u00f3n de caja',
+          title: 'Turno de caja',
+          unavailable_title: 'Sesi\u00f3n de caja no disponible',
+          unavailable_body: 'Los controles de caja est\u00e1n en modo seguro hasta que se desplieguen las reglas de Firestore de `cashSessions`.',
+          unavailable_error: 'Las sesiones de caja no est\u00e1n disponibles hasta que se desplieguen las reglas m\u00e1s recientes de Firestore.',
+          open_session: 'Sesi\u00f3n abierta',
+          opened_with: 'Abierta con {{amount}}',
+          opening_cash: 'Efectivo inicial',
+          opening_placeholder: '100.00',
+          open_button: 'Abrir caja',
+          opening_button: 'Abriendo caja',
+          close_button: 'Cerrar caja',
+          closing_button: 'Cerrando caja',
+          closing_notes: 'Notas de cierre',
+          closing_placeholder: 'Registra diferencias, pagos o notas del operador.',
+          turn_sales: 'Ventas del turno',
+          cash_expected: 'Efectivo esperado',
+          sales_count: 'Cantidad de ventas',
+          cash_sales: 'Ventas en efectivo',
+          open_failed: 'No se pudo abrir la sesi\u00f3n de caja.',
+          close_failed: 'No se pudo cerrar la sesi\u00f3n de caja.'
         },
         checkout: {
-          title: 'Panel de Cobro',
+          kicker: 'Cobro',
+          title: 'Panel de cobro',
           customer: 'Cliente',
           guest_checkout: 'Compra como invitado',
-          current_customer: 'Contraparte actual: {{customerName}}',
-          payment_method: 'MÃ©todo de Pago',
-          processing: 'Procesando Venta',
-          complete_sale: 'Completar Venta'
+          current_customer: 'Cliente actual: {{customerName}}',
+          payment_method: 'M\u00e9todo de pago',
+          receipt_message: 'Mensaje del recibo',
+          receipt_placeholder: 'Gracias por comprar con nosotros.',
+          processing: 'Procesando venta',
+          complete_sale: 'Completar venta'
+        },
+        payment_methods: {
+          cash: 'Efectivo',
+          card: 'Tarjeta',
+          transfer: 'Transferencia',
+          stripe: 'Stripe',
+          crypto: 'Cripto'
         },
         summary: {
           subtotal: 'Subtotal',
           discount: 'Descuento',
           tax: 'Impuestos',
           total: 'Total',
-          final_total: 'Total Final'
+          final_total: 'Total final'
         },
         receipt: {
-          label: 'Vista del Recibo',
-          title: 'Venta Completada',
+          label: 'Vista del recibo',
+          title: 'Venta completada',
           generated_for: 'Recibo #{{orderId}} generado para {{customerName}}.',
           date: 'Fecha',
           payment: 'Pago',
-          items: 'ArtÃ­culos',
+          items: 'Art\u00edculos',
           total: 'Total',
           download_pdf: 'Descargar PDF',
-          print_coming_soon: 'ImpresiÃ³n PrÃ³ximamente',
-          ledger: 'Libro del Recibo',
+          print_coming_soon: 'Impresi\u00f3n pr\u00f3ximamente',
+          ledger: 'Detalle del recibo',
           order: 'Orden'
         },
         integrations: {
-          title: 'Integraciones POS PrÃ³ximamente',
-          note: 'Los conectores de hardware permanecen solo como vista visual en este rollout.'
+          kicker: 'Pr\u00f3ximamente',
+          title: 'Integraciones POS pr\u00f3ximamente',
+          pending: 'Pendiente',
+          note: 'Los conectores de hardware siguen siendo solo visuales en esta fase.'
+        },
+        errors: {
+          out_of_stock: '{{name}} est\u00e1 sin stock.',
+          insufficient_stock: 'Stock insuficiente para {{name}}. Disponible: {{count}}',
+          product_not_found: 'Producto {{name}} no encontrado.',
+          sale_failed: 'No se pudo completar la venta.'
         }
       },
       team: {
@@ -1456,58 +1628,144 @@ const resources = {
       },
       pos: {
         title: 'Ponto de Venda',
-        subtitle: 'Execute vendas de balcÃ£o rÃ¡pidas enquanto permanece sincronizado com seu inventÃ¡rio ao vivo.',
+        subtitle: 'Execute vendas r\u00e1pidas de balc\u00e3o enquanto permanece sincronizado com seu invent\u00e1rio ao vivo.',
         access: {
-          title: 'Acesso POS Restrito',
-          description: 'Seu papel pode visualizar o mÃ³dulo operacional, mas nÃ£o concluir transaÃ§Ãµes de ponto de venda.'
+          title: 'Acesso POS restrito',
+          description: 'Seu papel pode visualizar o m\u00f3dulo operacional, mas n\u00e3o concluir transa\u00e7\u00f5es de ponto de venda.'
+        },
+        command_bar: {
+          button: 'Barra de comandos POS',
+          title: 'Barra de comandos POS',
+          placeholder: 'Busque produtos e pressione Enter para adicionar',
+          no_results: 'Nenhum produto corresponde ao comando atual.',
+          hint_add: 'Enter adiciona o item selecionado',
+          hint_clear: 'Esc limpa a sele\u00e7\u00e3o',
+          hint_reopen: 'Ctrl/Cmd + K reabre a busca'
         },
         catalog: {
-          title: 'Produtos Ativos',
+          kicker: 'Cat\u00e1logo ativo',
+          title: 'Produtos ativos',
+          live_count: '{{count}} ao vivo',
           search_placeholder: 'Buscar por nome ou SKU',
           stock: 'Estoque {{count}}',
           add: 'Adicionar',
+          out_of_stock: 'Sem estoque',
           empty_title: 'Nenhum produto ativo corresponde a esta busca.',
-          empty_subtitle: 'Tente outro nome ou SKU para preencher a pista de venda.'
+          empty_subtitle: 'Tente outro nome ou SKU para preencher a fila de venda.'
         },
         cart: {
-          title: 'Pista do Carrinho',
-          available: 'DisponÃ­vel {{count}}',
-          stock_error: 'A quantidade excede o estoque ao vivo.',
-          empty_title: 'O carrinho estÃ¡ vazio.',
-          empty_subtitle: 'Toque nos produtos do catÃ¡logo ao vivo para iniciar a venda.'
+          kicker: 'Montagem da venda',
+          title: 'Carrinho',
+          available: 'Dispon\u00edvel {{count}}',
+          quantity: 'Qtd. {{count}}',
+          each: '{{price}} cada',
+          stock_error: 'A quantidade excede o estoque dispon\u00edvel.',
+          empty_title: 'O carrinho est\u00e1 vazio.',
+          empty_subtitle: 'Toque nos produtos do cat\u00e1logo ao vivo para iniciar a venda.'
+        },
+        pulse: {
+          kicker: 'AI Sales Pulse',
+          title: 'Intelig\u00eancia da cesta em tempo real',
+          idle_title: 'Aguardando sinal da cesta',
+          idle_body: 'Adicione produtos ao carrinho e o Remix exibir\u00e1 venda cruzada, risco de estoque e recomenda\u00e7\u00f5es da sess\u00e3o.',
+          customer_habit_title: 'H\u00e1bito do cliente detectado',
+          customer_habit_body: '{{customerName}} costuma combinar esta compra com {{productName}}. Adicione como upsell r\u00e1pido.',
+          related_title: 'Produto relacionado pronto',
+          related_body: '{{productName}} \u00e9 a melhor compra complementar para a cesta atual. Um toque pode elevar o ticket m\u00e9dio.',
+          upsell_title: 'Upsell inteligente dispon\u00edvel',
+          upsell_body: 'Troque {{baseItem}} por {{candidate}} para aumentar o valor da venda com uma op\u00e7\u00e3o premium relacionada.',
+          margin_title: 'Compress\u00e3o de margem',
+          margin_body: '{{productName}} est\u00e1 sendo vendido com margem baixa. Combine com um adicional de margem mais forte antes do checkout.',
+          stock_title: 'Risco de estoque detectado',
+          stock_body: '{{productName}} ficar\u00e1 perto da ruptura ap\u00f3s esta venda. Acione reposi\u00e7\u00e3o ou direcione o cliente para uma alternativa.'
+        },
+        quick_actions: {
+          kicker: 'A\u00e7\u00f5es r\u00e1pidas',
+          title: 'Controles de velocidade',
+          quick_discount: 'Desconto 10%',
+          guest_sale: 'Venda como convidado',
+          clear_cart: 'Limpar carrinho',
+          duplicate_last: 'Duplicar \u00faltima',
+          loading_duplicate: 'Carregando...',
+          no_previous_sale: 'Nenhuma venda POS anterior est\u00e1 dispon\u00edvel para duplicar.',
+          duplicate_empty: 'A \u00faltima venda n\u00e3o pode ser duplicada porque esses itens n\u00e3o est\u00e3o mais dispon\u00edveis.',
+          duplicate_adjusted: 'Venda duplicada com ajustes: {{items}}',
+          duplicate_failed: 'Falha ao duplicar a \u00faltima venda.',
+          adjusted_to_stock: '{{name}} (ajustado ao estoque)'
+        },
+        cash_session: {
+          kicker: 'Sess\u00e3o de caixa',
+          title: 'Turno de caixa',
+          unavailable_title: 'Sess\u00e3o de caixa indispon\u00edvel',
+          unavailable_body: 'Os controles de caixa est\u00e3o em modo seguro at\u00e9 que as regras do Firestore para `cashSessions` sejam publicadas.',
+          unavailable_error: 'As sess\u00f5es de caixa est\u00e3o indispon\u00edveis at\u00e9 que as regras mais recentes do Firestore sejam publicadas.',
+          open_session: 'Sess\u00e3o aberta',
+          opened_with: 'Aberta com {{amount}}',
+          opening_cash: 'Caixa inicial',
+          opening_placeholder: '100.00',
+          open_button: 'Abrir caixa',
+          opening_button: 'Abrindo caixa',
+          close_button: 'Fechar caixa',
+          closing_button: 'Fechando caixa',
+          closing_notes: 'Notas de fechamento',
+          closing_placeholder: 'Registre diverg\u00eancias, pagamentos ou observa\u00e7\u00f5es do operador.',
+          turn_sales: 'Vendas do turno',
+          cash_expected: 'Dinheiro esperado',
+          sales_count: 'Quantidade de vendas',
+          cash_sales: 'Vendas em dinheiro',
+          open_failed: 'Falha ao abrir a sess\u00e3o de caixa.',
+          close_failed: 'Falha ao fechar a sess\u00e3o de caixa.'
         },
         checkout: {
-          title: 'Painel de LiquidaÃ§Ã£o',
+          kicker: 'Checkout',
+          title: 'Painel de pagamento',
           customer: 'Cliente',
           guest_checkout: 'Compra como convidado',
-          current_customer: 'Contraparte atual: {{customerName}}',
-          payment_method: 'MÃ©todo de Pagamento',
-          processing: 'Processando Venda',
-          complete_sale: 'Concluir Venda'
+          current_customer: 'Cliente atual: {{customerName}}',
+          payment_method: 'M\u00e9todo de pagamento',
+          receipt_message: 'Mensagem do recibo',
+          receipt_placeholder: 'Obrigado por comprar conosco.',
+          processing: 'Processando venda',
+          complete_sale: 'Concluir venda'
+        },
+        payment_methods: {
+          cash: 'Dinheiro',
+          card: 'Cart\u00e3o',
+          transfer: 'Transfer\u00eancia',
+          stripe: 'Stripe',
+          crypto: 'Cripto'
         },
         summary: {
           subtotal: 'Subtotal',
           discount: 'Desconto',
           tax: 'Imposto',
           total: 'Total',
-          final_total: 'Total Final'
+          final_total: 'Total final'
         },
         receipt: {
-          label: 'VisualizaÃ§Ã£o do Recibo',
-          title: 'Venda ConcluÃ­da',
+          label: 'Visualiza\u00e7\u00e3o do recibo',
+          title: 'Venda conclu\u00edda',
           generated_for: 'Recibo #{{orderId}} gerado para {{customerName}}.',
           date: 'Data',
           payment: 'Pagamento',
           items: 'Itens',
           total: 'Total',
           download_pdf: 'Baixar PDF',
-          print_coming_soon: 'ImpressÃ£o em Breve',
-          ledger: 'Livro do Recibo',
+          print_coming_soon: 'Impress\u00e3o em breve',
+          ledger: 'Detalhe do recibo',
           order: 'Pedido'
         },
         integrations: {
-          title: 'IntegraÃ§Ãµes POS em Breve',
-          note: 'Os conectores de hardware permanecem apenas visuais neste rollout.'
+          kicker: 'Em breve',
+          title: 'Integra\u00e7\u00f5es POS em breve',
+          pending: 'Pendente',
+          note: 'Os conectores de hardware permanecem apenas visuais nesta fase.'
+        },
+        errors: {
+          out_of_stock: '{{name}} est\u00e1 sem estoque.',
+          insufficient_stock: 'Estoque insuficiente para {{name}}. Dispon\u00edvel: {{count}}',
+          product_not_found: 'Produto {{name}} n\u00e3o encontrado.',
+          sale_failed: 'Falha ao concluir a venda.'
         }
       },
       team: {

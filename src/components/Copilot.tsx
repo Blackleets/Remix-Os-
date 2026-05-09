@@ -10,7 +10,7 @@ import { db } from '../lib/firebase';
 import { collection, query, where, getDocs, limit, orderBy } from 'firebase/firestore';
 import { chatCopilot, getProactiveThoughts } from '../services/gemini';
 import { cn } from './Common';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import { useLocale } from '../hooks/useLocale';
 import { format } from 'date-fns';
@@ -48,6 +48,8 @@ export function Copilot() {
   const { company, user } = useAuth();
   const { t, language, formatCurrency } = useLocale();
   const navigate = useNavigate();
+  const location = useLocation();
+  const isPOSRoute = location.pathname === '/pos';
 
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'chat' | 'intel'>('chat');
@@ -458,7 +460,10 @@ export function Copilot() {
             initial={{ opacity: 0, y: 20, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 10, scale: 0.95 }}
-            className="fixed bottom-24 right-6 z-[60] max-w-[300px] bg-neutral-900 border border-white/10 rounded-2xl p-4 shadow-2xl cursor-pointer"
+            className={cn(
+              'fixed bottom-24 z-[60] max-w-[300px] bg-neutral-900 border border-white/10 rounded-2xl p-4 shadow-2xl cursor-pointer',
+              isPOSRoute ? 'left-6 right-6 sm:right-auto' : 'right-6'
+            )}
             onClick={openPanel}
           >
             <div className="flex gap-3 items-start">
@@ -475,7 +480,7 @@ export function Copilot() {
       </AnimatePresence>
 
       {/* Floating trigger button */}
-      <div className="fixed bottom-6 right-6 z-[60]">
+      <div className={cn('fixed bottom-6 z-[60]', isPOSRoute ? 'left-6' : 'right-6')}>
         <motion.button
           onClick={() => {
             if (isOpen) {

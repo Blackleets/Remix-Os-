@@ -198,7 +198,7 @@ export function POS() {
         console.warn('Cash sessions unavailable:', error);
         setCashSessions([]);
         setCashSessionAccessUnavailable(true);
-        setCashSessionError('Cash sessions are unavailable until the latest Firestore rules are deployed.');
+        setCashSessionError(t('pos.cash_session.unavailable_error'));
       }
     );
 
@@ -213,8 +213,12 @@ export function POS() {
   useEffect(() => {
     if (!company) return;
     const saved = window.localStorage.getItem(`pos_receipt_footer_${company.id}`);
-    if (saved) setReceiptFooterMessage(saved);
-  }, [company?.id]);
+    if (saved) {
+      setReceiptFooterMessage(saved);
+      return;
+    }
+    setReceiptFooterMessage(t('pos.checkout.receipt_placeholder'));
+  }, [company?.id, t]);
 
   useEffect(() => {
     if (!company) return;
@@ -298,6 +302,13 @@ export function POS() {
   const tax = Math.max(0, parseFloat(taxInput) || 0);
   const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const total = Math.max(0, subtotal - discount + tax);
+  const paymentMethodLabels: Record<(typeof PAYMENT_METHODS)[number], string> = {
+    Cash: t('pos.payment_methods.cash'),
+    Card: t('pos.payment_methods.card'),
+    Transfer: t('pos.payment_methods.transfer'),
+    Stripe: t('pos.payment_methods.stripe'),
+    Crypto: t('pos.payment_methods.crypto'),
+  };
 
   const sortedCashSessions = useMemo(
     () => [...cashSessions].sort((a, b) => getTimestampValue(b.openedAt) - getTimestampValue(a.openedAt)),
@@ -340,6 +351,11 @@ export function POS() {
   const getAvailableStock = (productId: string) =>
     products.find((product) => product.id === productId)?.stockLevel ?? 0;
 
+  const cartHasStockError = cart.some((item) => item.quantity > getAvailableStock(item.productId));
+
+  const getPaymentMethodLabel = (method: string) =>
+    paymentMethodLabels[method as (typeof PAYMENT_METHODS)[number]] || method;
+
   const clearCart = () => {
     setCart([]);
     setDiscountInput('0');
@@ -349,6 +365,12 @@ export function POS() {
 
   const addToCart = (product: Product) => {
     setSaleError(null);
+    const availableStock = getAvailableStock(product.id);
+    if (availableStock < 1) {
+      setSaleError(t('pos.errors.out_of_stock', { name: product.name }));
+      return;
+    }
+
     setCart((current) => {
       const existingItem = current.find((item) => item.productId === product.id);
       if (!existingItem) {
@@ -368,14 +390,14 @@ export function POS() {
       }
 
       const nextQuantity = existingItem.quantity + 1;
-      if (nextQuantity > getAvailableStock(product.id)) {
-        setSaleError(`Insufficient stock for ${product.name}.`);
+      if (nextQuantity > availableStock) {
+        setSaleError(t('pos.errors.insufficient_stock', { name: product.name, count: availableStock }));
         return current;
       }
 
       return current.map((item) =>
         item.productId === product.id
-          ? { ...item, quantity: nextQuantity, stockLevel: getAvailableStock(product.id) }
+          ? { ...item, quantity: nextQuantity, stockLevel: availableStock }
           : item
       );
     });
@@ -391,7 +413,7 @@ export function POS() {
     const availableStock = getAvailableStock(productId);
     if (nextQuantity > availableStock) {
       const productName = cart.find((item) => item.productId === productId)?.name || 'item';
-      setSaleError(`Insufficient stock for ${productName}.`);
+      setSaleError(t('pos.errors.insufficient_stock', { name: productName, count: availableStock }));
       return;
     }
 
@@ -435,7 +457,7 @@ export function POS() {
 
   const handleDuplicateLastSale = async () => {
     if (!latestPOSOrder) {
-      setSaleError('No previous POS sale is available to duplicate.');
+      setSaleError(t('pos.quick_actions.no_previous_sale'));
       return;
     }
 
@@ -466,12 +488,12 @@ export function POS() {
         });
 
         if (product.stockLevel < item.quantity) {
-          unavailable.push(`${item.productName} (adjusted to stock)`);
+          unavailable.push(t('pos.quick_actions.adjusted_to_stock', { name: item.productName }));
         }
       }
 
       if (rebuiltCart.length === 0) {
-        throw new Error('The last sale cannot be duplicated because those items are no longer available.');
+        throw new Error(t('pos.quick_actions.duplicate_empty'));
       }
 
       setCart(rebuiltCart);
@@ -482,10 +504,10 @@ export function POS() {
       setIsCommandBarOpen(false);
 
       if (unavailable.length > 0) {
-        setSaleError(`Duplicated with adjustments: ${unavailable.join(', ')}`);
+        setSaleError(t('pos.quick_actions.duplicate_adjusted', { items: unavailable.join(', ') }));
       }
     } catch (error) {
-      setSaleError(error instanceof Error ? error.message : 'Failed to duplicate the last sale.');
+      setSaleError(error instanceof Error ? error.message : t('pos.quick_actions.duplicate_failed'));
     } finally {
       setIsDuplicating(false);
     }
@@ -522,7 +544,7 @@ export function POS() {
         createdAt: serverTimestamp(),
       });
     } catch (error) {
-      setCashSessionError(error instanceof Error ? error.message : 'Failed to open cash session.');
+      setCashSessionError(error instanceof Error ? error.message : t('pos.cash_session.open_failed'));
     } finally {
       setIsCashLoading(false);
     }
@@ -557,7 +579,7 @@ export function POS() {
 
       setClosingNotes('');
     } catch (error) {
-      setCashSessionError(error instanceof Error ? error.message : 'Failed to close cash session.');
+      setCashSessionError(error instanceof Error ? error.message : t('pos.cash_session.close_failed'));
     } finally {
       setIsCashLoading(false);
     }
@@ -568,8 +590,8 @@ export function POS() {
       return [
         {
           id: 'pulse-idle',
-          title: 'Awaiting basket signal',
-          body: 'Add products to the cart and Remix will surface cross-sells, stock risk, and session advice.',
+          title: t('pos.pulse.idle_title'),
+          body: t('pos.pulse.idle_body'),
           tone: 'info',
         },
       ];
@@ -603,8 +625,11 @@ export function POS() {
       if (topRelatedCustomerProduct) {
         insights.push({
           id: 'customer-related',
-          title: 'Customer habit detected',
-          body: `${customerName} frequently pairs this basket with ${topRelatedCustomerProduct.name}. Add it as a quick upsell.`,
+          title: t('pos.pulse.customer_habit_title'),
+          body: t('pos.pulse.customer_habit_body', {
+            customerName,
+            productName: topRelatedCustomerProduct.name,
+          }),
           tone: 'success',
         });
       }
@@ -631,8 +656,8 @@ export function POS() {
     if (topCrossSell) {
       insights.push({
         id: 'cross-sell',
-        title: 'Related product ready',
-        body: `${topCrossSell.name} is the strongest co-purchase match for the current basket. One tap can lift ticket size.`,
+        title: t('pos.pulse.related_title'),
+        body: t('pos.pulse.related_body', { productName: topCrossSell.name }),
         tone: 'success',
       });
     }
@@ -649,8 +674,11 @@ export function POS() {
     if (upsellCandidate) {
       insights.push({
         id: 'upsell',
-        title: 'Smart upsell available',
-        body: `Swap ${upsellCandidate.baseItem.name} for ${upsellCandidate.candidate.name} to increase order value with a related premium option.`,
+        title: t('pos.pulse.upsell_title'),
+        body: t('pos.pulse.upsell_body', {
+          baseItem: upsellCandidate.baseItem.name,
+          candidate: upsellCandidate.candidate.name,
+        }),
         tone: 'info',
       });
     }
@@ -664,8 +692,8 @@ export function POS() {
     if (lowMarginItem) {
       insights.push({
         id: 'low-margin',
-        title: 'Margin compression',
-        body: `${lowMarginItem.name} is selling at a thin margin. Pair it with a stronger add-on before checkout.`,
+        title: t('pos.pulse.margin_title'),
+        body: t('pos.pulse.margin_body', { productName: lowMarginItem.name }),
         tone: 'warning',
       });
     }
@@ -674,17 +702,17 @@ export function POS() {
     if (lowStockRisk) {
       insights.push({
         id: 'low-stock',
-        title: 'Stock risk detected',
-        body: `${lowStockRisk.name} is nearing depletion after this sale. Trigger a restock or steer the buyer to an alternative.`,
+        title: t('pos.pulse.stock_title'),
+        body: t('pos.pulse.stock_body', { productName: lowStockRisk.name }),
         tone: 'warning',
       });
     }
 
     return insights.slice(0, 4);
-  }, [activeProducts, cart, customerId, customerName, orders, products]);
+  }, [activeProducts, cart, customerId, customerName, orders, products, t]);
 
   const handleCompleteSale = async () => {
-    if (!company || cart.length === 0) return;
+    if (!company || cart.length === 0 || cartHasStockError) return;
 
     setIsSubmitting(true);
     setSaleError(null);
@@ -712,8 +740,8 @@ export function POS() {
         movementReason: 'POS Sale',
         activityTitle: 'POS Sale Completed',
         messages: {
-          productNotFound: (name) => `Product ${name} not found.`,
-          insufficientStock: (name, count) => `Insufficient stock for ${name}. Available: ${count}`,
+          productNotFound: (name) => t('pos.errors.product_not_found', { name }),
+          insufficientStock: (name, count) => t('pos.errors.insufficient_stock', { name, count }),
         },
       });
 
@@ -721,7 +749,7 @@ export function POS() {
         orderId: result.orderId,
         createdAt: result.createdAt,
         customerName,
-        paymentMethod,
+        paymentMethod: getPaymentMethodLabel(paymentMethod),
         subtotal,
         discount,
         tax,
@@ -734,7 +762,7 @@ export function POS() {
       setCustomerId('');
       setPaymentMethod('Cash');
     } catch (error) {
-      setSaleError(error instanceof Error ? error.message : 'Failed to complete sale.');
+      setSaleError(error instanceof Error ? error.message : t('pos.errors.sale_failed'));
     } finally {
       setIsSubmitting(false);
     }
@@ -757,7 +785,7 @@ export function POS() {
   }
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6 pb-24 xl:pb-8">
       <AnimatePresence>
         {isCommandBarOpen && (
           <>
@@ -781,7 +809,7 @@ export function POS() {
                     ref={commandBarInputRef}
                     value={search}
                     onChange={(event) => setSearch(event.target.value)}
-                    placeholder="Search products and hit Enter to add"
+                    placeholder={t('pos.command_bar.placeholder')}
                     className="border-0 bg-transparent px-0 py-0 h-auto focus:ring-0"
                   />
                   <button
@@ -812,7 +840,7 @@ export function POS() {
                         <div>
                           <p className="text-white font-bold">{product.name}</p>
                           <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-600 font-black">
-                            {product.sku || 'NO_SKU'} · Stock {product.stockLevel}
+                            {product.sku || 'NO_SKU'} · {t('pos.catalog.stock', { count: product.stockLevel })}
                           </p>
                         </div>
                         <p className="text-white font-mono">{formatCurrency(product.price)}</p>
@@ -821,14 +849,14 @@ export function POS() {
                   ))}
                   {filteredProducts.length === 0 && (
                     <div className="px-4 py-10 text-center text-neutral-500 text-sm">
-                      No products match the current command.
+                      {t('pos.command_bar.no_results')}
                     </div>
                   )}
                 </div>
                 <div className="px-5 py-3 border-t border-white/[0.06] text-[11px] text-neutral-600 flex flex-wrap gap-4 uppercase tracking-[0.2em]">
-                  <span>Enter add selected</span>
-                  <span>Esc clear selection</span>
-                  <span>Cmd/Ctrl+K reopen</span>
+                  <span>{t('pos.command_bar.hint_add')}</span>
+                  <span>{t('pos.command_bar.hint_clear')}</span>
+                  <span>{t('pos.command_bar.hint_reopen')}</span>
                 </div>
               </div>
             </motion.div>
@@ -854,7 +882,7 @@ export function POS() {
             className="px-4 py-2 rounded-2xl border border-blue-500/20 bg-blue-500/10 text-xs uppercase tracking-[0.25em] text-blue-300 font-bold flex items-center gap-2"
           >
             <Command className="w-3.5 h-3.5" />
-            POS Command Bar
+            {t('pos.command_bar.button')}
           </button>
         </div>
       </div>
@@ -943,7 +971,7 @@ export function POS() {
             <div className="px-6 py-4 border-b border-white/10 flex items-center justify-between">
               <div>
                 <p className="text-xs font-black uppercase tracking-[0.25em] text-neutral-600">{t('pos.receipt.ledger')}</p>
-                <p className="text-sm text-neutral-400 mt-1">{latestReceipt.customerName} · {latestReceipt.paymentMethod}</p>
+                  <p className="text-sm text-neutral-400 mt-1">{latestReceipt.customerName} · {latestReceipt.paymentMethod}</p>
               </div>
               <div className="text-right">
                 <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-600 font-black">{t('pos.receipt.order')}</p>
@@ -957,12 +985,12 @@ export function POS() {
                   <div className="min-w-0">
                     <p className="text-white font-bold truncate">{item.name}</p>
                     <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-600 font-black">
-                      {item.sku || 'NO_SKU'} · Qty {item.quantity}
+                      {item.sku || 'NO_SKU'} · {t('pos.cart.quantity', { count: item.quantity })}
                     </p>
                   </div>
                   <div className="text-right shrink-0">
                     <p className="text-sm font-mono text-white">{formatCurrency(item.price * item.quantity)}</p>
-                    <p className="text-[10px] text-neutral-600">{formatCurrency(item.price)} each</p>
+                    <p className="text-[10px] text-neutral-600">{t('pos.cart.each', { price: formatCurrency(item.price) })}</p>
                   </div>
                 </div>
               ))}
@@ -993,16 +1021,16 @@ export function POS() {
         </Card>
       )}
 
-      <div className="grid grid-cols-1 xl:grid-cols-[1.2fr_1fr_380px] gap-6">
+      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.95fr)_360px] gap-5 items-start">
         <Card className="p-0 overflow-hidden border-white/5 bg-neutral-900/40">
-          <div className="p-6 border-b border-white/[0.05] bg-white/[0.01] space-y-4">
+          <div className="p-5 border-b border-white/[0.05] bg-white/[0.01] space-y-4">
             <div className="flex items-center justify-between gap-4">
               <div>
-                <p className="text-[10px] font-black text-neutral-600 uppercase tracking-[0.35em] mb-2">Catalog Feed</p>
+                <p className="text-[10px] font-black text-neutral-600 uppercase tracking-[0.35em] mb-2">{t('pos.catalog.kicker')}</p>
                 <h2 className="text-white font-bold text-lg">{t('pos.catalog.title')}</h2>
               </div>
               <div className="px-3 py-2 rounded-xl border border-white/10 bg-black/30 text-[10px] uppercase tracking-[0.2em] text-neutral-500 font-bold">
-                {activeProducts.length} live
+                {t('pos.catalog.live_count', { count: activeProducts.length })}
               </div>
             </div>
             <div className="relative">
@@ -1016,22 +1044,31 @@ export function POS() {
             </div>
           </div>
 
-          <div className="max-h-[920px] overflow-y-auto p-4 space-y-3 custom-scrollbar">
+          <div className="max-h-[760px] overflow-y-auto p-4 space-y-3 custom-scrollbar">
             {filteredProducts.map((product, index) => {
               const isLowStock = product.stockLevel <= 10;
+              const isOutOfStock = product.stockLevel <= 0;
               return (
-                <motion.button
+                <motion.div
                   key={product.id}
-                  type="button"
                   initial={{ opacity: 0, y: 6 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: index * 0.02 }}
                   onClick={() => addToCart(product)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      addToCart(product);
+                    }
+                  }}
+                  role="button"
+                  tabIndex={0}
                   className={cn(
-                    'w-full text-left p-4 rounded-2xl border bg-white/[0.02] hover:bg-white/[0.04] hover:border-blue-500/20 transition-all',
+                    'w-full text-left p-4 rounded-2xl border bg-white/[0.02] hover:bg-white/[0.04] hover:border-blue-500/20 transition-all cursor-pointer',
                     isCommandBarOpen && selectedProductIndex === index
                       ? 'border-blue-500/30'
-                      : 'border-white/[0.06]'
+                      : 'border-white/[0.06]',
+                    isOutOfStock && 'opacity-75'
                   )}
                 >
                   <div className="flex items-start justify-between gap-4">
@@ -1056,12 +1093,14 @@ export function POS() {
                         <span
                           className={cn(
                             'text-[10px] uppercase tracking-[0.2em] font-bold px-2 py-1 rounded-full border',
-                            isLowStock
+                            isOutOfStock
+                              ? 'text-red-400 bg-red-500/10 border-red-500/20'
+                              : isLowStock
                               ? 'text-amber-400 bg-amber-500/10 border-amber-500/20'
                               : 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20'
                           )}
                         >
-                          {t('pos.catalog.stock', { count: product.stockLevel })}
+                          {isOutOfStock ? t('pos.catalog.out_of_stock') : t('pos.catalog.stock', { count: product.stockLevel })}
                         </span>
                         {product.category && (
                           <span className="text-[10px] uppercase tracking-[0.2em] font-bold px-2 py-1 rounded-full border border-white/10 text-neutral-500">
@@ -1071,13 +1110,21 @@ export function POS() {
                       </div>
                     </div>
                     <div className="shrink-0">
-                      <Button className="gap-2 px-4 h-10">
+                      <Button
+                        type="button"
+                        className="gap-2 px-4 h-10"
+                        disabled={isOutOfStock}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          addToCart(product);
+                        }}
+                      >
                         <Plus className="w-4 h-4" />
                         {t('pos.catalog.add')}
                       </Button>
                     </div>
                   </div>
-                </motion.button>
+                </motion.div>
               );
             })}
 
@@ -1093,9 +1140,9 @@ export function POS() {
 
         <div className="space-y-6">
           <Card className="p-0 overflow-hidden border-white/5 bg-neutral-900/40">
-            <div className="p-6 border-b border-white/[0.05] bg-white/[0.01] flex items-center justify-between">
+            <div className="p-5 border-b border-white/[0.05] bg-white/[0.01] flex items-center justify-between">
               <div>
-                <p className="text-[10px] font-black text-neutral-600 uppercase tracking-[0.35em] mb-2">Sale Builder</p>
+                <p className="text-[10px] font-black text-neutral-600 uppercase tracking-[0.35em] mb-2">{t('pos.cart.kicker')}</p>
                 <h2 className="text-white font-bold text-lg">{t('pos.cart.title')}</h2>
               </div>
               <div className="w-11 h-11 rounded-2xl bg-blue-600/10 border border-blue-500/20 flex items-center justify-center">
@@ -1103,7 +1150,7 @@ export function POS() {
               </div>
             </div>
 
-            <div className="p-4 space-y-3 max-h-[720px] overflow-y-auto custom-scrollbar">
+            <div className="p-4 space-y-3 max-h-[560px] overflow-y-auto custom-scrollbar">
               {cart.map((item) => {
                 const availableStock = getAvailableStock(item.productId);
                 const lineTotal = item.price * item.quantity;
@@ -1172,8 +1219,8 @@ export function POS() {
           <Card className="p-6 border-white/5 bg-neutral-900/40 space-y-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-[10px] font-black text-neutral-600 uppercase tracking-[0.35em] mb-2">AI Sales Pulse</p>
-                <h2 className="text-white font-bold text-lg">Real-time basket intelligence</h2>
+                <p className="text-[10px] font-black text-neutral-600 uppercase tracking-[0.35em] mb-2">{t('pos.pulse.kicker')}</p>
+                <h2 className="text-white font-bold text-lg">{t('pos.pulse.title')}</h2>
               </div>
               <div className="w-11 h-11 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
                 <BrainCircuit className="w-5 h-5 text-blue-400" />
@@ -1206,12 +1253,12 @@ export function POS() {
           </Card>
         </div>
 
-        <div className="space-y-6">
+        <div className="space-y-5 xl:sticky xl:top-24 self-start">
           <Card className="p-6 border-white/5 bg-neutral-900/40 space-y-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-[10px] font-black text-neutral-600 uppercase tracking-[0.35em] mb-2">Smart Quick Actions</p>
-                <h2 className="text-white font-bold text-lg">Speed controls</h2>
+                <p className="text-[10px] font-black text-neutral-600 uppercase tracking-[0.35em] mb-2">{t('pos.quick_actions.kicker')}</p>
+                <h2 className="text-white font-bold text-lg">{t('pos.quick_actions.title')}</h2>
               </div>
               <div className="w-11 h-11 rounded-2xl bg-white/[0.03] border border-white/10 flex items-center justify-center">
                 <Command className="w-5 h-5 text-neutral-300" />
@@ -1220,19 +1267,19 @@ export function POS() {
             <div className="grid grid-cols-2 gap-3">
               <Button variant="secondary" className="h-12 gap-2" onClick={applyQuickDiscount} disabled={subtotal <= 0}>
                 <BadgeDollarSign className="w-4 h-4" />
-                Quick 10%
+                {t('pos.quick_actions.quick_discount')}
               </Button>
               <Button variant="secondary" className="h-12 gap-2" onClick={setGuestCheckout}>
                 <UserRound className="w-4 h-4" />
-                Guest Sale
+                {t('pos.quick_actions.guest_sale')}
               </Button>
               <Button variant="secondary" className="h-12 gap-2" onClick={clearCart} disabled={cart.length === 0}>
                 <Eraser className="w-4 h-4" />
-                Clear Cart
+                {t('pos.quick_actions.clear_cart')}
               </Button>
               <Button variant="secondary" className="h-12 gap-2" onClick={handleDuplicateLastSale} disabled={!latestPOSOrder || isDuplicating}>
                 <Copy className="w-4 h-4" />
-                {isDuplicating ? 'Loading…' : 'Duplicate Last'}
+                {isDuplicating ? t('pos.quick_actions.loading_duplicate') : t('pos.quick_actions.duplicate_last')}
               </Button>
             </div>
           </Card>
@@ -1240,8 +1287,8 @@ export function POS() {
           <Card className="p-6 border-white/5 bg-neutral-900/40 space-y-5">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-[10px] font-black text-neutral-600 uppercase tracking-[0.35em] mb-2">Cash Session</p>
-                <h2 className="text-white font-bold text-lg">Shift register</h2>
+                <p className="text-[10px] font-black text-neutral-600 uppercase tracking-[0.35em] mb-2">{t('pos.cash_session.kicker')}</p>
+                <h2 className="text-white font-bold text-lg">{t('pos.cash_session.title')}</h2>
               </div>
               <div className="w-11 h-11 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
                 <Wallet className="w-5 h-5 text-emerald-400" />
@@ -1251,84 +1298,87 @@ export function POS() {
             {cashSessionAccessUnavailable && (
               <div className="p-4 rounded-2xl border border-amber-500/20 bg-amber-500/10 text-amber-200 text-sm flex gap-3">
                 <ShieldAlert className="w-5 h-5 shrink-0" />
-                <span>Cash session controls are in safe fallback mode until `cashSessions` Firestore rules are deployed.</span>
+                <div className="space-y-1">
+                  <p className="font-semibold">{t('pos.cash_session.unavailable_title')}</p>
+                  <p>{t('pos.cash_session.unavailable_body')}</p>
+                </div>
               </div>
             )}
 
-            {cashSessionError && (
+            {cashSessionError && !cashSessionAccessUnavailable && (
               <div className="p-4 rounded-2xl border border-red-500/20 bg-red-500/10 text-red-300 text-sm flex gap-3">
                 <AlertCircle className="w-5 h-5 shrink-0" />
                 <span>{cashSessionError}</span>
               </div>
             )}
 
-            {activeCashSession ? (
+            {!cashSessionAccessUnavailable && activeCashSession ? (
               <div className="space-y-4">
                 <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3">
-                  <p className="text-[10px] uppercase tracking-[0.2em] text-emerald-300/80 font-black mb-1">Open session</p>
+                  <p className="text-[10px] uppercase tracking-[0.2em] text-emerald-300/80 font-black mb-1">{t('pos.cash_session.open_session')}</p>
                   <p className="text-white font-bold">{activeCashSession.openedByName || 'POS Operator'}</p>
                   <p className="text-xs text-neutral-300 mt-1">
-                    Opened with {formatCurrency(activeCashSession.openingCash || 0)}
+                    {t('pos.cash_session.opened_with', { amount: formatCurrency(activeCashSession.openingCash || 0) })}
                   </p>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
                   <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
-                    <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-600 font-black mb-2">Turn sales</p>
+                    <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-600 font-black mb-2">{t('pos.cash_session.turn_sales')}</p>
                     <p className="text-white font-mono">{formatCurrency(turnSalesTotal)}</p>
                   </div>
                   <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
-                    <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-600 font-black mb-2">Cash expected</p>
+                    <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-600 font-black mb-2">{t('pos.cash_session.cash_expected')}</p>
                     <p className="text-white font-mono">{formatCurrency(expectedCash)}</p>
                   </div>
                   <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
-                    <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-600 font-black mb-2">Sales count</p>
+                    <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-600 font-black mb-2">{t('pos.cash_session.sales_count')}</p>
                     <p className="text-white">{currentTurnOrders.length}</p>
                   </div>
                   <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
-                    <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-600 font-black mb-2">Cash sales</p>
+                    <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-600 font-black mb-2">{t('pos.cash_session.cash_sales')}</p>
                     <p className="text-white font-mono">{formatCurrency(turnCashTotal)}</p>
                   </div>
                 </div>
 
                 <div className="space-y-2">
-                  <Label>Closing notes</Label>
+                  <Label>{t('pos.cash_session.closing_notes')}</Label>
                   <textarea
                     value={closingNotes}
                     onChange={(event) => setClosingNotes(event.target.value)}
                     className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition-all min-h-[90px]"
-                    placeholder="Capture variance notes, payouts, or operator remarks."
+                    placeholder={t('pos.cash_session.closing_placeholder')}
                   />
                 </div>
 
                 <Button className="w-full h-12" onClick={handleCloseCashSession} disabled={isCashLoading || cashSessionAccessUnavailable}>
-                  {isCashLoading ? 'Closing Session' : 'Close Cash Session'}
+                  {isCashLoading ? t('pos.cash_session.closing_button') : t('pos.cash_session.close_button')}
                 </Button>
               </div>
-            ) : (
+            ) : !cashSessionAccessUnavailable ? (
               <div className="space-y-4">
                 <div className="space-y-2">
-                  <Label>Opening cash</Label>
+                  <Label>{t('pos.cash_session.opening_cash')}</Label>
                   <Input
                     type="number"
                     min="0"
                     step="0.01"
                     value={openingCashInput}
                     onChange={(event) => setOpeningCashInput(event.target.value)}
-                    placeholder="100.00"
+                    placeholder={t('pos.cash_session.opening_placeholder')}
                   />
                 </div>
                 <Button className="w-full h-12" onClick={handleOpenCashSession} disabled={isCashLoading || cashSessionAccessUnavailable}>
-                  {isCashLoading ? 'Opening Session' : 'Open Cash Session'}
+                  {isCashLoading ? t('pos.cash_session.opening_button') : t('pos.cash_session.open_button')}
                 </Button>
               </div>
-            )}
+            ) : null}
           </Card>
 
           <Card className="p-6 border-white/5 bg-neutral-900/40 space-y-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-[10px] font-black text-neutral-600 uppercase tracking-[0.35em] mb-2">Checkout Core</p>
+                <p className="text-[10px] font-black text-neutral-600 uppercase tracking-[0.35em] mb-2">{t('pos.checkout.kicker')}</p>
                 <h2 className="text-white font-bold text-lg">{t('pos.checkout.title')}</h2>
               </div>
               <div className="w-11 h-11 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
@@ -1378,7 +1428,7 @@ export function POS() {
                         : 'border-white/10 bg-white/[0.03] text-neutral-500 hover:text-neutral-200'
                     )}
                   >
-                    {method}
+                    {paymentMethodLabels[method]}
                   </button>
                 ))}
               </div>
@@ -1410,11 +1460,11 @@ export function POS() {
             </div>
 
             <div className="space-y-2">
-              <Label>Receipt message</Label>
+              <Label>{t('pos.checkout.receipt_message')}</Label>
               <Input
                 value={receiptFooterMessage}
                 onChange={(event) => setReceiptFooterMessage(event.target.value)}
-                placeholder="Thank you for shopping with us."
+                placeholder={t('pos.checkout.receipt_placeholder')}
               />
             </div>
 
@@ -1439,7 +1489,7 @@ export function POS() {
 
             <Button
               className="w-full h-14 text-sm font-bold uppercase tracking-[0.25em] shadow-xl shadow-blue-600/10"
-              disabled={cart.length === 0 || isSubmitting}
+              disabled={cart.length === 0 || isSubmitting || cartHasStockError}
               onClick={handleCompleteSale}
             >
               <BadgeDollarSign className="w-4 h-4 mr-2" />
@@ -1450,7 +1500,7 @@ export function POS() {
           <Card className="p-6 border-white/5 bg-neutral-900/40 space-y-5">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-[10px] font-black text-neutral-600 uppercase tracking-[0.35em] mb-2">Roadmap Surface</p>
+                <p className="text-[10px] font-black text-neutral-600 uppercase tracking-[0.35em] mb-2">{t('pos.integrations.kicker')}</p>
                 <h3 className="text-white font-bold text-lg">{t('pos.integrations.title')}</h3>
               </div>
               <div className="w-11 h-11 rounded-2xl bg-white/[0.03] border border-white/10 flex items-center justify-center">
@@ -1467,7 +1517,7 @@ export function POS() {
                     <CreditCard className="w-4 h-4 text-neutral-500" />
                     <span className="text-sm font-medium text-neutral-200">{integration}</span>
                   </div>
-                  <span className="text-[10px] uppercase tracking-[0.2em] text-neutral-600 font-bold">Pending</span>
+                  <span className="text-[10px] uppercase tracking-[0.2em] text-neutral-600 font-bold">{t('pos.integrations.pending')}</span>
                 </div>
               ))}
             </div>
