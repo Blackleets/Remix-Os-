@@ -57,6 +57,17 @@ service cloud.firestore {
              (!('createdAt' in data) || data.createdAt == request.time);
     }
 
+    function isValidNewCompany(data) {
+      return data.ownerId is string && data.ownerId == request.auth.uid &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 200 &&
+             // Force the starter plan on creation; paid plans must come from the
+             // server-side billing webhook with elevated privileges.
+             (!('subscription' in data) || (
+               data.subscription.planId == 'starter' &&
+               data.subscription.status in ['active', 'trialing']
+             ));
+    }
+
     function isValidProduct(data) {
       return data.size() >= 3 &&
              data.companyId is string &&
@@ -81,7 +92,8 @@ service cloud.firestore {
              data.customerId is string &&
              data.type in ["follow_up", "payment", "order", "reactivation"] &&
              data.status in ["pending", "completed", "dismissed"] &&
-             data.dueDate is string; // Simplified for this turn
+             // Accept both legacy string dates and the new Timestamp format.
+             (data.dueDate is string || data.dueDate is timestamp);
     }
 
     function isValidCustomerMessage(data) {
@@ -125,14 +137,13 @@ service cloud.firestore {
       );
 
       // Update: only owners/admins can change roles
-      allow update: if isSignedIn() && 
+      allow update: if isSignedIn() &&
         hasRole(existing().companyId, ['owner', 'admin']) &&
         incoming().userId == existing().userId &&
         incoming().companyId == existing().companyId &&
-        // Prevent removing the last owner is harder here, usually handled by client logic + roles
-        (
-          (existing().role == 'owner' && incoming().role != 'owner' ? hasRole(existing().companyId, ['owner']) : true)
-        ) &&
+        // Only an existing owner can promote anyone to owner OR demote an owner.
+        (incoming().role == 'owner' ? hasRole(existing().companyId, ['owner']) : true) &&
+        (existing().role == 'owner' && incoming().role != 'owner' ? hasRole(existing().companyId, ['owner']) : true) &&
         incoming().updatedAt == request.time &&
         incoming().diff(existing()).affectedKeys().hasOnly(['role', 'updatedAt']);
 
@@ -145,9 +156,13 @@ service cloud.firestore {
     // 3. Companies
     match /companies/{companyId} {
       allow read: if isMember(companyId);
-      allow create: if isSignedIn(); // Any verified user can start a company
+      // The new owner must match the caller, and any subscription field must be 'starter'.
+      // Updates to subscription.planId are reserved for the server (admin SDK / webhook).
+      allow create: if isSignedIn() && isEmailVerified() && isValidNewCompany(incoming());
       allow update: if hasRole(companyId, ['owner', 'admin']) &&
-                    incoming().ownerId == existing().ownerId; // Immutable ownerId through company update
+                    incoming().ownerId == existing().ownerId &&
+                    // Block client-side subscription tampering (planId/status/currentPeriodEnd).
+                    (!('subscription' in incoming().diff(existing()).affectedKeys()));
       allow delete: if hasRole(companyId, ['owner']);
     }
 

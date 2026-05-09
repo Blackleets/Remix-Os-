@@ -27,7 +27,6 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../lib/firebase';
 import { collection, query, where, limit, orderBy, Timestamp, onSnapshot, getDocs } from 'firebase/firestore';
-import { OperationType, handleFirestoreError } from '../lib/firebase';
 import { 
   AreaChart, 
   Area, 
@@ -61,7 +60,7 @@ export function Dashboard() {
     products: 0,
     orders: 0,
     revenue: 0,
-    prevRevenue: 0 // For mock change calculation
+    revenueChange: '—'
   });
 
   const [chartData, setChartData] = useState<{ name: string; sales: number }[]>([]);
@@ -81,18 +80,38 @@ export function Dashboard() {
 
     const unsubscribeOrders = onSnapshot(ordersQ, (snapshot) => {
       let totalRev = 0;
-      snapshot.forEach(doc => { totalRev += doc.data().total || 0; });
-      
+      let revenueThisWeek = 0;
+      let revenuePrevWeek = 0;
+      const now = new Date();
+      const sevenDaysAgo = subDays(startOfDay(now), 6);
+      const fourteenDaysAgo = subDays(startOfDay(now), 13);
+
+      snapshot.forEach(doc => {
+        const total = doc.data().total || 0;
+        totalRev += total;
+        const date = doc.data().createdAt?.toDate?.();
+        if (date) {
+          if (date >= sevenDaysAgo) revenueThisWeek += total;
+          else if (date >= fourteenDaysAgo) revenuePrevWeek += total;
+        }
+      });
+
+      let revenueChange = '—';
+      if (revenuePrevWeek > 0) {
+        const pct = ((revenueThisWeek - revenuePrevWeek) / revenuePrevWeek) * 100;
+        revenueChange = (pct >= 0 ? '+' : '') + pct.toFixed(1) + '%';
+      } else if (revenueThisWeek > 0) {
+        revenueChange = 'NEW';
+      }
+
       setStats(prev => ({
         ...prev,
         orders: snapshot.size,
         revenue: totalRev,
-        prevRevenue: totalRev * 0.9
+        revenueChange
       }));
 
-      // Process Chart Data
-      const now = new Date();
-      const sevenDaysAgo = subDays(startOfDay(now), 6);
+      // Process Chart Data (reuse now/sevenDaysAgo already declared above)
       const days = eachDayOfInterval({ start: sevenDaysAgo, end: now });
       const dayWiseSales = days.map(day => {
         const salesForDay = snapshot.docs
@@ -109,7 +128,8 @@ export function Dashboard() {
       });
       setChartData(dayWiseSales);
     }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, 'orders');
+      console.error('Dashboard orders listener error:', error);
+      setLoading(false);
     });
 
     // 2. Customers Listener
@@ -117,23 +137,25 @@ export function Dashboard() {
     const unsubscribeCustomers = onSnapshot(customersQ, (snapshot) => {
       setStats(prev => ({ ...prev, customers: snapshot.size }));
     }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, 'customers');
+      console.error('Dashboard customers listener error:', error);
     });
 
-    // 3. Products Listener
+    // 3. Products Listener — flips loading off on success or error so the
+    // page never hangs on the spinner if products is the failing query.
     const productsQ = query(collection(db, 'products'), where('companyId', '==', company.id));
     const unsubscribeProducts = onSnapshot(productsQ, (snapshot) => {
       setStats(prev => ({ ...prev, products: snapshot.size }));
-      setLoading(false); // First one to return usually resets loading
+      setLoading(false);
     }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, 'products');
+      console.error('Dashboard products listener error:', error);
+      setLoading(false);
     });
 
     // 4. Activity Listener
     const activityQ = query(
-      collection(db, 'activities'), 
-      where('companyId', '==', company.id), 
-      orderBy('createdAt', 'desc'), 
+      collection(db, 'activities'),
+      where('companyId', '==', company.id),
+      orderBy('createdAt', 'desc'),
       limit(8)
     );
     const unsubscribeActivity = onSnapshot(activityQ, (snapshot) => {
@@ -146,7 +168,7 @@ export function Dashboard() {
       }));
       setActivities(activityList as ActivityItem[]);
     }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, 'activities');
+      console.error('Dashboard activities listener error:', error);
     });
 
     return () => {
@@ -267,17 +289,17 @@ export function Dashboard() {
             {t('dashboard.status', { name: company?.name })}
           </p>
         </div>
-        <div className="flex gap-3">
-          <Button 
-            variant="secondary" 
-            className="px-6 gap-2"
+        <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
+          <Button
+            variant="secondary"
+            className="px-6 gap-2 justify-center"
             onClick={handleExportPDF}
             disabled={exporting}
           >
             {exporting ? <History className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
             {exporting ? t('dashboard.generating') : t('dashboard.download_report')}
           </Button>
-          <Button className="px-6 flex gap-2" onClick={() => navigate('/orders', { state: { action: 'create' } })}>
+          <Button className="px-6 flex gap-2 justify-center" onClick={() => navigate('/orders', { state: { action: 'create' } })}>
             <Plus className="w-4 h-4" /> {t('dashboard.new_order')}
           </Button>
         </div>
@@ -365,10 +387,10 @@ export function Dashboard() {
           {/* Main Stat Matrix */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
             {[
-              { label: t('dashboard.revenue'), value: formatCurrency(stats.revenue), change: '+12.4%', icon: TrendingUp, color: 'text-blue-500' },
-              { label: t('dashboard.customers'), value: stats.customers.toString(), change: '+5.1%', icon: Contact, color: 'text-purple-500' },
-              { label: t('dashboard.inventory'), value: stats.products.toString(), change: 'STABLE', icon: Shapes, color: 'text-emerald-500' },
-              { label: t('dashboard.orders'), value: stats.orders.toString(), change: '+8.2%', icon: Layers, color: 'text-orange-500' },
+              { label: t('dashboard.revenue'), value: formatCurrency(stats.revenue), change: stats.revenueChange, icon: TrendingUp, color: 'text-blue-500' },
+              { label: t('dashboard.customers'), value: stats.customers.toString(), change: '—', icon: Contact, color: 'text-purple-500' },
+              { label: t('dashboard.inventory'), value: stats.products.toString(), change: '—', icon: Shapes, color: 'text-emerald-500' },
+              { label: t('dashboard.orders'), value: stats.orders.toString(), change: '—', icon: Layers, color: 'text-orange-500' },
             ].map((stat, i) => (
               <motion.div
                 key={stat.label}
@@ -454,7 +476,12 @@ export function Dashboard() {
               </div>
               
               <div className="flex-1 space-y-4 overflow-y-auto max-h-[300px] scrollbar-hide pr-2">
-                {activities.map((item, i) => (
+                {activities.length === 0 ? (
+                  <div className="h-full min-h-[180px] flex flex-col items-center justify-center text-neutral-600 border border-dashed border-white/5 rounded-2xl bg-white/[0.01]">
+                    <History className="w-8 h-8 mb-4 opacity-20" />
+                    <p className="text-xs font-bold uppercase tracking-widest italic">Activity_Stream_Empty</p>
+                  </div>
+                ) : activities.map((item, i) => (
                   <div key={item.id} className="flex gap-4 items-start pb-4 border-b border-white/[0.02] last:border-0 group cursor-pointer hover:bg-white/[0.01]">
                     <div className="w-8 h-8 rounded-lg bg-white/[0.03] border border-white/[0.05] flex-shrink-0 flex items-center justify-center mt-0.5 group-hover:border-blue-500/30 transition-colors">
                       {getActivityIcon(item.type)}
@@ -514,10 +541,7 @@ export function Dashboard() {
               </div>
 
               <Button 
-                onClick={() => {
-                  const botIcon = document.querySelector('.lucide-bot');
-                  if (botIcon) (botIcon.closest('button') as HTMLButtonElement).click();
-                }}
+                onClick={() => window.dispatchEvent(new CustomEvent('open-copilot'))}
                 className="w-full h-12 bg-blue-600 hover:bg-blue-500 rounded-2xl text-[10px] font-black uppercase tracking-[0.25em] relative group/brief overflow-hidden"
               >
                  <span className="relative z-10 flex items-center justify-center gap-2">{t('dashboard.view_assistant')} <ArrowUpRight className="w-4 h-4" /></span>

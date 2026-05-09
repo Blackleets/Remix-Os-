@@ -131,7 +131,7 @@ const MockupConsole = () => {
 
       {/* Dynamic Workspace */}
       <div className="col-span-12 md:col-span-8 space-y-6">
-        <div className="grid grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
           {activeTab === 0 && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="contents">
               {[
@@ -330,7 +330,7 @@ export function Landing() {
             </div>
             <span className="font-display font-bold text-xl tracking-tight">Remix OS</span>
           </div>
-          <div className="flex items-center gap-8">
+          <div className="flex items-center gap-3 md:gap-8">
             <div className="hidden md:flex items-center gap-6 text-sm font-medium text-neutral-400">
               <a href="#features" className="hover:text-white transition-colors">Features</a>
               <a href="#preview" className="hover:text-white transition-colors">Platform</a>
@@ -342,7 +342,7 @@ export function Landing() {
             <LanguageSwitcher />
 
             <Link to="/auth">
-              <Button variant="secondary" className="bg-white text-black hover:bg-neutral-200 border-none px-6">
+              <Button variant="secondary" className="bg-white text-black hover:bg-neutral-200 border-none px-4 sm:px-6">
                 Enter Console
               </Button>
             </Link>
@@ -410,12 +410,12 @@ export function Landing() {
               transition={{ duration: 0.8, delay: 1, ease: [0.16, 1, 0.3, 1] }}
               className="flex flex-col sm:flex-row gap-4 justify-center"
             >
-              <Link to="/auth">
+              <Link to="/auth" className="w-full sm:w-auto">
                 <Button className="w-full sm:w-auto px-10 py-7 text-lg h-auto rounded-full bg-white text-black hover:scale-105 transition-transform duration-300">
                   Enter Console <ArrowRight className="ml-2 w-5 h-5" />
                 </Button>
               </Link>
-              <a href="#features">
+              <a href="#features" className="w-full sm:w-auto">
                 <Button variant="ghost" className="w-full sm:w-auto px-10 py-7 text-lg h-auto rounded-full border border-white/10 hover:bg-white/5 uppercase tracking-widest text-[10px] font-bold">
                   Explore Platform
                 </Button>

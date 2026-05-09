@@ -10,7 +10,7 @@ import { collection, query, where, serverTimestamp, doc, increment, runTransacti
 import { format, startOfMonth, endOfMonth } from 'date-fns';
 import { motion, AnimatePresence } from 'motion/react';
 import { UpgradeModal } from '../components/UpgradeModal';
-import { PLANS, isLimitReached } from '../lib/plans';
+import { PLANS, isLimitReached, getCompanyUsage } from '../lib/plans';
 import { exportToCSV } from '../lib/exportUtils';
 
 interface OrderItem {
@@ -79,14 +79,24 @@ export function Orders() {
     }).length;
   };
 
-  const handleCreateNew = () => {
-    const planId = company?.subscription?.planId || 'starter';
+  const handleCreateNew = async () => {
+    if (!company) return;
+    const planId = company.subscription?.planId || 'starter';
     const plan = PLANS[planId];
-    const monthlyCount = getMonthlyOrdersCount();
-    
-    if (isLimitReached(monthlyCount, plan.limits.orders)) {
-      setIsUpgradeModalOpen(true);
-      return;
+    try {
+      const usage = await getCompanyUsage(company.id);
+      if (isLimitReached(usage.orders, plan.limits.orders)) {
+        setIsUpgradeModalOpen(true);
+        return;
+      }
+    } catch (e) {
+      // If usage check fails (network/permissions) fall back to local count to
+      // avoid blocking legitimate users.
+      console.warn('Plan usage check failed, falling back to local count', e);
+      if (isLimitReached(getMonthlyOrdersCount(), plan.limits.orders)) {
+        setIsUpgradeModalOpen(true);
+        return;
+      }
     }
     setForm({ customerId: '', paymentMethod: 'Card', items: [] });
     setIsModalOpen(true);
@@ -176,46 +186,80 @@ export function Orders() {
       const customer = customers.find(c => c.id === form.customerId);
       const total = calculateTotal();
 
+      // Aggregate duplicate line items by productId so cumulative quantity is checked.
+      const aggregated = new Map<string, OrderItem>();
+      for (const item of form.items) {
+        const existing = aggregated.get(item.productId);
+        if (existing) {
+          existing.quantity += item.quantity;
+        } else {
+          aggregated.set(item.productId, { ...item });
+        }
+      }
+      const aggregatedItems = Array.from(aggregated.values());
+
       await runTransaction(db, async (transaction) => {
-        // 1. Verify all stock first
-        const productRefs = form.items.map(item => doc(db, 'products', item.productId));
+        // === ALL READS FIRST (Firestore transaction requirement) ===
+        const productRefs = aggregatedItems.map(item => doc(db, 'products', item.productId));
         const productSnaps = await Promise.all(productRefs.map(ref => transaction.get(ref)));
-        
-          for (let i = 0; i < form.items.length; i++) {
-            const item = form.items[i];
-            const snap = productSnaps[i];
-            if (!snap.exists()) throw new Error(t('orders.errors.not_found', { name: item.productName }));
-            
-            const currentStock = snap.data().stockLevel || 0;
-            if (currentStock < item.quantity) {
-              throw new Error(t('orders.errors.insufficient', { name: snap.data().name, count: currentStock }));
-            }
+
+        const cRef = doc(db, 'customers', form.customerId);
+        const cSnap = await transaction.get(cRef);
+
+        // === VALIDATE ===
+        for (let i = 0; i < aggregatedItems.length; i++) {
+          const item = aggregatedItems[i];
+          const snap = productSnaps[i];
+          if (!snap.exists()) throw new Error(t('orders.errors.not_found', { name: item.productName }));
+
+          const currentStock = snap.data().stockLevel || 0;
+          if (currentStock < item.quantity) {
+            throw new Error(t('orders.errors.insufficient', { name: snap.data().name, count: currentStock }));
           }
+        }
 
-          // 2. Create Order
-          const orderRef = doc(collection(db, 'orders'));
-          transaction.set(orderRef, {
-            customerId: form.customerId,
-            customerName: customer?.name || t('orders.guest'),
-            total,
-            paymentMethod: form.paymentMethod,
-            status: 'completed',
-            companyId: company.id,
-            createdAt: serverTimestamp(),
-          });
+        // Pre-compute customer update so it can run with the other writes.
+        let customerUpdate: Record<string, any> | null = null;
+        if (cSnap.exists()) {
+          const cData = cSnap.data();
+          const newTotalSpent = (cData.totalSpent || 0) + total;
+          const newTotalOrders = (cData.totalOrders || 0) + 1;
 
-        // 3. Create Order Items & Update Stock & Log Movements
-        for (const item of form.items) {
+          let segment = 'regular';
+          if (newTotalSpent > 5000) segment = 'whale';
+          else if (newTotalSpent > 1000) segment = 'vip';
+          else if (newTotalOrders === 1) segment = 'new';
+
+          customerUpdate = {
+            totalSpent: newTotalSpent,
+            totalOrders: newTotalOrders,
+            lastOrderAt: serverTimestamp(),
+            segment
+          };
+        }
+
+        // === ALL WRITES AFTER ===
+        const orderRef = doc(collection(db, 'orders'));
+        transaction.set(orderRef, {
+          customerId: form.customerId,
+          customerName: customer?.name || t('orders.guest'),
+          total,
+          paymentMethod: form.paymentMethod,
+          status: 'completed',
+          companyId: company.id,
+          createdAt: serverTimestamp(),
+        });
+
+        for (const item of aggregatedItems) {
           const itemRef = doc(collection(db, 'orders', orderRef.id, 'items'));
           transaction.set(itemRef, {
             ...item,
+            companyId: company.id,
             createdAt: serverTimestamp()
           });
 
           const pRef = doc(db, 'products', item.productId);
-          transaction.update(pRef, {
-            stockLevel: increment(-item.quantity)
-          });
+          transaction.update(pRef, { stockLevel: increment(-item.quantity) });
 
           const mRef = doc(collection(db, 'inventoryMovements'));
           transaction.set(mRef, {
@@ -230,28 +274,10 @@ export function Orders() {
           });
         }
 
-        // 4. Update Customer Stats and Segment
-        const cRef = doc(db, 'customers', form.customerId);
-        const cSnap = await transaction.get(cRef);
-        if (cSnap.exists()) {
-          const cData = cSnap.data();
-          const newTotalSpent = (cData.totalSpent || 0) + total;
-          const newTotalOrders = (cData.totalOrders || 0) + 1;
-          
-          let segment = 'regular';
-          if (newTotalSpent > 5000) segment = 'whale';
-          else if (newTotalSpent > 1000) segment = 'vip';
-          else if (newTotalOrders === 1) segment = 'new';
-
-          transaction.update(cRef, {
-            totalSpent: newTotalSpent,
-            totalOrders: newTotalOrders,
-            lastOrderAt: serverTimestamp(),
-            segment
-          });
+        if (customerUpdate) {
+          transaction.update(cRef, customerUpdate);
         }
 
-        // 5. Log General Activity
         const aRef = doc(collection(db, 'activities'));
         transaction.set(aRef, {
           type: 'order_create',

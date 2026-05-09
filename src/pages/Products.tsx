@@ -6,10 +6,10 @@ import { useAuth } from '../contexts/AuthContext';
 import { useLocale } from '../hooks/useLocale';
 import { usePermissions } from '../hooks/usePermissions';
 import { db } from '../lib/firebase';
-import { collection, query, where, getDocs, addDoc, serverTimestamp, doc, deleteDoc, updateDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, addDoc, serverTimestamp, doc, deleteDoc, updateDoc, writeBatch } from 'firebase/firestore';
 import { motion, AnimatePresence } from 'motion/react';
 import { UpgradeModal } from '../components/UpgradeModal';
-import { PLANS, isLimitReached } from '../lib/plans';
+import { PLANS, isLimitReached, getCompanyUsage } from '../lib/plans';
 import { exportToCSV } from '../lib/exportUtils';
 import { ImageUpload } from '../components/ImageUpload';
 
@@ -36,6 +36,7 @@ export function Products() {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
   const { canEditProducts } = usePermissions();
 
   useEffect(() => {
@@ -66,12 +67,22 @@ export function Products() {
     imageURL: ''
   });
 
-  const handleCreateNew = () => {
-    const planId = company?.subscription?.planId || 'starter';
+  const handleCreateNew = async () => {
+    if (!company) return;
+    const planId = company.subscription?.planId || 'starter';
     const plan = PLANS[planId];
-    if (isLimitReached(products.length, plan.limits.products)) {
-      setIsUpgradeModalOpen(true);
-      return;
+    try {
+      const usage = await getCompanyUsage(company.id);
+      if (isLimitReached(usage.products, plan.limits.products)) {
+        setIsUpgradeModalOpen(true);
+        return;
+      }
+    } catch (e) {
+      console.warn('Plan usage check failed, falling back to local count', e);
+      if (isLimitReached(products.length, plan.limits.products)) {
+        setIsUpgradeModalOpen(true);
+        return;
+      }
     }
     setSelectedProduct(null);
     setForm({ name: '', price: '', stockLevel: '', category: '', sku: '', description: '', status: 'active', imageURL: '' });
@@ -102,16 +113,16 @@ export function Products() {
         stockLevel: parseInt(form.stockLevel) || 0,
       };
 
+      const batch = writeBatch(db);
+      const activityRef = doc(collection(db, 'activities'));
+
       if (selectedProduct) {
-        // Update
         const productRef = doc(db, 'products', selectedProduct.id);
-        await updateDoc(productRef, {
+        batch.update(productRef, {
           ...productData,
           updatedAt: serverTimestamp(),
         });
-
-        // Log Activity
-        await addDoc(collection(db, 'activities'), {
+        batch.set(activityRef, {
           type: 'product_update',
           title: 'Product Updated',
           subtitle: `${form.name} was modified`,
@@ -119,15 +130,13 @@ export function Products() {
           createdAt: serverTimestamp(),
         });
       } else {
-        // Create
-        await addDoc(collection(db, 'products'), {
+        const productRef = doc(collection(db, 'products'));
+        batch.set(productRef, {
           ...productData,
           companyId: company.id,
           createdAt: serverTimestamp(),
         });
-
-        // Log Activity
-        await addDoc(collection(db, 'activities'), {
+        batch.set(activityRef, {
           type: 'product_create',
           title: 'Product Created',
           subtitle: `${form.name} added to catalog`,
@@ -135,12 +144,15 @@ export function Products() {
           createdAt: serverTimestamp(),
         });
       }
+
+      await batch.commit();
+      setFormError(null);
       setIsModalOpen(false);
       setSelectedProduct(null);
       setForm({ name: '', price: '', stockLevel: '', category: '', sku: '', description: '', status: 'active', imageURL: '' });
       fetchProducts();
-    } catch (err) {
-      console.error(err);
+    } catch (err: any) {
+      setFormError(err?.message || 'Failed to save product.');
     } finally {
       setLoading(false);
     }
@@ -164,13 +176,29 @@ export function Products() {
   const handleCloseModal = () => {
     setIsModalOpen(false);
     setSelectedProduct(null);
+    setFormError(null);
     setForm({ name: '', price: '', stockLevel: '', category: '', sku: '', description: '', status: 'active', imageURL: '' });
   };
 
   const handleDelete = async (id: string) => {
-    if (confirm(t('products.delete_confirm'))) {
+    if (!company) return;
+    if (!confirm(t('products.delete_confirm'))) return;
+    try {
+      // Block delete if the product has been part of any sale (movements
+      // reference orphaned product ids otherwise).
+      const movementsSnap = await getDocs(query(
+        collection(db, 'inventoryMovements'),
+        where('companyId', '==', company.id),
+        where('productId', '==', id)
+      ));
+      if (!movementsSnap.empty) {
+        setFormError('This product has sales history and cannot be deleted. Mark it inactive instead.');
+        return;
+      }
       await deleteDoc(doc(db, 'products', id));
       fetchProducts();
+    } catch (err: any) {
+      setFormError(err?.message || 'Failed to delete product.');
     }
   };
 
@@ -445,6 +473,9 @@ export function Products() {
                     />
                   </div>
                 </div>
+                {formError && (
+                  <p className="text-red-400 text-xs bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">{formError}</p>
+                )}
                 <div className="flex justify-end gap-3 pt-6 border-t border-white/5">
                   <Button type="button" variant="secondary" onClick={handleCloseModal} className="px-6">{t('common.abort')}</Button>
                   <Button type="submit" disabled={loading} className="px-8">

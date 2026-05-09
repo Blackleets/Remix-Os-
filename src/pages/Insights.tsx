@@ -113,6 +113,7 @@ export function Insights() {
         .slice(0, 5);
 
       const businessData = {
+        companyId: company.id,
         companyName: company.name,
         industry: company.industry,
         onboardingCompleted: (company as any).setupCompleted || false,

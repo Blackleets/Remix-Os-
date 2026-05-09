@@ -3,8 +3,20 @@ import { Card, Button } from '../components/Common';
 import { Check, Zap, Crown, Shield, ArrowRight, CreditCard, Activity, Package, Users, ShoppingBag, Loader2 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useLocale } from '../hooks/useLocale';
-import { db } from '../lib/firebase';
+import { auth, db } from '../lib/firebase';
 import { collection, query, where, getDocs } from 'firebase/firestore';
+
+async function authedFetch(url: string, body: Record<string, any>) {
+  const token = await auth.currentUser?.getIdToken();
+  return fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(body),
+  });
+}
 import { motion } from 'motion/react';
 import { format } from 'date-fns';
 import { useSearchParams } from 'react-router-dom';
@@ -70,6 +82,7 @@ export function Billing() {
   const { t } = useLocale();
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [billingError, setBillingError] = useState<string | null>(null);
   
   if (role !== 'owner' && role !== 'admin') {
     return (
@@ -190,11 +203,7 @@ export function Billing() {
     if (!company) return;
     setSyncing(true);
     try {
-      const res = await fetch('/api/billing/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId, companyId: company.id })
-      });
+      const res = await authedFetch('/api/billing/sync', { sessionId, companyId: company.id });
       
       if (!res.ok) throw new Error("Sync failed");
       
@@ -211,13 +220,10 @@ export function Billing() {
 
   const handleUpgrade = async (planId: string) => {
     if (!company || !user) return;
+    setBillingError(null);
     setLoading(true);
     try {
-      const res = await fetch('/api/billing/create-checkout-session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ planId, companyId: company.id, customerEmail: user.email })
-      });
+      const res = await authedFetch('/api/billing/create-checkout-session', { planId, companyId: company.id, customerEmail: user.email });
       const data = await res.json();
       
       if (data.url) {
@@ -227,7 +233,7 @@ export function Billing() {
       }
     } catch (err: any) {
       console.error(err);
-      alert(err.message || "Failed to update subscription protocol.");
+      setBillingError(err.message || "Failed to update subscription. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -236,12 +242,9 @@ export function Billing() {
   const handleCreatePortal = async () => {
     if (!company) return;
     setLoading(true);
+    setBillingError(null);
     try {
-      const res = await fetch('/api/billing/create-portal-session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ companyId: company.id })
-      });
+      const res = await authedFetch('/api/billing/create-portal-session', { companyId: company.id });
       const data = await res.json();
       if (data.url) {
         window.location.href = data.url;
@@ -250,7 +253,7 @@ export function Billing() {
       }
     } catch (err: any) {
       console.error(err);
-      alert(err.message || "Portal session failed.");
+      setBillingError(err.message || "Portal session failed. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -263,6 +266,12 @@ export function Billing() {
 
   return (
     <div className="space-y-10">
+      {billingError && (
+        <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm flex items-center justify-between gap-4">
+          <span>{billingError}</span>
+          <button onClick={() => setBillingError(null)} className="text-red-400 hover:text-red-300 transition-colors font-bold text-xs uppercase tracking-widest">Dismiss</button>
+        </div>
+      )}
       {(loading || syncing) && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex flex-col items-center justify-center space-y-4">
           <Loader2 className="w-12 h-12 text-blue-500 animate-spin" />
