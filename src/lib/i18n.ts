@@ -158,6 +158,38 @@ const resources = {
         download_report: 'Download Report',
         generating: 'Generating...',
         new_order: 'New Order',
+        tiles: {
+          revenue_today: 'Revenue today',
+          revenue_week: 'Revenue this week',
+          revenue_month: 'Revenue this month',
+          average_order_value: 'Average ticket',
+          total_orders: 'Total orders',
+          active_customers: 'Active customers',
+          total_stock: 'Stock units',
+          estimated_margin: 'Estimated margin',
+          vs_prev_period: 'vs prev. 30 days',
+          no_baseline: 'no baseline'
+        },
+        charts: {
+          revenue_title: 'Revenue trend',
+          revenue_subtitle: 'Daily revenue stream',
+          orders_title: 'Order velocity',
+          orders_subtitle: 'Orders completed per day',
+          payment_methods_title: 'Payment mix',
+          payment_methods_subtitle: 'Revenue by payment method',
+          top_products_title: 'Top revenue products',
+          top_products_subtitle: 'Highest grossing items',
+          range_7d: '7d',
+          range_30d: '30d',
+          empty: 'Not enough data yet — close a few sales to populate this chart.'
+        },
+        low_stock: {
+          title: 'Low stock alert',
+          subtitle: 'Reorder soon',
+          empty: 'No low-stock products. Inventory healthy.',
+          out: 'Out of stock',
+          remaining: '{{count}} left'
+        },
         setup: {
           title: 'Complete your setup.',
           subtitle: 'Setup Checklist',
@@ -832,6 +864,38 @@ const resources = {
         download_report: 'Descargar Informe',
         generating: 'Generando...',
         new_order: 'Nuevo Pedido',
+        tiles: {
+          revenue_today: 'Ventas de hoy',
+          revenue_week: 'Ventas de la semana',
+          revenue_month: 'Ventas del mes',
+          average_order_value: 'Ticket promedio',
+          total_orders: 'Pedidos totales',
+          active_customers: 'Clientes activos',
+          total_stock: 'Unidades en stock',
+          estimated_margin: 'Margen estimado',
+          vs_prev_period: 'vs 30 días previos',
+          no_baseline: 'sin base'
+        },
+        charts: {
+          revenue_title: 'Tendencia de ingresos',
+          revenue_subtitle: 'Flujo diario de ingresos',
+          orders_title: 'Velocidad de pedidos',
+          orders_subtitle: 'Pedidos completados por día',
+          payment_methods_title: 'Mezcla de pagos',
+          payment_methods_subtitle: 'Ingresos por método de pago',
+          top_products_title: 'Productos top por ingresos',
+          top_products_subtitle: 'Artículos que más facturan',
+          range_7d: '7 días',
+          range_30d: '30 días',
+          empty: 'Aún no hay suficientes datos. Cierra algunas ventas para poblar esta gráfica.'
+        },
+        low_stock: {
+          title: 'Alerta de stock bajo',
+          subtitle: 'Reposición pronto',
+          empty: 'No hay productos con stock bajo. Inventario saludable.',
+          out: 'Sin stock',
+          remaining: '{{count}} restantes'
+        },
         setup: {
           title: 'Complete su configuración.',
           subtitle: 'Lista de Verificación',
