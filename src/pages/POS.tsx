@@ -67,6 +67,7 @@ interface CartItem {
   stockLevel: number;
   category?: string;
   costPrice?: number;
+  imageURL?: string;
 }
 
 interface OrderSnapshotItem {
@@ -133,6 +134,31 @@ function getTimestampValue(value: any) {
   if (!value) return 0;
   const date = value.toDate ? value.toDate() : new Date(value);
   return date.getTime();
+}
+
+function POSProductThumbnail({
+  imageURL,
+  alt,
+  iconClassName = 'w-4 h-4 text-neutral-500',
+}: {
+  imageURL?: string;
+  alt: string;
+  iconClassName?: string;
+}) {
+  const [hasError, setHasError] = useState(false);
+
+  if (!imageURL || hasError) {
+    return <Package className={iconClassName} />;
+  }
+
+  return (
+    <img
+      src={imageURL}
+      alt={alt}
+      className="w-full h-full object-cover"
+      onError={() => setHasError(true)}
+    />
+  );
 }
 
 export function POS() {
@@ -365,6 +391,7 @@ export function POS() {
             stockLevel: product.stockLevel || 0,
             category: product.category,
             costPrice: product.costPrice,
+            imageURL: product.imageURL,
           },
         ];
       }
@@ -465,6 +492,7 @@ export function POS() {
           stockLevel: product.stockLevel,
           category: product.category,
           costPrice: product.costPrice,
+          imageURL: product.imageURL,
         });
 
         if (product.stockLevel < item.quantity) {
@@ -1044,11 +1072,7 @@ export function POS() {
                     <div className="min-w-0">
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-xl border border-white/10 bg-black/30 flex items-center justify-center overflow-hidden">
-                          {product.imageURL ? (
-                            <img src={product.imageURL} alt={product.name} className="w-full h-full object-cover" />
-                          ) : (
-                            <Package className="w-4 h-4 text-neutral-500" />
-                          )}
+                          <POSProductThumbnail imageURL={product.imageURL} alt={product.name} />
                         </div>
                         <div className="min-w-0">
                           <p className="font-bold text-white truncate">{product.name}</p>
@@ -1125,11 +1149,16 @@ export function POS() {
                 return (
                   <div key={item.productId} className="p-4 rounded-2xl border border-white/[0.06] bg-white/[0.02] space-y-4">
                     <div className="flex items-start justify-between gap-4">
-                      <div className="min-w-0">
-                        <p className="font-bold text-white truncate">{item.name}</p>
-                        <p className="text-[10px] uppercase tracking-[0.25em] text-neutral-600 font-bold">
-                          {item.sku || 'NO_SKU'}
-                        </p>
+                      <div className="min-w-0 flex items-start gap-3">
+                        <div className="w-10 h-10 shrink-0 rounded-xl border border-white/10 bg-black/30 flex items-center justify-center overflow-hidden">
+                          <POSProductThumbnail imageURL={item.imageURL} alt={item.name} />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="font-bold text-white truncate">{item.name}</p>
+                          <p className="text-[10px] uppercase tracking-[0.25em] text-neutral-600 font-bold">
+                            {item.sku || 'NO_SKU'}
+                          </p>
+                        </div>
                       </div>
                       <Button variant="ghost" className="w-10 h-10 p-0" onClick={() => removeItem(item.productId)}>
                         <Minus className="w-4 h-4" />

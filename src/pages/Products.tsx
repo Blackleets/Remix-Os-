@@ -25,6 +25,23 @@ interface Product {
   imageURL?: string;
 }
 
+function ProductThumbnail({ imageURL, alt }: { imageURL?: string; alt: string }) {
+  const [hasError, setHasError] = useState(false);
+
+  if (!imageURL || hasError) {
+    return <Box className="w-5 h-5 text-neutral-600 group-hover:text-blue-400 transition-colors" />;
+  }
+
+  return (
+    <img
+      src={imageURL}
+      alt={alt}
+      className="w-full h-full object-cover"
+      onError={() => setHasError(true)}
+    />
+  );
+}
+
 export function Products() {
   const { company, role } = useAuth();
   const { t, formatCurrency } = useLocale();
@@ -283,11 +300,7 @@ export function Products() {
                   <td className="table-cell">
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 rounded-xl bg-white/[0.03] border border-white/[0.05] flex items-center justify-center text-neutral-500 group-hover:border-blue-500/50 transition-colors overflow-hidden">
-                        {product.imageURL ? (
-                          <img src={product.imageURL} alt={product.name} className="w-full h-full object-cover" />
-                        ) : (
-                          <Box className="w-5 h-5 text-neutral-600 group-hover:text-blue-400 transition-colors" />
-                        )}
+                        <ProductThumbnail imageURL={product.imageURL} alt={product.name} />
                       </div>
                       <div>
                         <p className="font-bold text-neutral-200">{product.name}</p>
@@ -347,11 +360,7 @@ export function Products() {
               <div className="flex items-center justify-between gap-4">
                 <div className="flex items-center gap-3 min-w-0">
                   <div className="w-10 h-10 rounded-xl bg-white/[0.03] border border-white/[0.05] flex items-center justify-center shrink-0 overflow-hidden">
-                    {product.imageURL ? (
-                      <img src={product.imageURL} alt={product.name} className="w-full h-full object-cover" />
-                    ) : (
-                      <Box className="w-5 h-5 text-neutral-600" />
-                    )}
+                    <ProductThumbnail imageURL={product.imageURL} alt={product.name} />
                   </div>
                   <div className="min-w-0">
                     <p className="font-bold text-neutral-200 truncate">{product.name}</p>
@@ -422,7 +431,9 @@ export function Products() {
                     <ImageUpload 
                       value={form.imageURL}
                       onChange={url => setForm({ ...form, imageURL: url })}
+                      companyId={company?.id}
                       path={`companies/${company?.id}/products`}
+                      storageProvider="supabase-product"
                       label={t('products.modal.avatar')}
                     />
                   </div>

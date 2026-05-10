@@ -510,6 +510,18 @@ const resources = {
         saas: 'SaaS',
         manufacturing: 'Manufacturing',
         services: 'Services',
+        image_upload: {
+          product_image: 'Product image',
+          drag_here: 'Drag an image here',
+          click_to_upload: 'Click to upload',
+          paste_url: 'Paste image URL',
+          supabase_not_configured: 'Supabase Storage is not configured',
+          file_too_large: 'File is too large',
+          invalid_type: 'Format not allowed',
+          upload_failed: 'Failed to upload image',
+          change: 'Change',
+          remove: 'Remove image'
+        },
         technology: 'Technology'
       },
       insights: {
@@ -1159,6 +1171,18 @@ const resources = {
         saas: 'SaaS',
         manufacturing: 'Manufactura',
         services: 'Servicios',
+        image_upload: {
+          product_image: 'Imagen del producto',
+          drag_here: 'Arrastra una imagen aqu\u00ed',
+          click_to_upload: 'Haz clic para subir',
+          paste_url: 'Pegar URL de imagen',
+          supabase_not_configured: 'Supabase Storage no configurado',
+          file_too_large: 'Archivo demasiado grande',
+          invalid_type: 'Formato no permitido',
+          upload_failed: 'Error al subir imagen',
+          change: 'Cambiar',
+          remove: 'Eliminar imagen'
+        },
         technology: 'Tecnología'
       },
       insights: {
@@ -1808,6 +1832,18 @@ const resources = {
         saas: 'SaaS',
         manufacturing: 'Manufatura',
         services: 'Serviços',
+        image_upload: {
+          product_image: 'Imagem do produto',
+          drag_here: 'Arraste uma imagem aqui',
+          click_to_upload: 'Clique para enviar',
+          paste_url: 'Colar URL da imagem',
+          supabase_not_configured: 'Supabase Storage n\u00e3o configurado',
+          file_too_large: 'Arquivo muito grande',
+          invalid_type: 'Formato n\u00e3o permitido',
+          upload_failed: 'Erro ao enviar imagem',
+          change: 'Alterar',
+          remove: 'Remover imagem'
+        },
         technology: 'Tecnologia'
       },
       insights: {
