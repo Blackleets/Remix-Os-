@@ -60,7 +60,9 @@ const getStripe = () => {
       console.warn("STRIPE_SECRET_KEY is not configured. Stripe features will run in Mock Mode.");
       return null;
     }
-    stripe = new Stripe(key);
+    stripe = new Stripe(key, {
+      apiVersion: "2026-04-22.dahlia",
+    });
   }
   return stripe;
 };
@@ -297,7 +299,12 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  app.use(express.json());
+  app.use((req, res, next) => {
+    if (req.originalUrl === "/api/billing/webhook") {
+      return next();
+    }
+    return express.json()(req, res, next);
+  });
 
   // API Health Check
   app.get("/api/health", (req, res) => {
@@ -447,6 +454,17 @@ async function startServer() {
           updatedAt: FieldValue.serverTimestamp(),
         });
 
+        await db.collection("companyBillingStats").doc(companyId).set(
+          buildFallbackBillingStats(companyId, {
+            subscription: {
+              planId,
+              status: "active",
+              currentPeriodEnd: Timestamp.fromMillis(Date.now() + 30 * 24 * 60 * 60 * 1000),
+            },
+          }),
+          { merge: true }
+        );
+
         return res.json({ status: "success", planId });
       }
 
@@ -595,6 +613,7 @@ async function startServer() {
         }
         break;
       }
+      case 'customer.subscription.created':
       case 'customer.subscription.updated':
       case 'customer.subscription.deleted': {
         const sub = data.object as any;
@@ -614,6 +633,30 @@ async function startServer() {
         }
         break;
       }
+      case 'customer.subscription.trial_will_end': {
+        const sub = data.object as any;
+        const custId = sub.customer as string;
+
+        const companies = await db.collection("companies").where("stripeCustomerId", "==", custId).limit(1).get();
+        if (!companies.empty) {
+          const companyDoc = companies.docs[0];
+          await db.collection("companyBillingStats").doc(companyDoc.id).set(
+            buildStripeBillingStats(companyDoc.id, companyDoc.data(), sub),
+            { merge: true }
+          );
+          await db.collection("platformAuditLogs").add({
+            type: "billing_trial_will_end",
+            companyId: companyDoc.id,
+            actorUid: "stripe_webhook",
+            payload: {
+              stripeCustomerId: custId,
+            },
+            createdAt: FieldValue.serverTimestamp(),
+          });
+        }
+        break;
+      }
+      case 'invoice.finalized':
       case 'invoice.paid': {
         const invoice = data.object;
         if (invoice.subscription) {
@@ -637,6 +680,7 @@ async function startServer() {
         }
         break;
       }
+      case 'invoice.finalization_failed':
       case 'invoice.payment_failed': {
         const invoice = data.object;
         if (invoice.subscription) {
