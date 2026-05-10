@@ -375,10 +375,13 @@ export interface ProductSalesAggregate {
   product: ProductLike;
   unitsSold: number;
   revenue: number;
+  profitPerUnit: number | null;
+  stockValue: number | null;
   marginPercent: number | null;
 }
 
 export interface ProductMetrics {
+  allProductSales: ProductSalesAggregate[];
   bestSellingProducts: ProductSalesAggregate[];
   worstSellingProducts: ProductSalesAggregate[];
   highestRevenueProducts: ProductSalesAggregate[];
@@ -411,13 +414,19 @@ export function computeProductMetrics(
   const all: ProductSalesAggregate[] = products.map((product) => {
     const agg = aggregates.get(product.id) || { unitsSold: 0, revenue: 0 };
     let marginPercent: number | null = null;
+    let profitPerUnit: number | null = null;
+    let stockValue: number | null = null;
     if (typeof product.costPrice === 'number' && typeof product.price === 'number' && product.price > 0) {
-      marginPercent = ((product.price - product.costPrice) / product.price) * 100;
+      profitPerUnit = toMoney(product.price - product.costPrice);
+      marginPercent = safeDivide(profitPerUnit, product.price, 0) * 100;
+      stockValue = toMoney(clampPositive(product.stockLevel) * clampPositive(product.costPrice));
     }
     return {
       product,
       unitsSold: agg.unitsSold,
       revenue: toMoney(agg.revenue),
+      profitPerUnit,
+      stockValue,
       marginPercent,
     };
   });
@@ -438,10 +447,11 @@ export function computeProductMetrics(
   );
   const productsWithoutSKU = products.filter((p) => !p.sku || p.sku.trim().length === 0);
   const productsWithoutCostPrice = products.filter(
-    (p) => typeof p.costPrice !== 'number' || p.costPrice <= 0
+    (p) => typeof p.costPrice !== 'number'
   );
 
   return {
+    allProductSales: all,
     bestSellingProducts,
     worstSellingProducts,
     highestRevenueProducts,

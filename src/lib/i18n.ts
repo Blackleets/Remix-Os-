@@ -771,11 +771,62 @@ const resources = {
         delete_confirm: 'Are you sure you want to delete this product?',
         name: 'Name',
         price: 'Price',
+        cost_price: 'Cost price',
+        cost_price_hint: 'Used to compute margin and inventory cost.',
+        margin: 'Margin',
+        profit_per_unit: 'Profit / unit',
+        stock_value: 'Stock value',
+        missing_cost: 'No cost price',
+        units_sold: 'Units sold',
+        revenue: 'Revenue',
         stock: 'Stock',
         category: 'Category',
         sku: 'SKU',
         description: 'Description',
         status: 'Status',
+        no_cost_warning: 'No cost price set - margin cannot be tracked.',
+        tiles: {
+          total_products: 'Total products',
+          active_products: 'Active SKUs',
+          avg_margin: 'Avg. margin',
+          top_seller: 'Top seller',
+          no_seller: 'No sales yet',
+          revenue_label: 'Revenue {{value}}'
+        },
+        filters: {
+          label: 'Filters',
+          status_all: 'All',
+          status_active: 'Active',
+          status_draft: 'Draft',
+          status_archived: 'Archived',
+          low_stock: 'Low stock',
+          no_stock: 'No stock',
+          no_sku: 'No SKU',
+          no_cost: 'No cost price',
+          reset: 'Reset filters'
+        },
+        sort: {
+          label: 'Sort by',
+          name: 'Name',
+          price: 'Price',
+          stock: 'Stock',
+          margin: 'Margin',
+          revenue: 'Revenue',
+          sold: 'Units sold'
+        },
+        badges: {
+          top_seller: 'Top seller',
+          low_margin: 'Low margin',
+          out_of_stock: 'Out of stock',
+          low_stock: 'Low stock'
+        },
+        errors: {
+          price_must_be_positive: 'Price must be greater than 0.',
+          cost_invalid: 'Cost price must be 0 or greater.',
+          stock_negative: 'Stock level cannot be negative.',
+          sku_duplicate: 'SKU "{{sku}}" is already used by another product.',
+          name_required: 'Product name is required.'
+        },
         upgrade: {
           title: 'Asset Allocation Limit',
           message: 'Your inventory protocol has reached its maximum variant capacity. Upgrade to expand your catalog matrix.'
@@ -784,6 +835,8 @@ const resources = {
           identity: 'Asset Identity',
           metadata: 'System Metadata',
           price: 'Unit Price',
+          margin: 'Margin',
+          sales: 'Sales',
           stock: 'Node Stock',
           actions: 'Actions',
           generic: 'GENERIC',
@@ -800,7 +853,8 @@ const resources = {
           avatar: 'Product',
           name_placeholder: 'e.g. Kinetic Processor Pro',
           desc_label: 'Asset Manifest / Description',
-          desc_placeholder: 'Detailed specifications for the node log...'
+          desc_placeholder: 'Detailed specifications for the node log...',
+          cost_placeholder: '0.00'
         }
       }
     }
@@ -1567,42 +1621,96 @@ const resources = {
         }
       },
       products: {
-        title: 'Catálogo de Productos',
-        subtitle: 'Gestione y supervise sus activos digitales/físicos.',
-        add: 'Añadir Producto',
-        delete_confirm: '¿Está seguro de que desea eliminar este producto?',
+        title: 'Cat\u00e1logo de Productos',
+        subtitle: 'Gestiona y supervisa tus activos digitales/f\u00edsicos.',
+        add: 'A\u00f1adir Producto',
+        delete_confirm: '\u00bfEst\u00e1s seguro de que deseas eliminar este producto?',
         name: 'Nombre',
         price: 'Precio',
+        cost_price: 'Precio de costo',
+        cost_price_hint: 'Se usa para calcular el margen y el costo del inventario.',
+        margin: 'Margen',
+        profit_per_unit: 'Beneficio / unidad',
+        stock_value: 'Valor de stock',
+        missing_cost: 'Sin precio de costo',
+        units_sold: 'Unidades vendidas',
+        revenue: 'Ingresos',
         stock: 'Stock',
-        category: 'Categoría',
+        category: 'Categor\u00eda',
         sku: 'SKU',
-        description: 'Descripción',
+        description: 'Descripci\u00f3n',
         status: 'Estado',
+        no_cost_warning: 'Sin precio de costo registrado - el margen no se puede calcular.',
+        tiles: {
+          total_products: 'Productos totales',
+          active_products: 'SKUs activos',
+          avg_margin: 'Margen medio',
+          top_seller: 'M\u00e1s vendido',
+          no_seller: 'Sin ventas a\u00fan',
+          revenue_label: 'Ingresos {{value}}'
+        },
+        filters: {
+          label: 'Filtros',
+          status_all: 'Todos',
+          status_active: 'Activos',
+          status_draft: 'Borradores',
+          status_archived: 'Archivados',
+          low_stock: 'Stock bajo',
+          no_stock: 'Sin stock',
+          no_sku: 'Sin SKU',
+          no_cost: 'Sin costo',
+          reset: 'Limpiar filtros'
+        },
+        sort: {
+          label: 'Ordenar por',
+          name: 'Nombre',
+          price: 'Precio',
+          stock: 'Stock',
+          margin: 'Margen',
+          revenue: 'Ingresos',
+          sold: 'Vendidos'
+        },
+        badges: {
+          top_seller: 'M\u00e1s vendido',
+          low_margin: 'Margen bajo',
+          out_of_stock: 'Sin stock',
+          low_stock: 'Stock bajo'
+        },
+        errors: {
+          price_must_be_positive: 'El precio debe ser mayor que 0.',
+          cost_invalid: 'El precio de costo debe ser 0 o mayor.',
+          stock_negative: 'El stock no puede ser negativo.',
+          sku_duplicate: 'El SKU "{{sku}}" ya est\u00e1 en uso por otro producto.',
+          name_required: 'El nombre del producto es obligatorio.'
+        },
         upgrade: {
-          title: 'Límite de Asignación de Activos',
-          message: 'Su protocolo de inventario ha alcanzado su capacidad máxima de variantes. Actualice para expandir su matriz de catálogo.'
+          title: 'L\u00edmite de Asignaci\u00f3n de Activos',
+          message: 'Tu protocolo de inventario alcanz\u00f3 su capacidad m\u00e1xima de variantes. Actualiza para expandir tu matriz de cat\u00e1logo.'
         },
         table: {
           identity: 'Identidad del Activo',
           metadata: 'Metadatos del Sistema',
           price: 'Precio Unitario',
+          margin: 'Margen',
+          sales: 'Ventas',
           stock: 'Stock del Nodo',
           actions: 'Acciones',
-          generic: 'GENÉRICO',
+          generic: 'GEN\u00c9RICO',
           no_sku: 'SIN_ETIQUETA_SKU',
           in_node: 'En Nodo'
         },
         empty: {
-          title: 'Inicialice su Manifiesto',
-          subtitle: 'Registre su primer producto para comenzar a rastrear el inventario y generar telemetría de ventas.'
+          title: 'Inicializa tu Manifiesto',
+          subtitle: 'Registra tu primer producto para comenzar a rastrear inventario y generar telemetr\u00eda de ventas.'
         },
         modal: {
-          title: 'Parámetros del Activo',
-          init_title: 'Inicialización de Nodo de Producto',
+          title: 'Par\u00e1metros del Activo',
+          init_title: 'Inicializaci\u00f3n de Nodo de Producto',
           avatar: 'Producto',
-          name_placeholder: 'ej. Procesador Kinético Pro',
-          desc_label: 'Manifiesto del Activo / Descripción',
-          desc_placeholder: 'Especificaciones detalladas para el registro del nodo...'
+          name_placeholder: 'ej. Procesador Kin\u00e9tico Pro',
+          desc_label: 'Manifiesto del Activo / Descripci\u00f3n',
+          desc_placeholder: 'Especificaciones detalladas para el registro del nodo...',
+          cost_placeholder: '0.00'
         }
       }
     }
@@ -2216,42 +2324,96 @@ const resources = {
         }
       },
       products: {
-        title: 'Catálogo de Produtos',
-        subtitle: 'Gerencie e monitore seus ativos digitais/físicos.',
+        title: 'Cat\u00e1logo de Produtos',
+        subtitle: 'Gerencie e monitore seus ativos digitais/f\u00edsicos.',
         add: 'Adicionar Produto',
         delete_confirm: 'Tem certeza de que deseja excluir este produto?',
         name: 'Nome',
-        price: 'Preço',
+        price: 'Pre\u00e7o',
+        cost_price: 'Pre\u00e7o de custo',
+        cost_price_hint: 'Usado para calcular margem e custo do invent\u00e1rio.',
+        margin: 'Margem',
+        profit_per_unit: 'Lucro / unidade',
+        stock_value: 'Valor em estoque',
+        missing_cost: 'Sem pre\u00e7o de custo',
+        units_sold: 'Unidades vendidas',
+        revenue: 'Receita',
         stock: 'Estoque',
         category: 'Categoria',
         sku: 'SKU',
-        description: 'Descrição',
+        description: 'Descri\u00e7\u00e3o',
         status: 'Status',
+        no_cost_warning: 'Sem pre\u00e7o de custo - a margem n\u00e3o pode ser calculada.',
+        tiles: {
+          total_products: 'Produtos totais',
+          active_products: 'SKUs ativos',
+          avg_margin: 'Margem m\u00e9dia',
+          top_seller: 'Mais vendido',
+          no_seller: 'Sem vendas ainda',
+          revenue_label: 'Receita {{value}}'
+        },
+        filters: {
+          label: 'Filtros',
+          status_all: 'Todos',
+          status_active: 'Ativos',
+          status_draft: 'Rascunhos',
+          status_archived: 'Arquivados',
+          low_stock: 'Estoque baixo',
+          no_stock: 'Sem estoque',
+          no_sku: 'Sem SKU',
+          no_cost: 'Sem custo',
+          reset: 'Limpar filtros'
+        },
+        sort: {
+          label: 'Ordenar por',
+          name: 'Nome',
+          price: 'Pre\u00e7o',
+          stock: 'Estoque',
+          margin: 'Margem',
+          revenue: 'Receita',
+          sold: 'Vendidos'
+        },
+        badges: {
+          top_seller: 'Mais vendido',
+          low_margin: 'Margem baixa',
+          out_of_stock: 'Sem estoque',
+          low_stock: 'Estoque baixo'
+        },
+        errors: {
+          price_must_be_positive: 'O pre\u00e7o deve ser maior que 0.',
+          cost_invalid: 'O pre\u00e7o de custo deve ser 0 ou maior.',
+          stock_negative: 'O estoque n\u00e3o pode ser negativo.',
+          sku_duplicate: 'O SKU "{{sku}}" j\u00e1 est\u00e1 em uso por outro produto.',
+          name_required: 'O nome do produto \u00e9 obrigat\u00f3rio.'
+        },
         upgrade: {
-          title: 'Limite de Alocação de Ativos',
-          message: 'Seu protocolo de inventário atingiu sua capacidade máxima de variantes. Atualize para expandir sua matriz de catálogo.'
+          title: 'Limite de Aloca\u00e7\u00e3o de Ativos',
+          message: 'Seu protocolo de invent\u00e1rio atingiu sua capacidade m\u00e1xima de variantes. Atualize para expandir sua matriz de cat\u00e1logo.'
         },
         table: {
           identity: 'Identidade do Ativo',
-          metadata: 'Metadatos do Sistema',
-          price: 'Preço Unitário',
+          metadata: 'Metadados do Sistema',
+          price: 'Pre\u00e7o Unit\u00e1rio',
+          margin: 'Margem',
+          sales: 'Vendas',
           stock: 'Estoque do Nodo',
-          actions: 'Ações',
-          generic: 'GENÉRICO',
+          actions: 'A\u00e7\u00f5es',
+          generic: 'GEN\u00c9RICO',
           no_sku: 'SEM_ETIQUETA_SKU',
           in_node: 'No Nodo'
         },
         empty: {
           title: 'Inicialize seu Manifesto',
-          subtitle: 'Registre seu primeiro produto para começar a rastrear o inventario e gerar telemetria de vendas.'
+          subtitle: 'Registre seu primeiro produto para come\u00e7ar a rastrear invent\u00e1rio e gerar telemetria de vendas.'
         },
         modal: {
-          title: 'Parâmetros do Ativo',
-          init_title: 'Inicialização de Nodo de Produto',
+          title: 'Par\u00e2metros do Ativo',
+          init_title: 'Inicializa\u00e7\u00e3o de Nodo de Produto',
           avatar: 'Produto',
-          name_placeholder: 'ex: Processador Kinético Pro',
-          desc_label: 'Manifesto do Ativo / Descrição',
-          desc_placeholder: 'Especificações detalhadas para o registro do nodo...'
+          name_placeholder: 'ex: Processador Kin\u00e9tico Pro',
+          desc_label: 'Manifesto do Ativo / Descri\u00e7\u00e3o',
+          desc_placeholder: 'Especifica\u00e7\u00f5es detalhadas para o registro do nodo...',
+          cost_placeholder: '0.00'
         }
       }
     }
