@@ -693,6 +693,7 @@ const resources = {
         tables: {
           companies_label: 'Registry stream',
           companies_title: 'Companies table',
+          search_placeholder: 'Search company, owner or industry',
           users_label: 'Identity stream',
           users_title: 'Users table',
           company: 'Company',
@@ -709,6 +710,13 @@ const resources = {
           user_name: 'Name',
           user_role: 'Role',
           registered_at: 'Registered'
+        },
+        filters: {
+          all: 'All',
+          active: 'Active',
+          trialing: 'Trial',
+          past_due: 'Past due',
+          canceled: 'Canceled'
         },
         latest: {
           companies_label: 'Latest companies',
@@ -731,6 +739,33 @@ const resources = {
           trial_body: '{{count}} trial companies are within the next 7 days of expiration.',
           healthy_title: 'Platform stable',
           healthy_body: 'No immediate global alerts were detected.'
+        },
+        company_panel: {
+          label: 'Tenant focus',
+          title: 'Company control panel',
+          empty: 'Select a company to inspect its commercial and operational state.',
+          plan: 'Plan',
+          subscription: 'Subscription',
+          owner: 'Owner',
+          created: 'Created',
+          stripe: 'Stripe customer',
+          renewal: 'Renewal / trial end',
+          not_connected: 'Not connected',
+          onboarding: 'Onboarding checklist',
+          onboarding_step: 'Current onboarding step: {{step}}',
+          usage: 'Usage footprint',
+          health: {
+            healthy: 'Healthy',
+            watch: 'Watch',
+            risk: 'Risk',
+            neutral: 'Neutral'
+          },
+          checklist: {
+            profile: 'Profile',
+            product: 'Product',
+            customer: 'Customer',
+            order: 'Order'
+          }
         }
       }
     }
@@ -1425,6 +1460,7 @@ const resources = {
         tables: {
           companies_label: 'Flujo de empresas',
           companies_title: 'Tabla de empresas',
+          search_placeholder: 'Buscar empresa, owner o industria',
           users_label: 'Flujo de identidades',
           users_title: 'Tabla de usuarios',
           company: 'Empresa',
@@ -1441,6 +1477,13 @@ const resources = {
           user_name: 'Nombre',
           user_role: 'Rol',
           registered_at: 'Registro'
+        },
+        filters: {
+          all: 'Todos',
+          active: 'Activas',
+          trialing: 'Trial',
+          past_due: 'Past due',
+          canceled: 'Canceladas'
         },
         latest: {
           companies_label: '\u00daltimas empresas',
@@ -1463,6 +1506,33 @@ const resources = {
           trial_body: '{{count}} empresas en trial vencen dentro de los pr\u00f3ximos 7 d\u00edas.',
           healthy_title: 'Plataforma estable',
           healthy_body: 'No se detectaron alertas globales inmediatas.'
+        },
+        company_panel: {
+          label: 'Foco tenant',
+          title: 'Panel de control de empresa',
+          empty: 'Selecciona una empresa para inspeccionar su estado comercial y operativo.',
+          plan: 'Plan',
+          subscription: 'Suscripción',
+          owner: 'Owner',
+          created: 'Creación',
+          stripe: 'Cliente Stripe',
+          renewal: 'Renovación / fin de trial',
+          not_connected: 'No conectado',
+          onboarding: 'Checklist de onboarding',
+          onboarding_step: 'Paso actual de onboarding: {{step}}',
+          usage: 'Huella de uso',
+          health: {
+            healthy: 'Saludable',
+            watch: 'Vigilar',
+            risk: 'Riesgo',
+            neutral: 'Neutral'
+          },
+          checklist: {
+            profile: 'Perfil',
+            product: 'Producto',
+            customer: 'Cliente',
+            order: 'Pedido'
+          }
         }
       }
     }
@@ -2157,6 +2227,7 @@ const resources = {
         tables: {
           companies_label: 'Fluxo de empresas',
           companies_title: 'Tabela de empresas',
+          search_placeholder: 'Buscar empresa, owner ou indústria',
           users_label: 'Fluxo de identidades',
           users_title: 'Tabela de usu\u00e1rios',
           company: 'Empresa',
@@ -2173,6 +2244,13 @@ const resources = {
           user_name: 'Nome',
           user_role: 'Fun\u00e7\u00e3o',
           registered_at: 'Registro'
+        },
+        filters: {
+          all: 'Todos',
+          active: 'Ativas',
+          trialing: 'Trial',
+          past_due: 'Past due',
+          canceled: 'Canceladas'
         },
         latest: {
           companies_label: '\u00daltimas empresas',
@@ -2195,6 +2273,33 @@ const resources = {
           trial_body: '{{count}} empresas em trial vencem nos pr\u00f3ximos 7 dias.',
           healthy_title: 'Plataforma est\u00e1vel',
           healthy_body: 'Nenhum alerta global imediato foi detectado.'
+        },
+        company_panel: {
+          label: 'Foco tenant',
+          title: 'Painel de controle da empresa',
+          empty: 'Selecione uma empresa para inspecionar seu estado comercial e operacional.',
+          plan: 'Plano',
+          subscription: 'Assinatura',
+          owner: 'Owner',
+          created: 'Criação',
+          stripe: 'Cliente Stripe',
+          renewal: 'Renovação / fim do trial',
+          not_connected: 'Não conectado',
+          onboarding: 'Checklist de onboarding',
+          onboarding_step: 'Etapa atual do onboarding: {{step}}',
+          usage: 'Pegada de uso',
+          health: {
+            healthy: 'Saudável',
+            watch: 'Vigiar',
+            risk: 'Risco',
+            neutral: 'Neutro'
+          },
+          checklist: {
+            profile: 'Perfil',
+            product: 'Produto',
+            customer: 'Cliente',
+            order: 'Pedido'
+          }
         }
       }
     }

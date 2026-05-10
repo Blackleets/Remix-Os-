@@ -24,10 +24,22 @@ interface CompanyDoc {
   name?: string;
   ownerId?: string;
   industry?: string;
+  stripeCustomerId?: string;
   createdAt?: any;
+  onboardingState?: {
+    isComplete?: boolean;
+    step?: number;
+    checklist?: {
+      profile?: boolean;
+      product?: boolean;
+      customer?: boolean;
+      order?: boolean;
+    };
+  };
   subscription?: {
     planId?: 'starter' | 'pro' | 'business';
     status?: 'active' | 'past_due' | 'trialing' | 'canceled';
+    currentPeriodEnd?: any;
     trialEndsAt?: any;
   };
 }
@@ -87,9 +99,22 @@ interface PlatformMetrics {
 interface CompanyRow {
   id: string;
   name: string;
+  industry: string;
   ownerEmail: string;
+  ownerId?: string;
   plan: string;
   subscriptionStatus: string;
+  stripeCustomerId?: string;
+  onboardingComplete: boolean;
+  onboardingStep: number;
+  onboardingChecklist: {
+    profile: boolean;
+    product: boolean;
+    customer: boolean;
+    order: boolean;
+  };
+  trialEndsAt?: any;
+  currentPeriodEnd?: any;
   users: number;
   products: number;
   customers: number;
@@ -165,6 +190,9 @@ export function SuperAdmin() {
   const { t, formatCurrency } = useLocale();
   const { platformAdmin } = usePlatformAdmin();
   const [refreshKey, setRefreshKey] = useState(0);
+  const [companySearch, setCompanySearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'trialing' | 'past_due' | 'canceled'>('all');
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [metrics, setMetrics] = useState<PlatformMetrics>({
@@ -283,9 +311,22 @@ export function SuperAdmin() {
           return {
             id: company.id,
             name: company.name || 'Unnamed company',
+            industry: company.industry || 'Unknown industry',
             ownerEmail: ownerUser?.email || usersById.get(company.ownerId || '')?.email || 'No owner email',
+            ownerId: company.ownerId,
             plan: company.subscription?.planId || 'starter',
             subscriptionStatus: company.subscription?.status || 'trialing',
+            stripeCustomerId: company.stripeCustomerId,
+            onboardingComplete: Boolean(company.onboardingState?.isComplete),
+            onboardingStep: company.onboardingState?.step || 1,
+            onboardingChecklist: {
+              profile: Boolean(company.onboardingState?.checklist?.profile),
+              product: Boolean(company.onboardingState?.checklist?.product),
+              customer: Boolean(company.onboardingState?.checklist?.customer),
+              order: Boolean(company.onboardingState?.checklist?.order),
+            },
+            trialEndsAt: company.subscription?.trialEndsAt,
+            currentPeriodEnd: company.subscription?.currentPeriodEnd,
             users: companyMemberships.length,
             products: productsByCompany.get(company.id) || 0,
             customers: customersByCompany.get(company.id) || 0,
@@ -340,6 +381,9 @@ export function SuperAdmin() {
         setCompaniesTable(compareByCreatedAtDesc(companyRows));
         setUsersTable(compareByCreatedAtDesc(userRows));
         setLatestUsers(compareByCreatedAtDesc(userRows).slice(0, 6));
+        if (!selectedCompanyId && companyRows.length > 0) {
+          setSelectedCompanyId(compareByCreatedAtDesc(companyRows)[0].id);
+        }
       } catch (loadError) {
         console.error('Failed to load super admin data:', loadError);
         if (isMounted) {
@@ -428,6 +472,37 @@ export function SuperAdmin() {
         .slice(0, 6),
     [companiesTable]
   );
+
+  const filteredCompanies = useMemo(() => {
+    const normalized = companySearch.trim().toLowerCase();
+    return companiesTable.filter((company) => {
+      const statusMatch = statusFilter === 'all' || company.subscriptionStatus === statusFilter;
+      const searchMatch =
+        normalized.length === 0 ||
+        company.name.toLowerCase().includes(normalized) ||
+        company.ownerEmail.toLowerCase().includes(normalized) ||
+        company.industry.toLowerCase().includes(normalized);
+      return statusMatch && searchMatch;
+    });
+  }, [companiesTable, companySearch, statusFilter]);
+
+  const selectedCompany =
+    filteredCompanies.find((company) => company.id === selectedCompanyId) ||
+    companiesTable.find((company) => company.id === selectedCompanyId) ||
+    filteredCompanies[0] ||
+    companiesTable[0] ||
+    null;
+
+  const selectedCompanyHealth = useMemo(() => {
+    if (!selectedCompany) return 'neutral';
+    if (selectedCompany.subscriptionStatus === 'past_due' || selectedCompany.subscriptionStatus === 'canceled') {
+      return 'risk';
+    }
+    if (!selectedCompany.onboardingComplete || selectedCompany.orders === 0) {
+      return 'watch';
+    }
+    return 'healthy';
+  }, [selectedCompany]);
 
   return (
     <div className="space-y-8">
@@ -571,11 +646,35 @@ export function SuperAdmin() {
             </Card>
           </div>
 
-          <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-            <Card className="border-white/5 bg-neutral-900/40 p-5 xl:col-span-2">
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
+            <Card className="border-white/5 bg-neutral-900/40 p-5 xl:col-span-8">
               <div className="mb-5">
                 <p className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-600">{t('super_admin.tables.companies_label')}</p>
                 <h2 className="mt-2 text-lg font-bold text-white">{t('super_admin.tables.companies_title')}</h2>
+              </div>
+              <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <input
+                  value={companySearch}
+                  onChange={(event) => setCompanySearch(event.target.value)}
+                  placeholder={t('super_admin.tables.search_placeholder')}
+                  className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white placeholder:text-neutral-600 focus:border-blue-500/40 focus:outline-none lg:max-w-sm"
+                />
+                <div className="flex flex-wrap gap-2">
+                  {(['all', 'active', 'trialing', 'past_due', 'canceled'] as const).map((status) => (
+                    <button
+                      key={status}
+                      onClick={() => setStatusFilter(status)}
+                      className={cn(
+                        'rounded-full border px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.22em] transition-colors',
+                        statusFilter === status
+                          ? 'border-blue-500/30 bg-blue-500/10 text-blue-300'
+                          : 'border-white/10 bg-black/30 text-neutral-500 hover:text-white'
+                      )}
+                    >
+                      {t(`super_admin.filters.${status}`)}
+                    </button>
+                  ))}
+                </div>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full border-collapse">
@@ -594,8 +693,15 @@ export function SuperAdmin() {
                     </tr>
                   </thead>
                   <tbody>
-                    {companiesTable.slice(0, 10).map((company) => (
-                      <tr key={company.id} className="border-t border-white/[0.04]">
+                    {filteredCompanies.slice(0, 10).map((company) => (
+                      <tr
+                        key={company.id}
+                        className={cn(
+                          'cursor-pointer border-t border-white/[0.04] transition-colors hover:bg-white/[0.02]',
+                          selectedCompany?.id === company.id && 'bg-blue-500/[0.06]'
+                        )}
+                        onClick={() => setSelectedCompanyId(company.id)}
+                      >
                         <td className="table-cell font-semibold text-white">{company.name}</td>
                         <td className="table-cell text-neutral-400">{company.ownerEmail}</td>
                         <td className="table-cell uppercase text-neutral-300">{company.plan}</td>
@@ -613,33 +719,138 @@ export function SuperAdmin() {
               </div>
             </Card>
 
-            <Card className="border-white/5 bg-neutral-900/40 p-5">
-              <div className="mb-5 flex items-center justify-between">
-                <div>
-                  <p className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-600">{t('super_admin.alerts.label')}</p>
-                  <h2 className="mt-2 text-lg font-bold text-white">{t('super_admin.alerts.title')}</h2>
-                </div>
-                <AlertTriangle className="h-5 w-5 text-amber-300" />
-              </div>
-              <div className="space-y-3">
-                {alerts.map((alert) => (
+            <div className="space-y-4 xl:col-span-4">
+              <Card className="border-white/5 bg-neutral-900/40 p-5">
+                <div className="mb-5 flex items-center justify-between">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-600">{t('super_admin.company_panel.label')}</p>
+                    <h2 className="mt-2 text-lg font-bold text-white">{t('super_admin.company_panel.title')}</h2>
+                  </div>
                   <div
-                    key={alert.id}
                     className={cn(
-                      'rounded-2xl border px-4 py-4',
-                      alert.tone === 'warning'
-                        ? 'border-amber-500/20 bg-amber-500/10'
-                        : alert.tone === 'success'
-                          ? 'border-emerald-500/20 bg-emerald-500/10'
-                          : 'border-blue-500/20 bg-blue-500/10'
+                      'rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.22em]',
+                      selectedCompanyHealth === 'healthy'
+                        ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-300'
+                        : selectedCompanyHealth === 'risk'
+                          ? 'border-red-500/20 bg-red-500/10 text-red-300'
+                          : 'border-amber-500/20 bg-amber-500/10 text-amber-300'
                     )}
                   >
-                    <p className="text-sm font-bold text-white">{alert.title}</p>
-                    <p className="mt-1 text-xs leading-relaxed text-neutral-200/85">{alert.body}</p>
+                    {t(`super_admin.company_panel.health.${selectedCompanyHealth}`)}
                   </div>
-                ))}
-              </div>
-            </Card>
+                </div>
+
+                {selectedCompany ? (
+                  <div className="space-y-4">
+                    <div className="rounded-3xl border border-white/10 bg-black/30 p-4">
+                      <p className="text-lg font-bold text-white">{selectedCompany.name}</p>
+                      <p className="mt-1 text-xs uppercase tracking-[0.2em] text-neutral-500">{selectedCompany.industry}</p>
+                      <div className="mt-4 grid grid-cols-2 gap-3">
+                        <div>
+                          <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.company_panel.plan')}</p>
+                          <p className="mt-1 text-sm font-semibold uppercase text-white">{selectedCompany.plan}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.company_panel.subscription')}</p>
+                          <p className="mt-1 text-sm font-semibold uppercase text-white">{selectedCompany.subscriptionStatus}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.company_panel.owner')}</p>
+                          <p className="mt-1 text-sm text-neutral-300 break-all">{selectedCompany.ownerEmail}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.company_panel.created')}</p>
+                          <p className="mt-1 text-sm text-neutral-300">{toDate(selectedCompany.createdAt)?.toLocaleDateString() || '-'}</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                        <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.company_panel.stripe')}</p>
+                        <p className="mt-2 text-xs font-semibold text-white break-all">
+                          {selectedCompany.stripeCustomerId || t('super_admin.company_panel.not_connected')}
+                        </p>
+                      </div>
+                      <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                        <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.company_panel.renewal')}</p>
+                        <p className="mt-2 text-xs font-semibold text-white">
+                          {toDate(selectedCompany.currentPeriodEnd || selectedCompany.trialEndsAt)?.toLocaleDateString() || '-'}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                      <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.company_panel.onboarding')}</p>
+                      <div className="mt-3 grid grid-cols-2 gap-2">
+                        {(['profile', 'product', 'customer', 'order'] as const).map((item) => (
+                          <div
+                            key={item}
+                            className={cn(
+                              'rounded-xl border px-3 py-2 text-[10px] font-black uppercase tracking-[0.18em]',
+                              selectedCompany.onboardingChecklist[item]
+                                ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-300'
+                                : 'border-white/10 bg-black/30 text-neutral-500'
+                            )}
+                          >
+                            {t(`super_admin.company_panel.checklist.${item}`)}
+                          </div>
+                        ))}
+                      </div>
+                      <p className="mt-3 text-xs text-neutral-400">
+                        {t('super_admin.company_panel.onboarding_step', { step: selectedCompany.onboardingStep })}
+                      </p>
+                    </div>
+
+                    <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                      <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.company_panel.usage')}</p>
+                      <div className="mt-3 grid grid-cols-2 gap-3">
+                        <div><p className="text-[10px] text-neutral-600">{t('super_admin.tables.users')}</p><p className="mt-1 text-lg font-bold text-white">{selectedCompany.users}</p></div>
+                        <div><p className="text-[10px] text-neutral-600">{t('super_admin.tables.products')}</p><p className="mt-1 text-lg font-bold text-white">{selectedCompany.products}</p></div>
+                        <div><p className="text-[10px] text-neutral-600">{t('super_admin.tables.customers')}</p><p className="mt-1 text-lg font-bold text-white">{selectedCompany.customers}</p></div>
+                        <div><p className="text-[10px] text-neutral-600">{t('super_admin.tables.orders')}</p><p className="mt-1 text-lg font-bold text-white">{selectedCompany.orders}</p></div>
+                      </div>
+                      <div className="mt-4 rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                        <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.tables.revenue')}</p>
+                        <p className="mt-2 text-xl font-bold text-white">{formatCurrency(selectedCompany.revenue)}</p>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-8 text-center text-sm text-neutral-500">
+                    {t('super_admin.company_panel.empty')}
+                  </div>
+                )}
+              </Card>
+
+              <Card className="border-white/5 bg-neutral-900/40 p-5">
+                <div className="mb-5 flex items-center justify-between">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-600">{t('super_admin.alerts.label')}</p>
+                    <h2 className="mt-2 text-lg font-bold text-white">{t('super_admin.alerts.title')}</h2>
+                  </div>
+                  <AlertTriangle className="h-5 w-5 text-amber-300" />
+                </div>
+                <div className="space-y-3">
+                  {alerts.map((alert) => (
+                    <div
+                      key={alert.id}
+                      className={cn(
+                        'rounded-2xl border px-4 py-4',
+                        alert.tone === 'warning'
+                          ? 'border-amber-500/20 bg-amber-500/10'
+                          : alert.tone === 'success'
+                            ? 'border-emerald-500/20 bg-emerald-500/10'
+                            : 'border-blue-500/20 bg-blue-500/10'
+                      )}
+                    >
+                      <p className="text-sm font-bold text-white">{alert.title}</p>
+                      <p className="mt-1 text-xs leading-relaxed text-neutral-200/85">{alert.body}</p>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
