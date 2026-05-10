@@ -5,16 +5,18 @@ import {
   Building2,
   CreditCard,
   DollarSign,
+  Flame,
   Layers3,
   RefreshCcw,
+  Save,
   ShieldCheck,
   ShoppingBag,
   Sparkles,
   Users,
 } from 'lucide-react';
-import { collection, getDocs } from 'firebase/firestore';
+import { collection, doc, getDocs, serverTimestamp, setDoc } from 'firebase/firestore';
 import type { ComponentType } from 'react';
-import { Button, Card, cn } from '../components/Common';
+import { Button, Card, cn, Input, Label } from '../components/Common';
 import { db } from '../lib/firebase';
 import { useLocale } from '../hooks/useLocale';
 import { usePlatformAdmin } from '../hooks/usePlatformAdmin';
@@ -139,6 +141,25 @@ interface PlatformAlert {
   body: string;
 }
 
+interface PlatformCompanyControlDoc {
+  companyId: string;
+  lifecycleStatus: 'active' | 'watch' | 'internal_hold' | 'suspended';
+  priority: 'low' | 'normal' | 'high' | 'critical';
+  nextAction?: string;
+  assignedTo?: string;
+  notes?: string;
+  updatedAt?: unknown;
+  updatedBy?: string;
+}
+
+interface CompanyControlForm {
+  lifecycleStatus: 'active' | 'watch' | 'internal_hold' | 'suspended';
+  priority: 'low' | 'normal' | 'high' | 'critical';
+  nextAction: string;
+  assignedTo: string;
+  notes: string;
+}
+
 const PLAN_MRR: Record<string, number> = {
   starter: 29,
   pro: 99,
@@ -217,6 +238,16 @@ export function SuperAdmin() {
   const [companiesTable, setCompaniesTable] = useState<CompanyRow[]>([]);
   const [usersTable, setUsersTable] = useState<UserRow[]>([]);
   const [latestUsers, setLatestUsers] = useState<UserRow[]>([]);
+  const [companyControls, setCompanyControls] = useState<Record<string, PlatformCompanyControlDoc>>({});
+  const [controlForm, setControlForm] = useState<CompanyControlForm>({
+    lifecycleStatus: 'active',
+    priority: 'normal',
+    nextAction: '',
+    assignedTo: '',
+    notes: '',
+  });
+  const [savingControl, setSavingControl] = useState(false);
+  const [controlFeedback, setControlFeedback] = useState<string | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -233,6 +264,7 @@ export function SuperAdmin() {
           productsSnap,
           customersSnap,
           ordersSnap,
+          controlsSnap,
         ] = await Promise.all([
           getDocs(collection(db, 'companies')),
           getDocs(collection(db, 'users')),
@@ -240,6 +272,7 @@ export function SuperAdmin() {
           getDocs(collection(db, 'products')),
           getDocs(collection(db, 'customers')),
           getDocs(collection(db, 'orders')),
+          getDocs(collection(db, 'platformCompanyControls')),
         ]);
 
         if (!isMounted) return;
@@ -250,6 +283,9 @@ export function SuperAdmin() {
         const products = productsSnap.docs.map((entry) => ({ id: entry.id, ...entry.data() } as ProductDoc));
         const customers = customersSnap.docs.map((entry) => ({ id: entry.id, ...entry.data() } as CustomerDoc));
         const orders = ordersSnap.docs.map((entry) => ({ id: entry.id, ...entry.data() } as OrderDoc));
+        const controls = Object.fromEntries(
+          controlsSnap.docs.map((entry) => [entry.id, { companyId: entry.id, ...entry.data() } as PlatformCompanyControlDoc])
+        );
 
         const usersById = new Map(users.map((user) => [user.id, user]));
         const companyNameById = new Map(companies.map((company) => [company.id, company.name || 'Unknown company']));
@@ -381,6 +417,7 @@ export function SuperAdmin() {
         setCompaniesTable(compareByCreatedAtDesc(companyRows));
         setUsersTable(compareByCreatedAtDesc(userRows));
         setLatestUsers(compareByCreatedAtDesc(userRows).slice(0, 6));
+        setCompanyControls(controls);
         if (!selectedCompanyId && companyRows.length > 0) {
           setSelectedCompanyId(compareByCreatedAtDesc(companyRows)[0].id);
         }
@@ -495,6 +532,13 @@ export function SuperAdmin() {
 
   const selectedCompanyHealth = useMemo(() => {
     if (!selectedCompany) return 'neutral';
+    const platformLifecycle = companyControls[selectedCompany.id]?.lifecycleStatus;
+    if (platformLifecycle === 'suspended' || platformLifecycle === 'internal_hold') {
+      return 'risk';
+    }
+    if (platformLifecycle === 'watch') {
+      return 'watch';
+    }
     if (selectedCompany.subscriptionStatus === 'past_due' || selectedCompany.subscriptionStatus === 'canceled') {
       return 'risk';
     }
@@ -502,7 +546,61 @@ export function SuperAdmin() {
       return 'watch';
     }
     return 'healthy';
-  }, [selectedCompany]);
+  }, [companyControls, selectedCompany]);
+
+  useEffect(() => {
+    if (!selectedCompany) return;
+    const existingControl = companyControls[selectedCompany.id];
+    setControlForm({
+      lifecycleStatus: existingControl?.lifecycleStatus || 'active',
+      priority: existingControl?.priority || 'normal',
+      nextAction: existingControl?.nextAction || '',
+      assignedTo: existingControl?.assignedTo || '',
+      notes: existingControl?.notes || '',
+    });
+    setControlFeedback(null);
+  }, [companyControls, selectedCompany?.id]);
+
+  const saveCompanyControl = async () => {
+    if (!selectedCompany || !platformAdmin?.uid) return;
+    setSavingControl(true);
+    setControlFeedback(null);
+    try {
+      await setDoc(
+        doc(db, 'platformCompanyControls', selectedCompany.id),
+        {
+          companyId: selectedCompany.id,
+          lifecycleStatus: controlForm.lifecycleStatus,
+          priority: controlForm.priority,
+          nextAction: controlForm.nextAction.trim(),
+          assignedTo: controlForm.assignedTo.trim(),
+          notes: controlForm.notes.trim(),
+          updatedAt: serverTimestamp(),
+          updatedBy: platformAdmin.uid,
+        },
+        { merge: true }
+      );
+
+      setCompanyControls((current) => ({
+        ...current,
+        [selectedCompany.id]: {
+          companyId: selectedCompany.id,
+          lifecycleStatus: controlForm.lifecycleStatus,
+          priority: controlForm.priority,
+          nextAction: controlForm.nextAction.trim(),
+          assignedTo: controlForm.assignedTo.trim(),
+          notes: controlForm.notes.trim(),
+          updatedBy: platformAdmin.uid,
+        },
+      }));
+      setControlFeedback(t('super_admin.company_panel.saved'));
+    } catch (saveError) {
+      console.error('Failed to save platform company control:', saveError);
+      setControlFeedback(t('super_admin.company_panel.save_failed'));
+    } finally {
+      setSavingControl(false);
+    }
+  };
 
   return (
     <div className="space-y-8">
@@ -813,6 +911,118 @@ export function SuperAdmin() {
                       <div className="mt-4 rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
                         <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.tables.revenue')}</p>
                         <p className="mt-2 text-xl font-bold text-white">{formatCurrency(selectedCompany.revenue)}</p>
+                      </div>
+                    </div>
+
+                    <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                      <div className="mb-4 flex items-center justify-between">
+                        <div>
+                          <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.company_panel.controls_label')}</p>
+                          <h3 className="mt-2 text-base font-bold text-white">{t('super_admin.company_panel.controls_title')}</h3>
+                        </div>
+                        <Flame className="h-5 w-5 text-blue-300" />
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-4">
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <Label>{t('super_admin.company_panel.lifecycle')}</Label>
+                            <select
+                              value={controlForm.lifecycleStatus}
+                              onChange={(event) =>
+                                setControlForm((current) => ({
+                                  ...current,
+                                  lifecycleStatus: event.target.value as CompanyControlForm['lifecycleStatus'],
+                                }))
+                              }
+                              className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white focus:border-blue-500/50 focus:outline-none"
+                            >
+                              {(['active', 'watch', 'internal_hold', 'suspended'] as const).map((value) => (
+                                <option key={value} value={value} className="bg-neutral-950 text-white">
+                                  {t(`super_admin.company_panel.lifecycle_options.${value}`)}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <Label>{t('super_admin.company_panel.priority')}</Label>
+                            <select
+                              value={controlForm.priority}
+                              onChange={(event) =>
+                                setControlForm((current) => ({
+                                  ...current,
+                                  priority: event.target.value as CompanyControlForm['priority'],
+                                }))
+                              }
+                              className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white focus:border-blue-500/50 focus:outline-none"
+                            >
+                              {(['low', 'normal', 'high', 'critical'] as const).map((value) => (
+                                <option key={value} value={value} className="bg-neutral-950 text-white">
+                                  {t(`super_admin.company_panel.priority_options.${value}`)}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+
+                        <div>
+                          <Label>{t('super_admin.company_panel.assigned_to')}</Label>
+                          <Input
+                            value={controlForm.assignedTo}
+                            onChange={(event) =>
+                              setControlForm((current) => ({
+                                ...current,
+                                assignedTo: event.target.value,
+                              }))
+                            }
+                            placeholder={t('super_admin.company_panel.assigned_placeholder')}
+                          />
+                        </div>
+
+                        <div>
+                          <Label>{t('super_admin.company_panel.next_action')}</Label>
+                          <Input
+                            value={controlForm.nextAction}
+                            onChange={(event) =>
+                              setControlForm((current) => ({
+                                ...current,
+                                nextAction: event.target.value,
+                              }))
+                            }
+                            placeholder={t('super_admin.company_panel.next_action_placeholder')}
+                          />
+                        </div>
+
+                        <div>
+                          <Label>{t('super_admin.company_panel.notes')}</Label>
+                          <textarea
+                            value={controlForm.notes}
+                            onChange={(event) =>
+                              setControlForm((current) => ({
+                                ...current,
+                                notes: event.target.value,
+                              }))
+                            }
+                            placeholder={t('super_admin.company_panel.notes_placeholder')}
+                            className="min-h-[120px] w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white placeholder:text-neutral-600 focus:border-blue-500/50 focus:outline-none"
+                          />
+                        </div>
+
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-xs text-neutral-500">
+                            {controlFeedback || t('super_admin.company_panel.controls_note')}
+                          </p>
+                          <Button
+                            onClick={saveCompanyControl}
+                            disabled={savingControl}
+                            className="gap-2"
+                          >
+                            <Save className="h-4 w-4" />
+                            {savingControl
+                              ? t('super_admin.company_panel.saving')
+                              : t('super_admin.company_panel.save')}
+                          </Button>
+                        </div>
                       </div>
                     </div>
                   </div>

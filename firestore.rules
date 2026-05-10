@@ -137,6 +137,16 @@ service cloud.firestore {
       allow create, update, delete: if false;
     }
 
+    // Platform-only operational overlay for tenant control. This is intentionally
+    // separate from companies/subscription so Super Admin can manage internal
+    // workflows without mutating customer-facing contracts.
+    match /platformCompanyControls/{companyId} {
+      allow read: if isPlatformAdmin();
+      allow create, update: if isPlatformAdmin() &&
+                            request.resource.data.companyId == companyId;
+      allow delete: if false;
+    }
+
     // 0.2 Test connection
     match /test/connection {
       allow read: if isSignedIn();

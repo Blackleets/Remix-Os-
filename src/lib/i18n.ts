@@ -754,11 +754,38 @@ const resources = {
           onboarding: 'Onboarding checklist',
           onboarding_step: 'Current onboarding step: {{step}}',
           usage: 'Usage footprint',
+          controls_label: 'Platform control',
+          controls_title: 'Internal control overlay',
+          controls_note: 'These controls are platform-only and do not mutate tenant billing or orders.',
+          lifecycle: 'Lifecycle',
+          priority: 'Priority',
+          assigned_to: 'Assigned to',
+          assigned_placeholder: 'Operator or team',
+          next_action: 'Next action',
+          next_action_placeholder: 'Call owner, review billing, push activation',
+          notes: 'Internal notes',
+          notes_placeholder: 'Document risk, support context, activation blockers, and next moves.',
+          save: 'Save controls',
+          saving: 'Saving',
+          saved: 'Control overlay saved.',
+          save_failed: 'Failed to save control overlay.',
           health: {
             healthy: 'Healthy',
             watch: 'Watch',
             risk: 'Risk',
             neutral: 'Neutral'
+          },
+          lifecycle_options: {
+            active: 'Active',
+            watch: 'Watch',
+            internal_hold: 'Internal hold',
+            suspended: 'Suspended'
+          },
+          priority_options: {
+            low: 'Low',
+            normal: 'Normal',
+            high: 'High',
+            critical: 'Critical'
           },
           checklist: {
             profile: 'Profile',
@@ -1521,11 +1548,38 @@ const resources = {
           onboarding: 'Checklist de onboarding',
           onboarding_step: 'Paso actual de onboarding: {{step}}',
           usage: 'Huella de uso',
+          controls_label: 'Control de plataforma',
+          controls_title: 'Overlay interno de control',
+          controls_note: 'Estos controles son solo de plataforma y no alteran billing ni pedidos del tenant.',
+          lifecycle: 'Ciclo de vida',
+          priority: 'Prioridad',
+          assigned_to: 'Asignado a',
+          assigned_placeholder: 'Operador o equipo',
+          next_action: 'Siguiente acción',
+          next_action_placeholder: 'Llamar owner, revisar billing, empujar activación',
+          notes: 'Notas internas',
+          notes_placeholder: 'Documenta riesgo, contexto de soporte, bloqueos de activación y próximos pasos.',
+          save: 'Guardar controles',
+          saving: 'Guardando',
+          saved: 'Overlay de control guardado.',
+          save_failed: 'No se pudo guardar el overlay de control.',
           health: {
             healthy: 'Saludable',
             watch: 'Vigilar',
             risk: 'Riesgo',
             neutral: 'Neutral'
+          },
+          lifecycle_options: {
+            active: 'Activa',
+            watch: 'Vigilar',
+            internal_hold: 'Pausa interna',
+            suspended: 'Suspendida'
+          },
+          priority_options: {
+            low: 'Baja',
+            normal: 'Normal',
+            high: 'Alta',
+            critical: 'Crítica'
           },
           checklist: {
             profile: 'Perfil',
@@ -2288,11 +2342,38 @@ const resources = {
           onboarding: 'Checklist de onboarding',
           onboarding_step: 'Etapa atual do onboarding: {{step}}',
           usage: 'Pegada de uso',
+          controls_label: 'Controle da plataforma',
+          controls_title: 'Overlay interno de controle',
+          controls_note: 'Esses controles são apenas da plataforma e não alteram billing nem pedidos do tenant.',
+          lifecycle: 'Ciclo de vida',
+          priority: 'Prioridade',
+          assigned_to: 'Responsável',
+          assigned_placeholder: 'Operador ou equipe',
+          next_action: 'Próxima ação',
+          next_action_placeholder: 'Ligar para owner, revisar billing, empurrar ativação',
+          notes: 'Notas internas',
+          notes_placeholder: 'Documente risco, contexto de suporte, bloqueios de ativação e próximos passos.',
+          save: 'Salvar controles',
+          saving: 'Salvando',
+          saved: 'Overlay de controle salvo.',
+          save_failed: 'Não foi possível salvar o overlay de controle.',
           health: {
             healthy: 'Saudável',
             watch: 'Vigiar',
             risk: 'Risco',
             neutral: 'Neutro'
+          },
+          lifecycle_options: {
+            active: 'Ativa',
+            watch: 'Vigiar',
+            internal_hold: 'Pausa interna',
+            suspended: 'Suspensa'
+          },
+          priority_options: {
+            low: 'Baixa',
+            normal: 'Normal',
+            high: 'Alta',
+            critical: 'Crítica'
           },
           checklist: {
             profile: 'Perfil',
