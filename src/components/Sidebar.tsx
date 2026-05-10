@@ -12,18 +12,21 @@ import {
   CreditCard, 
   Settings, 
   LogOut,
-  X
+  X,
+  Radar
 } from 'lucide-react';
 import { cn } from './Common';
 import { useAuth } from '../contexts/AuthContext';
 import { auth } from '../lib/firebase';
 import { signOut } from 'firebase/auth';
 import { useTranslation } from 'react-i18next';
+import { usePlatformAdmin } from '../hooks/usePlatformAdmin';
 
 export function Sidebar({ onClose }: { onClose?: () => void }) {
   const location = useLocation();
   const { company, role } = useAuth();
   const { t } = useTranslation();
+  const { canAccessSuperAdmin } = usePlatformAdmin();
 
   const navItems = [
     { icon: Grip, label: t('nav.dashboard'), path: '/dashboard' },
@@ -35,6 +38,7 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
     { icon: Shield, label: t('nav.team'), path: '/team' },
     { icon: Sparkle, label: t('nav.insights'), path: '/insights' },
     { icon: CreditCard, label: t('nav.billing'), path: '/billing' },
+    ...(canAccessSuperAdmin ? [{ icon: Radar, label: t('nav.super_admin'), path: '/super-admin' }] : []),
   ];
 
   return (
