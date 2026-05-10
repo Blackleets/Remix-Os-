@@ -659,12 +659,14 @@ const resources = {
         role: 'Role',
         actions: {
           refresh: 'Refresh data',
-          sync_stats: 'Sync stats'
+          sync_stats: 'Sync stats',
+          sync_billing: 'Sync billing'
         },
         loading: 'Loading platform console...',
         errors: {
           load_failed: 'Failed to load platform metrics.',
-          stats_sync_failed: 'Failed to sync company stats.'
+          stats_sync_failed: 'Failed to sync company stats.',
+          billing_sync_failed: 'Failed to sync company billing stats.'
         },
         metrics: {
           total_companies: 'Total companies',
@@ -694,14 +696,31 @@ const resources = {
           trial_expiring_soon: 'Trials expiring in 7d',
           ownerless_companies: 'Companies without owner map',
           arr_estimated: 'Estimated ARR',
+          arr_real: 'Real ARR',
           monthly_platform_sales: 'Monthly platform sales',
           stats_coverage: 'Stats coverage',
+          billing_coverage: 'Billing coverage',
           active_no_conversion: 'Active with no conversion',
+          active_subscriptions: 'Active subscriptions',
+          trialing_subscriptions: 'Trialing subscriptions',
+          cancel_at_period_end: 'Cancel at period end',
+          revenue_concentration: 'Revenue concentration',
+          real_mrr: 'Real MRR',
+          real_mrr_note: 'Billing stats are live for {{coverage}}% of tenants. Missing tenants still fall back to subscription estimates.',
+          billing_source_live: 'Stripe-backed billing truth',
+          billing_source_fallback: 'Estimated subscription fallback',
+          billing_sync_success: 'Billing stats synced for {{count}} companies.',
           trial_to_paid_watch: 'Trial to paid watch',
+          trial_ending_with_usage: 'Trial ending with usage',
+          past_due_high_value: 'Past due high value',
+          active_without_usage: 'Active without usage',
+          high_revenue_low_adoption: 'High revenue / low adoption',
           past_due_watch: 'Past due watch',
           billing_watch: 'Billing watch',
           no_trial_watch: 'No high-intent trial accounts right now.',
-          no_past_due_watch: 'No past due accounts right now.'
+          no_past_due_watch: 'No past due accounts right now.',
+          no_active_without_usage: 'No active paying accounts are idle right now.',
+          no_high_revenue_low_adoption: 'No high-revenue low-adoption accounts right now.'
         },
         tables: {
           companies_label: 'Registry stream',
@@ -774,7 +793,19 @@ const resources = {
           first_sale: 'First sale',
           active_users: 'Active users',
           tenant_age: 'Tenant age',
+          billing_status: 'Billing status',
+          billing_plan: 'Billing plan',
+          mrr: 'Account MRR',
+          last_payment_status: 'Last payment status',
           monetization_pressure: 'Monetization pressure',
+          churn_risk: 'Churn risk',
+          churn_risk_high: 'High churn risk: billing is degraded or cancellation is pending.',
+          churn_risk_medium: 'Medium churn risk: trial has usage and needs conversion momentum.',
+          churn_risk_low: 'Low churn risk: billing and adoption are stable.',
+          billing_pending: 'Billing pending',
+          cancel_at_period_end: 'Cancels at period end',
+          boolean_yes: 'Yes',
+          boolean_no: 'No',
           pressure_high: 'High pressure: billing follow-up required.',
           pressure_conversion: 'Healthy trial activity: push conversion before trial ends.',
           pressure_pending: 'Stats pending: sync tenant metrics before deciding.',
@@ -796,6 +827,18 @@ const resources = {
           saving: 'Saving',
           saved: 'Control overlay saved.',
           save_failed: 'Failed to save control overlay.',
+          actions: {
+            review_billing: 'Review billing',
+            mark_churn: 'Mark churn risk',
+            schedule_followup: 'Schedule follow-up',
+            log_note: 'Log billing note'
+          },
+          action_feedback: {
+            billing_note_added: 'Billing note logged.',
+            billing_status_reviewed: 'Billing review logged.',
+            churn_risk_marked: 'Churn risk marker logged.',
+            followup_scheduled: 'Follow-up logged.'
+          },
           health: {
             healthy: 'Healthy',
             watch: 'Watch',
@@ -1480,12 +1523,14 @@ const resources = {
         role: 'Rol',
         actions: {
           refresh: 'Actualizar datos',
-          sync_stats: 'Sincronizar stats'
+          sync_stats: 'Sincronizar stats',
+          sync_billing: 'Sincronizar billing'
         },
         loading: 'Cargando consola de plataforma...',
         errors: {
           load_failed: 'No se pudieron cargar las m\u00e9tricas de la plataforma.',
-          stats_sync_failed: 'No se pudieron sincronizar las stats de empresa.'
+          stats_sync_failed: 'No se pudieron sincronizar las stats de empresa.',
+          billing_sync_failed: 'No se pudieron sincronizar las m\u00e9tricas de billing.'
         },
         metrics: {
           total_companies: 'Empresas totales',
@@ -1515,14 +1560,31 @@ const resources = {
           trial_expiring_soon: 'Trials por vencer en 7 d\u00edas',
           ownerless_companies: 'Empresas sin owner mapeado',
           arr_estimated: 'ARR estimado',
+          arr_real: 'ARR real',
           monthly_platform_sales: 'Ventas mensuales de la plataforma',
           stats_coverage: 'Cobertura de stats',
+          billing_coverage: 'Cobertura de billing',
           active_no_conversion: 'Activas sin conversi\u00f3n',
+          active_subscriptions: 'Suscripciones activas',
+          trialing_subscriptions: 'Suscripciones trialing',
+          cancel_at_period_end: 'Cancelan al final del periodo',
+          revenue_concentration: 'Concentraci\u00f3n de revenue',
+          real_mrr: 'MRR real',
+          real_mrr_note: 'Las m\u00e9tricas de billing ya cubren el {{coverage}}% de los tenants. Lo que falta sigue degradando al c\u00e1lculo estimado.',
+          billing_source_live: 'Billing real desde Stripe',
+          billing_source_fallback: 'Fallback estimado por suscripci\u00f3n',
+          billing_sync_success: 'Billing sincronizado para {{count}} empresas.',
           trial_to_paid_watch: 'Watch trial -> pago',
+          trial_ending_with_usage: 'Trial por vencer con uso',
+          past_due_high_value: 'Past due de alto valor',
+          active_without_usage: 'Activas sin uso',
+          high_revenue_low_adoption: 'Alto revenue / baja adopci\u00f3n',
           past_due_watch: 'Watch past due',
           billing_watch: 'Vigilancia de cobro',
           no_trial_watch: 'No hay cuentas trial con alta intenci\u00f3n ahora mismo.',
-          no_past_due_watch: 'No hay cuentas past due ahora mismo.'
+          no_past_due_watch: 'No hay cuentas past due ahora mismo.',
+          no_active_without_usage: 'No hay cuentas activas de pago sin uso ahora mismo.',
+          no_high_revenue_low_adoption: 'No hay cuentas de alto revenue con baja adopci\u00f3n ahora mismo.'
         },
         tables: {
           companies_label: 'Flujo de empresas',
@@ -1595,7 +1657,19 @@ const resources = {
           first_sale: 'Primera venta',
           active_users: 'Usuarios activos',
           tenant_age: 'Edad del tenant',
+          billing_status: 'Estado de billing',
+          billing_plan: 'Plan de billing',
+          mrr: 'MRR de la cuenta',
+          last_payment_status: '\u00daltimo estado de pago',
           monetization_pressure: 'Presi\u00f3n de monetizaci\u00f3n',
+          churn_risk: 'Riesgo de churn',
+          churn_risk_high: 'Riesgo alto de churn: billing degradado o cancelaci\u00f3n en curso.',
+          churn_risk_medium: 'Riesgo medio de churn: el trial tiene uso y necesita empuje comercial.',
+          churn_risk_low: 'Riesgo bajo de churn: billing y adopci\u00f3n estables.',
+          billing_pending: 'Billing pendiente',
+          cancel_at_period_end: 'Cancela al final del periodo',
+          boolean_yes: 'S\u00ed',
+          boolean_no: 'No',
           pressure_high: 'Presi\u00f3n alta: requiere seguimiento de cobro.',
           pressure_conversion: 'Trial saludable con actividad: empujar conversi\u00f3n antes del vencimiento.',
           pressure_pending: 'Stats pendientes: sincroniza las m\u00e9tricas antes de decidir.',
@@ -1617,6 +1691,18 @@ const resources = {
           saving: 'Guardando',
           saved: 'Overlay de control guardado.',
           save_failed: 'No se pudo guardar el overlay de control.',
+          actions: {
+            review_billing: 'Revisar billing',
+            mark_churn: 'Marcar churn',
+            schedule_followup: 'Programar follow-up',
+            log_note: 'Registrar nota'
+          },
+          action_feedback: {
+            billing_note_added: 'Nota de billing registrada.',
+            billing_status_reviewed: 'Revisi\u00f3n de billing registrada.',
+            churn_risk_marked: 'Marca de churn registrada.',
+            followup_scheduled: 'Follow-up registrado.'
+          },
           health: {
             healthy: 'Saludable',
             watch: 'Vigilar',
@@ -2301,12 +2387,14 @@ const resources = {
         role: 'Fun\u00e7\u00e3o',
         actions: {
           refresh: 'Atualizar dados',
-          sync_stats: 'Sincronizar stats'
+          sync_stats: 'Sincronizar stats',
+          sync_billing: 'Sincronizar billing'
         },
         loading: 'Carregando console da plataforma...',
         errors: {
           load_failed: 'N\u00e3o foi poss\u00edvel carregar as m\u00e9tricas da plataforma.',
-          stats_sync_failed: 'N\u00e3o foi poss\u00edvel sincronizar as stats das empresas.'
+          stats_sync_failed: 'N\u00e3o foi poss\u00edvel sincronizar as stats das empresas.',
+          billing_sync_failed: 'N\u00e3o foi poss\u00edvel sincronizar as m\u00e9tricas de billing.'
         },
         metrics: {
           total_companies: 'Empresas totais',
@@ -2336,14 +2424,31 @@ const resources = {
           trial_expiring_soon: 'Trials vencendo em 7 dias',
           ownerless_companies: 'Empresas sem owner mapeado',
           arr_estimated: 'ARR estimado',
+          arr_real: 'ARR real',
           monthly_platform_sales: 'Vendas mensais da plataforma',
           stats_coverage: 'Cobertura de stats',
+          billing_coverage: 'Cobertura de billing',
           active_no_conversion: 'Ativas sem convers\u00e3o',
+          active_subscriptions: 'Assinaturas ativas',
+          trialing_subscriptions: 'Assinaturas trialing',
+          cancel_at_period_end: 'Cancelam no fim do per\u00edodo',
+          revenue_concentration: 'Concentra\u00e7\u00e3o de receita',
+          real_mrr: 'MRR real',
+          real_mrr_note: 'As m\u00e9tricas de billing j\u00e1 cobrem {{coverage}}% dos tenants. O restante ainda usa fallback estimado.',
+          billing_source_live: 'Billing real vindo do Stripe',
+          billing_source_fallback: 'Fallback estimado por assinatura',
+          billing_sync_success: 'Billing sincronizado para {{count}} empresas.',
           trial_to_paid_watch: 'Watch trial -> pago',
+          trial_ending_with_usage: 'Trial vencendo com uso',
+          past_due_high_value: 'Past due de alto valor',
+          active_without_usage: 'Ativas sem uso',
+          high_revenue_low_adoption: 'Alta receita / baixa ado\u00e7\u00e3o',
           past_due_watch: 'Watch past due',
           billing_watch: 'Vigil\u00e2ncia de cobran\u00e7a',
           no_trial_watch: 'N\u00e3o h\u00e1 contas trial de alta inten\u00e7\u00e3o no momento.',
-          no_past_due_watch: 'N\u00e3o h\u00e1 contas past due no momento.'
+          no_past_due_watch: 'N\u00e3o h\u00e1 contas past due no momento.',
+          no_active_without_usage: 'N\u00e3o h\u00e1 contas pagantes ativas sem uso agora.',
+          no_high_revenue_low_adoption: 'N\u00e3o h\u00e1 contas de alta receita com baixa ado\u00e7\u00e3o agora.'
         },
         tables: {
           companies_label: 'Fluxo de empresas',
@@ -2416,7 +2521,19 @@ const resources = {
           first_sale: 'Primeira venda',
           active_users: 'Usu\u00e1rios ativos',
           tenant_age: 'Idade do tenant',
+          billing_status: 'Status de billing',
+          billing_plan: 'Plano de billing',
+          mrr: 'MRR da conta',
+          last_payment_status: '\u00daltimo status de pagamento',
           monetization_pressure: 'Press\u00e3o de monetiza\u00e7\u00e3o',
+          churn_risk: 'Risco de churn',
+          churn_risk_high: 'Risco alto de churn: billing degradado ou cancelamento em andamento.',
+          churn_risk_medium: 'Risco m\u00e9dio de churn: o trial tem uso e precisa de impulso comercial.',
+          churn_risk_low: 'Risco baixo de churn: billing e ado\u00e7\u00e3o est\u00e1veis.',
+          billing_pending: 'Billing pendente',
+          cancel_at_period_end: 'Cancela no fim do per\u00edodo',
+          boolean_yes: 'Sim',
+          boolean_no: 'N\u00e3o',
           pressure_high: 'Press\u00e3o alta: requer acompanhamento de cobran\u00e7a.',
           pressure_conversion: 'Trial saud\u00e1vel com atividade: empurrar convers\u00e3o antes do vencimento.',
           pressure_pending: 'Stats pendentes: sincronize as m\u00e9tricas antes de decidir.',
@@ -2438,6 +2555,18 @@ const resources = {
           saving: 'Salvando',
           saved: 'Overlay de controle salvo.',
           save_failed: 'Não foi possível salvar o overlay de controle.',
+          actions: {
+            review_billing: 'Revisar billing',
+            mark_churn: 'Marcar churn',
+            schedule_followup: 'Agendar follow-up',
+            log_note: 'Registrar nota'
+          },
+          action_feedback: {
+            billing_note_added: 'Nota de billing registrada.',
+            billing_status_reviewed: 'Revisão de billing registrada.',
+            churn_risk_marked: 'Marca de churn registrada.',
+            followup_scheduled: 'Follow-up registrado.'
+          },
           health: {
             healthy: 'Saudável',
             watch: 'Vigiar',

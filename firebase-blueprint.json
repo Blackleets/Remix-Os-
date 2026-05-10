@@ -222,6 +222,28 @@
       },
       "required": ["companyId", "ordersCount", "customersCount", "productsCount", "lifetimeRevenue", "monthlyRevenue", "activeUsers"]
     },
+    "CompanyBillingStats": {
+      "title": "Company Billing Stats",
+      "description": "Stripe-backed monetization snapshot for Super Admin billing visibility.",
+      "type": "object",
+      "properties": {
+        "companyId": { "type": "string" },
+        "stripeCustomerId": { "type": "string" },
+        "planId": { "type": "string", "enum": ["starter", "pro", "business"] },
+        "subscriptionStatus": { "type": "string" },
+        "mrr": { "type": "number" },
+        "arr": { "type": "number" },
+        "currency": { "type": "string" },
+        "currentPeriodEnd": { "type": "string", "format": "date-time" },
+        "trialEndsAt": { "type": "string", "format": "date-time" },
+        "pastDue": { "type": "boolean" },
+        "cancelAtPeriodEnd": { "type": "boolean" },
+        "lastInvoiceAt": { "type": "string", "format": "date-time" },
+        "lastPaymentStatus": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["companyId", "mrr", "arr", "pastDue", "cancelAtPeriodEnd"]
+    },
     "PlatformCompanyControl": {
       "title": "Platform Company Control",
       "description": "Internal platform overlay for tenant lifecycle and follow-up control.",
@@ -344,6 +366,10 @@
     "/companyStats/{companyId}": {
       "schema": "CompanyStats",
       "description": "Aggregated monetization and usage metrics for Super Admin"
+    },
+    "/companyBillingStats/{companyId}": {
+      "schema": "CompanyBillingStats",
+      "description": "Stripe-backed billing metrics for Super Admin monetization"
     },
     "/platformCompanyControls/{companyId}": {
       "schema": "PlatformCompanyControl",

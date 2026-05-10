@@ -121,6 +121,42 @@ async function requireCompanyAccess(
   return { uid: decoded.uid, companyId };
 }
 
+async function requirePlatformAdmin(req: any, res: any): Promise<{ uid: string } | null> {
+  const authHeader = req.headers.authorization || "";
+  const match = authHeader.match(/^Bearer\s+(.+)$/i);
+  if (!match) {
+    res.status(401).json({ error: "Missing Authorization bearer token" });
+    return null;
+  }
+
+  let decoded;
+  try {
+    decoded = await getAuth().verifyIdToken(match[1]);
+  } catch {
+    res.status(401).json({ error: "Invalid or expired token" });
+    return null;
+  }
+
+  if (decoded.superAdmin === true) {
+    return { uid: decoded.uid };
+  }
+
+  const db = getDb();
+  if (!db) {
+    res.status(500).json({ error: "Database not initialized" });
+    return null;
+  }
+
+  const adminSnap = await db.collection("platformAdmins").doc(decoded.uid).get();
+  const adminData = adminSnap.data();
+  if (!adminSnap.exists || adminData?.active !== true || adminData?.role !== "super_admin") {
+    res.status(403).json({ error: "Forbidden" });
+    return null;
+  }
+
+  return { uid: decoded.uid };
+}
+
 // Safely extract the period-end timestamp from Stripe subscription objects.
 // The newer Stripe API moved current_period_end to subscription.items[].
 function getPeriodEndMs(sub: any): number {
@@ -129,6 +165,132 @@ function getPeriodEndMs(sub: any): number {
   const item = sub?.items?.data?.[0]?.current_period_end;
   if (typeof item === "number") return item * 1000;
   return Date.now() + 30 * 24 * 60 * 60 * 1000;
+}
+
+const BILLING_PLAN_MRR: Record<string, number> = {
+  starter: 0,
+  pro: 49,
+  business: 199,
+};
+
+function getPlanIdFromPriceId(priceId?: string | null): "starter" | "pro" | "business" | undefined {
+  const priceMap: Record<string, "starter" | "pro" | "business"> = {};
+  if (process.env.STRIPE_PRICE_ID_STARTER) priceMap[process.env.STRIPE_PRICE_ID_STARTER] = "starter";
+  if (process.env.STRIPE_PRICE_ID_PRO) priceMap[process.env.STRIPE_PRICE_ID_PRO] = "pro";
+  if (process.env.STRIPE_PRICE_ID_BUSINESS) priceMap[process.env.STRIPE_PRICE_ID_BUSINESS] = "business";
+  return priceId ? priceMap[priceId] : undefined;
+}
+
+function getSubscriptionMrr(subscription: any): number {
+  const items = subscription?.items?.data || [];
+  return items.reduce((sum: number, item: any) => {
+    const amount = item?.price?.unit_amount ?? item?.plan?.amount ?? 0;
+    const quantity = item?.quantity ?? 1;
+    const interval = item?.price?.recurring?.interval ?? item?.plan?.interval ?? "month";
+    const intervalCount = item?.price?.recurring?.interval_count ?? item?.plan?.interval_count ?? 1;
+    const gross = amount * quantity;
+
+    if (interval === "year") return sum + gross / 12 / intervalCount;
+    if (interval === "week") return sum + (gross * 52) / 12 / intervalCount;
+    if (interval === "day") return sum + (gross * 30) / intervalCount;
+    return sum + gross / intervalCount;
+  }, 0) / 100;
+}
+
+function buildFallbackBillingStats(companyId: string, companyData: any) {
+  const planId = companyData?.subscription?.planId || "starter";
+  const subscriptionStatus = companyData?.subscription?.status || "trialing";
+  const mrr = ["active", "past_due"].includes(subscriptionStatus) ? (BILLING_PLAN_MRR[planId] || 0) : 0;
+  return {
+    companyId,
+    stripeCustomerId: companyData?.stripeCustomerId || "",
+    planId,
+    subscriptionStatus,
+    mrr,
+    arr: mrr * 12,
+    currency: "usd",
+    currentPeriodEnd: companyData?.subscription?.currentPeriodEnd || null,
+    trialEndsAt: companyData?.subscription?.trialEndsAt || null,
+    pastDue: subscriptionStatus === "past_due",
+    cancelAtPeriodEnd: false,
+    lastInvoiceAt: null,
+    lastPaymentStatus: subscriptionStatus,
+    updatedAt: FieldValue.serverTimestamp(),
+  };
+}
+
+function buildStripeBillingStats(companyId: string, companyData: any, subscription: any) {
+  const firstItem = subscription?.items?.data?.[0];
+  const priceId = firstItem?.price?.id || firstItem?.plan?.id || null;
+  const planId = getPlanIdFromPriceId(priceId) || companyData?.subscription?.planId || "starter";
+  const mrr = getSubscriptionMrr(subscription);
+  const latestInvoice = subscription?.latest_invoice;
+  const lastInvoiceAt = latestInvoice?.status_transitions?.paid_at
+    ? Timestamp.fromMillis(latestInvoice.status_transitions.paid_at * 1000)
+    : latestInvoice?.created
+      ? Timestamp.fromMillis(latestInvoice.created * 1000)
+      : null;
+
+  return {
+    companyId,
+    stripeCustomerId: companyData?.stripeCustomerId || subscription?.customer || "",
+    planId,
+    subscriptionStatus: subscription?.status || companyData?.subscription?.status || "trialing",
+    mrr,
+    arr: mrr * 12,
+    currency: firstItem?.price?.currency || latestInvoice?.currency || subscription?.currency || "usd",
+    currentPeriodEnd: Timestamp.fromMillis(getPeriodEndMs(subscription)),
+    trialEndsAt: subscription?.trial_end ? Timestamp.fromMillis(subscription.trial_end * 1000) : companyData?.subscription?.trialEndsAt || null,
+    pastDue: subscription?.status === "past_due" || latestInvoice?.status === "open",
+    cancelAtPeriodEnd: subscription?.cancel_at_period_end === true,
+    lastInvoiceAt,
+    lastPaymentStatus: latestInvoice?.status || subscription?.status || "pending",
+    updatedAt: FieldValue.serverTimestamp(),
+  };
+}
+
+async function syncCompanyBillingStats(
+  db: Firestore,
+  stripeClient: Stripe | null,
+  companyId: string,
+  companyData: any
+) {
+  const stripeCustomerId = companyData?.stripeCustomerId;
+
+  if (!stripeClient || !stripeCustomerId) {
+    return null;
+  }
+
+  const subscriptions = await stripeClient.subscriptions.list({
+    customer: stripeCustomerId,
+    status: "all",
+    limit: 10,
+    expand: ["data.latest_invoice", "data.items.data.price"],
+  } as any);
+
+  const rankedSubscriptions = [...subscriptions.data].sort((a: any, b: any) => {
+    const score = (status?: string) => {
+      if (status === "past_due") return 6;
+      if (status === "active") return 5;
+      if (status === "trialing") return 4;
+      if (status === "unpaid") return 3;
+      if (status === "incomplete") return 2;
+      if (status === "canceled") return 1;
+      return 0;
+    };
+    const scoreDiff = score(b.status) - score(a.status);
+    if (scoreDiff !== 0) return scoreDiff;
+    return (b.created || 0) - (a.created || 0);
+  });
+
+  const subscription = rankedSubscriptions[0];
+  if (!subscription) {
+    return null;
+  }
+
+  const billingStats = buildStripeBillingStats(companyId, companyData, subscription);
+  await db.collection("companyBillingStats").doc(companyId).set(billingStats, { merge: true });
+  return billingStats;
 }
 
 async function startServer() {
@@ -314,12 +476,72 @@ async function startServer() {
           updatedAt: FieldValue.serverTimestamp(),
         });
 
+        await db.collection("companyBillingStats").doc(companyId).set(
+          buildStripeBillingStats(companyId, { stripeCustomerId: session.customer, subscription: { planId } }, subscription),
+          { merge: true }
+        );
+
         res.json({ status: "success", planId });
       } else {
         res.status(400).json({ error: "Payment not completed" });
       }
     } catch (error: any) {
       res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/platform/billing/sync", async (req, res) => {
+    try {
+      const access = await requirePlatformAdmin(req, res);
+      if (!access) return;
+
+      const db = getDb();
+      if (!db) throw new Error("Database not initialized");
+      const stripeClient = getStripe();
+      if (!stripeClient) {
+        return res.status(503).json({ error: "Stripe not configured" });
+      }
+
+      const requestedCompanyId = typeof req.body?.companyId === "string" && req.body.companyId.trim()
+        ? req.body.companyId.trim()
+        : null;
+
+      const companiesSnap = requestedCompanyId
+        ? await db.collection("companies").doc(requestedCompanyId).get().then((doc) => ({ docs: doc.exists ? [doc] : [] }))
+        : await db.collection("companies").get();
+
+      let syncedCompanies = 0;
+      let skippedCompanies = 0;
+
+      for (const companyDoc of companiesSnap.docs) {
+        const companyData = companyDoc.data();
+        if (!companyData?.stripeCustomerId) {
+          skippedCompanies += 1;
+          continue;
+        }
+        const synced = await syncCompanyBillingStats(db, stripeClient, companyDoc.id, companyData);
+        if (synced) {
+          syncedCompanies += 1;
+        } else {
+          skippedCompanies += 1;
+        }
+      }
+
+      await db.collection("platformAuditLogs").add({
+        type: "billing_stats_synced",
+        actorUid: access.uid,
+        payload: {
+          requestedCompanyId,
+          syncedCompanies,
+          skippedCompanies,
+        },
+        createdAt: FieldValue.serverTimestamp(),
+      });
+
+      res.json({ status: "success", syncedCompanies, skippedCompanies });
+    } catch (error: any) {
+      console.error("Platform billing sync failed:", error);
+      res.status(500).json({ error: error.message || "Platform billing sync failed" });
     }
   });
 
@@ -357,12 +579,18 @@ async function startServer() {
           
           if (companyId && subId) {
             const sub = await stripeClient.subscriptions.retrieve(subId) as any;
-            await db.collection("companies").doc(companyId).update({
+            const companyRef = db.collection("companies").doc(companyId);
+            await companyRef.update({
               "subscription.planId": planId,
               "subscription.status": sub.status,
               "subscription.currentPeriodEnd": Timestamp.fromMillis(getPeriodEndMs(sub)),
               "subscription.stripeSubscriptionId": subId,
             });
+            const companySnap = await companyRef.get();
+            await db.collection("companyBillingStats").doc(companyId).set(
+              buildStripeBillingStats(companyId, { ...companySnap.data(), stripeCustomerId: session.customer }, sub),
+              { merge: true }
+            );
           }
         }
         break;
@@ -379,6 +607,10 @@ async function startServer() {
             "subscription.status": sub.status,
             "subscription.currentPeriodEnd": Timestamp.fromMillis(getPeriodEndMs(sub)),
           });
+          await db.collection("companyBillingStats").doc(companyDoc.id).set(
+            buildStripeBillingStats(companyDoc.id, companyDoc.data(), sub),
+            { merge: true }
+          );
         }
         break;
       }
@@ -389,9 +621,17 @@ async function startServer() {
             .where("stripeCustomerId", "==", invoice.customer)
             .limit(1)
             .get()
-            .then(qs => {
+            .then(async qs => {
               if (!qs.empty) {
-                qs.docs[0].ref.update({ "subscription.status": 'active' });
+                const companyDoc = qs.docs[0];
+                await companyDoc.ref.update({ "subscription.status": 'active' });
+                const sub = await stripeClient.subscriptions.retrieve(invoice.subscription as string, {
+                  expand: ["latest_invoice", "items.data.price"],
+                } as any);
+                await db.collection("companyBillingStats").doc(companyDoc.id).set(
+                  buildStripeBillingStats(companyDoc.id, companyDoc.data(), sub),
+                  { merge: true }
+                );
               }
             });
         }
@@ -404,9 +644,17 @@ async function startServer() {
             .where("stripeCustomerId", "==", invoice.customer)
             .limit(1)
             .get()
-            .then(qs => {
+            .then(async qs => {
               if (!qs.empty) {
-                qs.docs[0].ref.update({ "subscription.status": 'past_due' });
+                const companyDoc = qs.docs[0];
+                await companyDoc.ref.update({ "subscription.status": 'past_due' });
+                const sub = await stripeClient.subscriptions.retrieve(invoice.subscription as string, {
+                  expand: ["latest_invoice", "items.data.price"],
+                } as any);
+                await db.collection("companyBillingStats").doc(companyDoc.id).set(
+                  buildStripeBillingStats(companyDoc.id, companyDoc.data(), sub),
+                  { merge: true }
+                );
               }
             });
         }

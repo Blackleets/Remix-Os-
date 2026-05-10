@@ -21,7 +21,7 @@ import {
 import { addDoc, collection, doc, getDocs, serverTimestamp, setDoc, writeBatch } from 'firebase/firestore';
 import type { ComponentType } from 'react';
 import { Button, Card, cn, Input, Label } from '../components/Common';
-import { db } from '../lib/firebase';
+import { auth, db } from '../lib/firebase';
 import { useLocale } from '../hooks/useLocale';
 import { usePlatformAdmin } from '../hooks/usePlatformAdmin';
 
@@ -107,6 +107,15 @@ interface PlatformMetrics {
   statsCoverage: number;
   activeNoConversionCompanies: number;
   pastDueWatchCount: number;
+  realMrr: number;
+  realArr: number;
+  activeSubscriptions: number;
+  trialingSubscriptions: number;
+  pastDueSubscriptions: number;
+  canceledSubscriptions: number;
+  cancelAtPeriodEndCount: number;
+  billingCoverage: number;
+  topRevenueShare: number;
 }
 
 interface CompanyRow {
@@ -146,6 +155,23 @@ interface CompanyStatsDoc {
   lastOrderAt?: any;
   firstOrderAt?: any;
   activeUsers: number;
+  updatedAt?: any;
+}
+
+interface CompanyBillingStatsDoc {
+  companyId: string;
+  stripeCustomerId?: string;
+  planId?: 'starter' | 'pro' | 'business';
+  subscriptionStatus?: 'active' | 'past_due' | 'trialing' | 'canceled' | 'incomplete' | 'unpaid';
+  mrr: number;
+  arr: number;
+  currency?: string;
+  currentPeriodEnd?: any;
+  trialEndsAt?: any;
+  pastDue: boolean;
+  cancelAtPeriodEnd: boolean;
+  lastInvoiceAt?: any;
+  lastPaymentStatus?: string;
   updatedAt?: any;
 }
 
@@ -224,6 +250,18 @@ function isCurrentMonth(value: any) {
   return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth();
 }
 
+async function authedPlatformFetch(url: string, body: Record<string, unknown>) {
+  const token = await auth.currentUser?.getIdToken();
+  return fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(body),
+  });
+}
+
 function SuperMetricCard({
   icon: Icon,
   label,
@@ -282,12 +320,22 @@ export function SuperAdmin() {
     statsCoverage: 0,
     activeNoConversionCompanies: 0,
     pastDueWatchCount: 0,
+    realMrr: 0,
+    realArr: 0,
+    activeSubscriptions: 0,
+    trialingSubscriptions: 0,
+    pastDueSubscriptions: 0,
+    canceledSubscriptions: 0,
+    cancelAtPeriodEndCount: 0,
+    billingCoverage: 0,
+    topRevenueShare: 0,
   });
   const [companiesTable, setCompaniesTable] = useState<CompanyRow[]>([]);
   const [usersTable, setUsersTable] = useState<UserRow[]>([]);
   const [latestUsers, setLatestUsers] = useState<UserRow[]>([]);
   const [companyControls, setCompanyControls] = useState<Record<string, PlatformCompanyControlDoc>>({});
   const [companyStats, setCompanyStats] = useState<Record<string, CompanyStatsDoc>>({});
+  const [companyBillingStats, setCompanyBillingStats] = useState<Record<string, CompanyBillingStatsDoc>>({});
   const [controlForm, setControlForm] = useState<CompanyControlForm>({
     lifecycleStatus: 'active',
     priority: 'normal',
@@ -297,6 +345,7 @@ export function SuperAdmin() {
   });
   const [savingControl, setSavingControl] = useState(false);
   const [syncingStats, setSyncingStats] = useState(false);
+  const [syncingBilling, setSyncingBilling] = useState(false);
   const [controlFeedback, setControlFeedback] = useState<string | null>(null);
 
   useEffect(() => {
@@ -316,6 +365,7 @@ export function SuperAdmin() {
           ordersSnap,
           controlsSnap,
           statsSnap,
+          billingStatsSnap,
         ] = await Promise.all([
           getDocs(collection(db, 'companies')),
           getDocs(collection(db, 'users')),
@@ -325,6 +375,7 @@ export function SuperAdmin() {
           getDocs(collection(db, 'orders')),
           getDocs(collection(db, 'platformCompanyControls')),
           getDocs(collection(db, 'companyStats')),
+          getDocs(collection(db, 'companyBillingStats')),
         ]);
 
         if (!isMounted) return;
@@ -340,6 +391,9 @@ export function SuperAdmin() {
         );
         const stats = Object.fromEntries(
           statsSnap.docs.map((entry) => [entry.id, { companyId: entry.id, ...entry.data() } as CompanyStatsDoc])
+        );
+        const billingStats = Object.fromEntries(
+          billingStatsSnap.docs.map((entry) => [entry.id, { companyId: entry.id, ...entry.data() } as CompanyBillingStatsDoc])
         );
 
         const usersById = new Map(users.map((user) => [user.id, user]));
@@ -446,10 +500,20 @@ export function SuperAdmin() {
         const companiesWithoutOrders = companyRows.filter((company) => company.orders === 0).length;
         const ownerlessCompanies = companyRows.filter((company) => company.ownerEmail === 'No owner email').length;
         const statsCoverage = companies.length > 0 ? Math.round((Object.keys(stats).length / companies.length) * 100) : 0;
+        const billingCoverage = companies.length > 0 ? Math.round((Object.keys(billingStats).length / companies.length) * 100) : 0;
         const activeNoConversionCompanies = companyRows.filter(
           (company) => company.subscriptionStatus === 'active' && company.orders === 0
         ).length;
         const pastDueWatchCount = companyRows.filter((company) => company.subscriptionStatus === 'past_due').length;
+        const realMrr = Object.values(billingStats).reduce((sum, stat) => sum + (stat.mrr || 0), 0);
+        const realArr = Object.values(billingStats).reduce((sum, stat) => sum + (stat.arr || 0), 0);
+        const activeSubscriptions = Object.values(billingStats).filter((stat) => stat.subscriptionStatus === 'active').length;
+        const trialingSubscriptions = Object.values(billingStats).filter((stat) => stat.subscriptionStatus === 'trialing').length;
+        const pastDueSubscriptions = Object.values(billingStats).filter((stat) => stat.subscriptionStatus === 'past_due' || stat.pastDue).length;
+        const canceledSubscriptions = Object.values(billingStats).filter((stat) => stat.subscriptionStatus === 'canceled').length;
+        const cancelAtPeriodEndCount = Object.values(billingStats).filter((stat) => stat.cancelAtPeriodEnd).length;
+        const largestMrr = Object.values(billingStats).reduce((max, stat) => Math.max(max, stat.mrr || 0), 0);
+        const topRevenueShare = realMrr > 0 ? Math.round((largestMrr / realMrr) * 100) : 0;
         const trialExpiringSoon = companies.filter((company) => {
           if (company.subscription?.status !== 'trialing') return false;
           const trialEndsAt = toDate(company.subscription?.trialEndsAt);
@@ -482,12 +546,22 @@ export function SuperAdmin() {
           statsCoverage,
           activeNoConversionCompanies,
           pastDueWatchCount,
+          realMrr,
+          realArr,
+          activeSubscriptions,
+          trialingSubscriptions,
+          pastDueSubscriptions,
+          canceledSubscriptions,
+          cancelAtPeriodEndCount,
+          billingCoverage,
+          topRevenueShare,
         });
         setCompaniesTable(compareByCreatedAtDesc(companyRows));
         setUsersTable(compareByCreatedAtDesc(userRows));
         setLatestUsers(compareByCreatedAtDesc(userRows).slice(0, 6));
         setCompanyControls(controls);
         setCompanyStats(stats);
+        setCompanyBillingStats(billingStats);
         if (!selectedCompanyId && companyRows.length > 0) {
           setSelectedCompanyId(compareByCreatedAtDesc(companyRows)[0].id);
         }
@@ -580,17 +654,67 @@ export function SuperAdmin() {
     [companiesTable, companyStats]
   );
 
+  const trialEndingWithUsageWatchlist = useMemo(
+    () =>
+      companiesTable
+        .filter((company) => {
+          const billing = companyBillingStats[company.id];
+          const stats = companyStats[company.id];
+          const trialEnd = toDate(billing?.trialEndsAt || company.trialEndsAt);
+          if ((billing?.subscriptionStatus || company.subscriptionStatus) !== 'trialing' || !trialEnd) return false;
+          const diffDays = (trialEnd.getTime() - Date.now()) / (1000 * 60 * 60 * 24);
+          return diffDays <= 7 && diffDays >= 0 && ((stats?.ordersCount || company.orders) > 0 || (stats?.monthlyRevenue || 0) > 0);
+        })
+        .sort((a, b) => (companyStats[b.id]?.monthlyRevenue || 0) - (companyStats[a.id]?.monthlyRevenue || 0))
+        .slice(0, 6),
+    [companiesTable, companyBillingStats, companyStats]
+  );
+
   const pastDueWatchlist = useMemo(
     () =>
       companiesTable
-        .filter((company) => company.subscriptionStatus === 'past_due')
+        .filter((company) => (companyBillingStats[company.id]?.subscriptionStatus || company.subscriptionStatus) === 'past_due')
         .sort((a, b) => {
-          const aRevenue = companyStats[a.id]?.monthlyRevenue ?? 0;
-          const bRevenue = companyStats[b.id]?.monthlyRevenue ?? 0;
-          return bRevenue - aRevenue;
+          const aMrr = companyBillingStats[a.id]?.mrr ?? 0;
+          const bMrr = companyBillingStats[b.id]?.mrr ?? 0;
+          return bMrr - aMrr;
         })
         .slice(0, 6),
-    [companiesTable, companyStats]
+    [companiesTable, companyBillingStats]
+  );
+
+  const activeWithoutUsageWatchlist = useMemo(
+    () =>
+      companiesTable
+        .filter((company) => {
+          const billing = companyBillingStats[company.id];
+          const stats = companyStats[company.id];
+          return (
+            (billing?.subscriptionStatus || company.subscriptionStatus) === 'active' &&
+            (billing?.mrr || 0) > 0 &&
+            (stats?.ordersCount || company.orders) === 0 &&
+            (stats?.monthlyRevenue || 0) === 0
+          );
+        })
+        .sort((a, b) => (companyBillingStats[b.id]?.mrr || 0) - (companyBillingStats[a.id]?.mrr || 0))
+        .slice(0, 6),
+    [companiesTable, companyBillingStats, companyStats]
+  );
+
+  const highRevenueLowAdoptionWatchlist = useMemo(
+    () =>
+      companiesTable
+        .filter((company) => {
+          const billing = companyBillingStats[company.id];
+          const stats = companyStats[company.id];
+          return (
+            (billing?.mrr || 0) >= 49 &&
+            ((stats?.activeUsers || company.users) <= 1 || (stats?.ordersCount || company.orders) === 0)
+          );
+        })
+        .sort((a, b) => (companyBillingStats[b.id]?.mrr || 0) - (companyBillingStats[a.id]?.mrr || 0))
+        .slice(0, 6),
+    [companiesTable, companyBillingStats, companyStats]
   );
 
   const activationWatchlist = useMemo(
@@ -646,6 +770,7 @@ export function SuperAdmin() {
   }, [companyControls, selectedCompany]);
 
   const selectedStats = selectedCompany ? companyStats[selectedCompany.id] || null : null;
+  const selectedBilling = selectedCompany ? companyBillingStats[selectedCompany.id] || null : null;
   const selectedTenantAgeDays = selectedCompany
     ? Math.max(
         0,
@@ -653,16 +778,28 @@ export function SuperAdmin() {
       )
     : 0;
   const selectedMonetizationPressure = selectedCompany
-    ? selectedCompany.subscriptionStatus === 'past_due'
+    ? (selectedBilling?.subscriptionStatus || selectedCompany.subscriptionStatus) === 'past_due'
       ? t('super_admin.company_panel.pressure_high')
-      : selectedCompany.subscriptionStatus === 'trialing' && selectedCompany.orders > 0
+      : (selectedBilling?.subscriptionStatus || selectedCompany.subscriptionStatus) === 'trialing' && selectedCompany.orders > 0
         ? t('super_admin.company_panel.pressure_conversion')
-        : !selectedStats
+        : !selectedBilling && !selectedStats
           ? t('super_admin.company_panel.pressure_pending')
-          : (selectedStats.monthlyRevenue || 0) === 0
+          : ((selectedStats?.monthlyRevenue || 0) === 0 && (selectedBilling?.mrr || 0) > 0)
             ? t('super_admin.company_panel.pressure_low_signal')
             : t('super_admin.company_panel.pressure_healthy')
     : '';
+  const selectedChurnRisk = selectedCompany
+    ? (selectedBilling?.subscriptionStatus === 'past_due' || selectedBilling?.cancelAtPeriodEnd)
+      ? t('super_admin.company_panel.churn_risk_high')
+      : (selectedBilling?.subscriptionStatus || selectedCompany.subscriptionStatus) === 'trialing' && (selectedStats?.ordersCount || selectedCompany.orders) > 0
+        ? t('super_admin.company_panel.churn_risk_medium')
+        : !selectedBilling
+          ? t('super_admin.company_panel.billing_pending')
+          : t('super_admin.company_panel.churn_risk_low')
+    : '';
+  const resolvedMrr = metrics.billingCoverage > 0 ? metrics.realMrr : metrics.estimatedMrr;
+  const resolvedArr = metrics.billingCoverage > 0 ? metrics.realArr : metrics.estimatedArr;
+  const usingRealBilling = metrics.billingCoverage > 0;
 
   useEffect(() => {
     if (!selectedCompany) return;
@@ -725,6 +862,29 @@ export function SuperAdmin() {
       setControlFeedback(t('super_admin.company_panel.save_failed'));
     } finally {
       setSavingControl(false);
+    }
+  };
+
+  const logBillingAction = async (
+    type: 'billing_note_added' | 'billing_status_reviewed' | 'churn_risk_marked' | 'followup_scheduled'
+  ) => {
+    if (!selectedCompany || !platformAdmin?.uid) return;
+    try {
+      await addDoc(collection(db, 'platformAuditLogs'), {
+        type,
+        companyId: selectedCompany.id,
+        actorUid: platformAdmin.uid,
+        payload: {
+          note: type === 'billing_note_added' ? controlForm.notes.trim() : undefined,
+          nextAction: controlForm.nextAction.trim() || undefined,
+          assignedTo: controlForm.assignedTo.trim() || undefined,
+        },
+        createdAt: serverTimestamp(),
+      } as PlatformAuditLog);
+      setControlFeedback(t(`super_admin.company_panel.action_feedback.${type}`));
+    } catch (auditError) {
+      console.error(`Failed to log ${type}:`, auditError);
+      setControlFeedback(t('super_admin.company_panel.save_failed'));
     }
   };
 
@@ -815,6 +975,27 @@ export function SuperAdmin() {
     }
   };
 
+  const syncBillingStats = async () => {
+    setSyncingBilling(true);
+    setError(null);
+    try {
+      const response = await authedPlatformFetch('/api/platform/billing/sync', {
+        companyId: selectedCompany?.id || null,
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload.error || 'Failed to sync billing stats');
+      }
+      setRefreshKey((current) => current + 1);
+      setControlFeedback(t('super_admin.metrics.billing_sync_success', { count: payload.syncedCompanies || 0 }));
+    } catch (syncError) {
+      console.error('Failed to sync billing stats:', syncError);
+      setError(t('super_admin.errors.billing_sync_failed'));
+    } finally {
+      setSyncingBilling(false);
+    }
+  };
+
   return (
     <div className="space-y-8">
       <div className="relative overflow-hidden rounded-[28px] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.18),transparent_35%),linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.01))] p-8">
@@ -831,7 +1012,7 @@ export function SuperAdmin() {
             </p>
           </div>
           <div className="flex flex-col gap-3 lg:w-[360px]">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-3 gap-3">
               <Button
                 variant="secondary"
                 onClick={() => setRefreshKey((current) => current + 1)}
@@ -848,6 +1029,15 @@ export function SuperAdmin() {
               >
                 {syncingStats ? <Loader2 className="h-4 w-4 animate-spin" /> : <Activity className="h-4 w-4" />}
                 {t('super_admin.actions.sync_stats')}
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={syncBillingStats}
+                disabled={syncingBilling}
+                className="justify-center gap-2 border-white/10 bg-black/30"
+              >
+                {syncingBilling ? <Loader2 className="h-4 w-4 animate-spin" /> : <CreditCard className="h-4 w-4" />}
+                {t('super_admin.actions.sync_billing')}
               </Button>
             </div>
             <div className="grid grid-cols-2 gap-3">
@@ -924,16 +1114,22 @@ export function SuperAdmin() {
               <div className="mb-5 flex items-center justify-between">
                 <div>
                   <p className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-600">{t('super_admin.metrics.revenue')}</p>
-                  <h2 className="mt-2 text-lg font-bold text-white">{t('super_admin.metrics.estimated_mrr')}</h2>
+                  <h2 className="mt-2 text-lg font-bold text-white">
+                    {usingRealBilling ? t('super_admin.metrics.real_mrr') : t('super_admin.metrics.estimated_mrr')}
+                  </h2>
                 </div>
                 <CreditCard className="h-5 w-5 text-emerald-300" />
               </div>
               <div className="rounded-3xl border border-emerald-500/20 bg-emerald-500/10 p-5">
-                <p className="text-[10px] font-black uppercase tracking-[0.25em] text-emerald-200/80">{t('super_admin.metrics.projected_mrr')}</p>
-                <p className="mt-4 text-4xl font-bold tracking-tight text-white">{formatCurrency(metrics.estimatedMrr)}</p>
+                <p className="text-[10px] font-black uppercase tracking-[0.25em] text-emerald-200/80">
+                  {usingRealBilling ? t('super_admin.metrics.billing_source_live') : t('super_admin.metrics.billing_source_fallback')}
+                </p>
+                <p className="mt-4 text-4xl font-bold tracking-tight text-white">{formatCurrency(resolvedMrr)}</p>
               </div>
               <p className="mt-4 text-xs leading-relaxed text-neutral-500">
-                {t('super_admin.metrics.mrr_note')}
+                {usingRealBilling
+                  ? t('super_admin.metrics.real_mrr_note', { coverage: metrics.billingCoverage })
+                  : t('super_admin.metrics.mrr_note')}
               </p>
             </Card>
 
@@ -973,18 +1169,32 @@ export function SuperAdmin() {
               <div className="mb-5 flex items-center justify-between">
                 <div>
                   <p className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-600">{t('super_admin.metrics.revenue')}</p>
-                  <h2 className="mt-2 text-lg font-bold text-white">{t('super_admin.metrics.arr_estimated')}</h2>
+                  <h2 className="mt-2 text-lg font-bold text-white">
+                    {usingRealBilling ? t('super_admin.metrics.arr_real') : t('super_admin.metrics.arr_estimated')}
+                  </h2>
                 </div>
                 <TrendingUp className="h-5 w-5 text-emerald-300" />
               </div>
               <div className="space-y-3">
                 <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-4">
-                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.metrics.arr_estimated')}</p>
-                  <p className="mt-3 text-2xl font-bold text-white">{formatCurrency(metrics.estimatedArr)}</p>
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-600">
+                    {usingRealBilling ? t('super_admin.metrics.arr_real') : t('super_admin.metrics.arr_estimated')}
+                  </p>
+                  <p className="mt-3 text-2xl font-bold text-white">{formatCurrency(resolvedArr)}</p>
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-4">
                   <p className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.metrics.monthly_platform_sales')}</p>
                   <p className="mt-3 text-2xl font-bold text-white">{formatCurrency(metrics.monthlyPlatformSales)}</p>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.metrics.active_subscriptions')}</p>
+                    <p className="mt-2 text-xl font-bold text-white">{metrics.activeSubscriptions}</p>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.metrics.billing_coverage')}</p>
+                    <p className="mt-2 text-xl font-bold text-white">{metrics.billingCoverage}%</p>
+                  </div>
                 </div>
               </div>
             </Card>
@@ -1010,6 +1220,10 @@ export function SuperAdmin() {
                   <p className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.metrics.stats_coverage')}</p>
                   <p className="mt-2 text-xl font-bold text-white">{metrics.statsCoverage}%</p>
                 </div>
+                <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.metrics.revenue_concentration')}</p>
+                  <p className="mt-2 text-xl font-bold text-white">{metrics.topRevenueShare}%</p>
+                </div>
               </div>
             </Card>
 
@@ -1029,6 +1243,16 @@ export function SuperAdmin() {
                 <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
                   <p className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.metrics.trial_expiring_soon')}</p>
                   <p className="mt-2 text-xl font-bold text-white">{metrics.trialExpiringSoon}</p>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.metrics.cancel_at_period_end')}</p>
+                    <p className="mt-2 text-xl font-bold text-white">{metrics.cancelAtPeriodEndCount}</p>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.metrics.trialing_subscriptions')}</p>
+                    <p className="mt-2 text-xl font-bold text-white">{metrics.trialingSubscriptions}</p>
+                  </div>
                 </div>
               </div>
             </Card>
@@ -1093,7 +1317,7 @@ export function SuperAdmin() {
                         <td className="table-cell font-semibold text-white">{company.name}</td>
                         <td className="table-cell text-neutral-400">{company.ownerEmail}</td>
                         <td className="table-cell uppercase text-neutral-300">{company.plan}</td>
-                        <td className="table-cell uppercase text-neutral-300">{company.subscriptionStatus}</td>
+                        <td className="table-cell uppercase text-neutral-300">{companyBillingStats[company.id]?.subscriptionStatus || company.subscriptionStatus}</td>
                         <td className="table-cell text-neutral-300">{company.users}</td>
                         <td className="table-cell text-neutral-300">{company.products}</td>
                         <td className="table-cell text-neutral-300">{company.customers}</td>
@@ -1140,7 +1364,7 @@ export function SuperAdmin() {
                         </div>
                         <div>
                           <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.company_panel.subscription')}</p>
-                          <p className="mt-1 text-sm font-semibold uppercase text-white">{selectedCompany.subscriptionStatus}</p>
+                          <p className="mt-1 text-sm font-semibold uppercase text-white">{selectedBilling?.subscriptionStatus || selectedCompany.subscriptionStatus}</p>
                         </div>
                         <div>
                           <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.company_panel.owner')}</p>
@@ -1161,11 +1385,11 @@ export function SuperAdmin() {
                         </p>
                       </div>
                       <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
-                        <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.company_panel.renewal')}</p>
-                        <p className="mt-2 text-xs font-semibold text-white">
-                          {toDate(selectedCompany.currentPeriodEnd || selectedCompany.trialEndsAt)?.toLocaleDateString() || '-'}
-                        </p>
-                      </div>
+                          <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.company_panel.renewal')}</p>
+                          <p className="mt-2 text-xs font-semibold text-white">
+                          {toDate(selectedBilling?.currentPeriodEnd || selectedBilling?.trialEndsAt || selectedCompany.currentPeriodEnd || selectedCompany.trialEndsAt)?.toLocaleDateString() || '-'}
+                          </p>
+                        </div>
                     </div>
 
                     <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
@@ -1206,19 +1430,45 @@ export function SuperAdmin() {
 
                     <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
                       <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.company_panel.commercial')}</p>
-                      {selectedStats ? (
+                      {selectedStats || selectedBilling ? (
                         <>
                           <div className="mt-3 grid grid-cols-2 gap-3">
-                            <div><p className="text-[10px] text-neutral-600">{t('super_admin.company_panel.lifetime_revenue')}</p><p className="mt-1 text-lg font-bold text-white">{formatCurrency(selectedStats.lifetimeRevenue)}</p></div>
-                            <div><p className="text-[10px] text-neutral-600">{t('super_admin.company_panel.monthly_revenue')}</p><p className="mt-1 text-lg font-bold text-white">{formatCurrency(selectedStats.monthlyRevenue)}</p></div>
-                            <div><p className="text-[10px] text-neutral-600">{t('super_admin.company_panel.last_sale')}</p><p className="mt-1 text-sm font-semibold text-white">{toDate(selectedStats.lastOrderAt)?.toLocaleDateString() || '-'}</p></div>
-                            <div><p className="text-[10px] text-neutral-600">{t('super_admin.company_panel.first_sale')}</p><p className="mt-1 text-sm font-semibold text-white">{toDate(selectedStats.firstOrderAt)?.toLocaleDateString() || '-'}</p></div>
-                            <div><p className="text-[10px] text-neutral-600">{t('super_admin.company_panel.active_users')}</p><p className="mt-1 text-lg font-bold text-white">{selectedStats.activeUsers}</p></div>
+                            <div><p className="text-[10px] text-neutral-600">{t('super_admin.company_panel.lifetime_revenue')}</p><p className="mt-1 text-lg font-bold text-white">{formatCurrency(selectedStats?.lifetimeRevenue || 0)}</p></div>
+                            <div><p className="text-[10px] text-neutral-600">{t('super_admin.company_panel.monthly_revenue')}</p><p className="mt-1 text-lg font-bold text-white">{formatCurrency(selectedStats?.monthlyRevenue || 0)}</p></div>
+                            <div><p className="text-[10px] text-neutral-600">{t('super_admin.company_panel.last_sale')}</p><p className="mt-1 text-sm font-semibold text-white">{toDate(selectedStats?.lastOrderAt)?.toLocaleDateString() || '-'}</p></div>
+                            <div><p className="text-[10px] text-neutral-600">{t('super_admin.company_panel.first_sale')}</p><p className="mt-1 text-sm font-semibold text-white">{toDate(selectedStats?.firstOrderAt)?.toLocaleDateString() || '-'}</p></div>
+                            <div><p className="text-[10px] text-neutral-600">{t('super_admin.company_panel.active_users')}</p><p className="mt-1 text-lg font-bold text-white">{selectedStats?.activeUsers || 0}</p></div>
                             <div><p className="text-[10px] text-neutral-600">{t('super_admin.company_panel.tenant_age')}</p><p className="mt-1 text-lg font-bold text-white">{selectedTenantAgeDays}d</p></div>
+                            <div><p className="text-[10px] text-neutral-600">{t('super_admin.company_panel.billing_status')}</p><p className="mt-1 text-sm font-semibold uppercase text-white">{selectedBilling?.subscriptionStatus || t('super_admin.company_panel.billing_pending')}</p></div>
+                            <div><p className="text-[10px] text-neutral-600">{t('super_admin.company_panel.mrr')}</p><p className="mt-1 text-lg font-bold text-white">{selectedBilling ? formatCurrency(selectedBilling.mrr) : formatCurrency(0)}</p></div>
+                            <div><p className="text-[10px] text-neutral-600">{t('super_admin.company_panel.billing_plan')}</p><p className="mt-1 text-sm font-semibold uppercase text-white">{selectedBilling?.planId || selectedCompany.plan}</p></div>
+                            <div><p className="text-[10px] text-neutral-600">{t('super_admin.company_panel.last_payment_status')}</p><p className="mt-1 text-sm font-semibold uppercase text-white">{selectedBilling?.lastPaymentStatus || '-'}</p></div>
                           </div>
-                          <div className="mt-4 rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
-                            <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.company_panel.monetization_pressure')}</p>
-                            <p className="mt-2 text-sm font-semibold text-white">{selectedMonetizationPressure}</p>
+                          <div className="mt-4 grid grid-cols-1 gap-3">
+                            <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                              <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.company_panel.monetization_pressure')}</p>
+                              <p className="mt-2 text-sm font-semibold text-white">{selectedMonetizationPressure}</p>
+                            </div>
+                            <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                              <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.company_panel.churn_risk')}</p>
+                              <p className="mt-2 text-sm font-semibold text-white">{selectedChurnRisk}</p>
+                            </div>
+                            {selectedBilling ? (
+                              <div className="grid grid-cols-2 gap-3">
+                                <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                                  <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.company_panel.renewal')}</p>
+                                  <p className="mt-2 text-xs font-semibold text-white">{toDate(selectedBilling.currentPeriodEnd || selectedBilling.trialEndsAt)?.toLocaleDateString() || '-'}</p>
+                                </div>
+                                <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                                  <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.company_panel.cancel_at_period_end')}</p>
+                                  <p className="mt-2 text-xs font-semibold text-white">{selectedBilling.cancelAtPeriodEnd ? t('super_admin.company_panel.boolean_yes') : t('super_admin.company_panel.boolean_no')}</p>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="rounded-2xl border border-dashed border-white/10 bg-black/30 px-4 py-4 text-center text-sm text-neutral-500">
+                                {t('super_admin.company_panel.billing_pending')}
+                              </div>
+                            )}
                           </div>
                         </>
                       ) : (
@@ -1320,6 +1570,26 @@ export function SuperAdmin() {
                             placeholder={t('super_admin.company_panel.notes_placeholder')}
                             className="min-h-[120px] w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white placeholder:text-neutral-600 focus:border-blue-500/50 focus:outline-none"
                           />
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <Button variant="secondary" className="border-white/10 bg-black/30" onClick={() => logBillingAction('billing_status_reviewed')}>
+                            {t('super_admin.company_panel.actions.review_billing')}
+                          </Button>
+                          <Button variant="secondary" className="border-white/10 bg-black/30" onClick={() => logBillingAction('churn_risk_marked')}>
+                            {t('super_admin.company_panel.actions.mark_churn')}
+                          </Button>
+                          <Button variant="secondary" className="border-white/10 bg-black/30" onClick={() => logBillingAction('followup_scheduled')}>
+                            {t('super_admin.company_panel.actions.schedule_followup')}
+                          </Button>
+                          <Button
+                            variant="secondary"
+                            className="border-white/10 bg-black/30"
+                            onClick={() => logBillingAction('billing_note_added')}
+                            disabled={!controlForm.notes.trim()}
+                          >
+                            {t('super_admin.company_panel.actions.log_note')}
+                          </Button>
                         </div>
 
                         <div className="flex items-center justify-between gap-3">
@@ -1464,16 +1734,16 @@ export function SuperAdmin() {
                 <div className="mb-5 flex items-center justify-between">
                   <div>
                     <p className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-600">{t('super_admin.metrics.activation')}</p>
-                    <h2 className="mt-2 text-lg font-bold text-white">{t('super_admin.metrics.trial_to_paid_watch')}</h2>
+                    <h2 className="mt-2 text-lg font-bold text-white">{t('super_admin.metrics.trial_ending_with_usage')}</h2>
                   </div>
                   <Sparkles className="h-5 w-5 text-emerald-300" />
                 </div>
                 <div className="space-y-3">
-                  {trialToPaidWatchlist.length > 0 ? trialToPaidWatchlist.map((company) => (
+                  {trialEndingWithUsageWatchlist.length > 0 ? trialEndingWithUsageWatchlist.map((company) => (
                     <div key={company.id} className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
                       <p className="text-sm font-bold text-white">{company.name}</p>
                       <p className="mt-1 text-[11px] text-neutral-400">
-                        {formatCurrency(companyStats[company.id]?.monthlyRevenue ?? 0)} | {company.orders} {t('super_admin.latest.orders_count')}
+                        {formatCurrency(companyStats[company.id]?.monthlyRevenue ?? 0)} | {toDate(companyBillingStats[company.id]?.trialEndsAt || company.trialEndsAt)?.toLocaleDateString() || '-'}
                       </p>
                     </div>
                   )) : (
@@ -1488,7 +1758,7 @@ export function SuperAdmin() {
                 <div className="mb-5 flex items-center justify-between">
                   <div>
                     <p className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-600">{t('super_admin.alerts.label')}</p>
-                    <h2 className="mt-2 text-lg font-bold text-white">{t('super_admin.metrics.past_due_watch')}</h2>
+                    <h2 className="mt-2 text-lg font-bold text-white">{t('super_admin.metrics.past_due_high_value')}</h2>
                   </div>
                   <AlertTriangle className="h-5 w-5 text-red-300" />
                 </div>
@@ -1497,12 +1767,60 @@ export function SuperAdmin() {
                     <div key={company.id} className="rounded-2xl border border-red-500/10 bg-red-500/[0.06] px-4 py-3">
                       <p className="text-sm font-bold text-white">{company.name}</p>
                       <p className="mt-1 text-[11px] text-neutral-300">
-                        {formatCurrency(companyStats[company.id]?.monthlyRevenue ?? 0)} | {company.ownerEmail}
+                        {formatCurrency(companyBillingStats[company.id]?.mrr ?? 0)} MRR | {company.ownerEmail}
                       </p>
                     </div>
                   )) : (
                     <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-6 text-center text-sm text-neutral-500">
                       {t('super_admin.metrics.no_past_due_watch')}
+                    </div>
+                  )}
+                </div>
+              </Card>
+
+              <Card className="border-white/5 bg-neutral-900/40 p-5">
+                <div className="mb-5 flex items-center justify-between">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-600">{t('super_admin.metrics.activation')}</p>
+                    <h2 className="mt-2 text-lg font-bold text-white">{t('super_admin.metrics.active_without_usage')}</h2>
+                  </div>
+                  <Activity className="h-5 w-5 text-amber-300" />
+                </div>
+                <div className="space-y-3">
+                  {activeWithoutUsageWatchlist.length > 0 ? activeWithoutUsageWatchlist.map((company) => (
+                    <div key={company.id} className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                      <p className="text-sm font-bold text-white">{company.name}</p>
+                      <p className="mt-1 text-[11px] text-neutral-400">
+                        {formatCurrency(companyBillingStats[company.id]?.mrr ?? 0)} MRR | {company.users} {t('super_admin.tables.users')}
+                      </p>
+                    </div>
+                  )) : (
+                    <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-6 text-center text-sm text-neutral-500">
+                      {t('super_admin.metrics.no_active_without_usage')}
+                    </div>
+                  )}
+                </div>
+              </Card>
+
+              <Card className="border-white/5 bg-neutral-900/40 p-5">
+                <div className="mb-5 flex items-center justify-between">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-600">{t('super_admin.metrics.revenue')}</p>
+                    <h2 className="mt-2 text-lg font-bold text-white">{t('super_admin.metrics.high_revenue_low_adoption')}</h2>
+                  </div>
+                  <TrendingUp className="h-5 w-5 text-blue-300" />
+                </div>
+                <div className="space-y-3">
+                  {highRevenueLowAdoptionWatchlist.length > 0 ? highRevenueLowAdoptionWatchlist.map((company) => (
+                    <div key={company.id} className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                      <p className="text-sm font-bold text-white">{company.name}</p>
+                      <p className="mt-1 text-[11px] text-neutral-400">
+                        {formatCurrency(companyBillingStats[company.id]?.mrr ?? 0)} MRR | {(companyStats[company.id]?.ordersCount ?? company.orders)} {t('super_admin.latest.orders_count')}
+                      </p>
+                    </div>
+                  )) : (
+                    <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-6 text-center text-sm text-neutral-500">
+                      {t('super_admin.metrics.no_high_revenue_low_adoption')}
                     </div>
                   )}
                 </div>

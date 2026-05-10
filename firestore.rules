@@ -154,6 +154,12 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    match /companyBillingStats/{companyId} {
+      allow read: if isPlatformAdmin();
+      // Billing stats are written by secure backend syncs, not by clients.
+      allow create, update, delete: if false;
+    }
+
     match /platformAuditLogs/{logId} {
       allow read: if isPlatformAdmin();
       allow create: if isPlatformAdmin() &&
