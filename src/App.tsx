@@ -16,10 +16,12 @@ import { Settings } from './pages/Settings';
 import { Billing } from './pages/Billing';
 import { Team } from './pages/Team';
 import { POS } from './pages/POS';
+import { SuperAdmin } from './pages/SuperAdmin';
 import { Copilot } from './components/Copilot';
 import { TrialBanner } from './components/TrialBanner';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { AnimatePresence, motion } from 'motion/react';
+import { usePlatformAdmin } from './hooks/usePlatformAdmin';
 
 const ProtectedRoute = ({ children, allowedRoles }: { children: React.ReactNode; allowedRoles?: string[] }) => {
   const { user, company, role, loading } = useAuth();
@@ -99,6 +101,24 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
   );
 };
 
+const PlatformAdminRoute = ({ children }: { children: React.ReactNode }) => {
+  const { user, loading } = useAuth();
+  const { canAccessSuperAdmin, loadingPlatformAdmin } = usePlatformAdmin();
+
+  if (loading || loadingPlatformAdmin) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-black font-medium text-neutral-500 text-sm tracking-widest uppercase">
+        Loading OS...
+      </div>
+    );
+  }
+
+  if (!user) return <Navigate to="/auth" />;
+  if (!canAccessSuperAdmin) return <Navigate to="/dashboard" replace />;
+
+  return <>{children}</>;
+};
+
 export default function App() {
   return (
     <ErrorBoundary>
@@ -126,6 +146,14 @@ export default function App() {
             <Route path="/team" element={<ProtectedRoute><AppLayout><Team /></AppLayout></ProtectedRoute>} />
             <Route path="/settings" element={<ProtectedRoute><AppLayout><Settings /></AppLayout></ProtectedRoute>} />
             <Route path="/billing" element={<ProtectedRoute><AppLayout><Billing /></AppLayout></ProtectedRoute>} />
+            <Route
+              path="/super-admin"
+              element={
+                <PlatformAdminRoute>
+                  <AppLayout><SuperAdmin /></AppLayout>
+                </PlatformAdminRoute>
+              }
+            />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </BrowserRouter>

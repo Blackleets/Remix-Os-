@@ -13,6 +13,7 @@ const resources = {
         orders: 'Orders',
         pos: 'POS',
         team: 'Team',
+        super_admin: 'Super Admin',
         insights: 'AI Copilot',
         billing: 'Billing',
         settings: 'System Settings',
@@ -649,6 +650,73 @@ const resources = {
           desc_label: 'Asset Manifest / Description',
           desc_placeholder: 'Detailed specifications for the node log...'
         }
+      },
+      super_admin: {
+        badge: 'Platform Root',
+        title: 'Super Admin Console',
+        subtitle: 'Global control surface for companies, operators, subscriptions, orders, and platform health.',
+        identity: 'Operator',
+        role: 'Role',
+        loading: 'Loading platform console...',
+        errors: {
+          load_failed: 'Failed to load platform metrics.'
+        },
+        metrics: {
+          total_companies: 'Total companies',
+          total_users: 'Total users',
+          total_orders: 'Platform orders',
+          total_sales: 'Platform sales',
+          platform_health: 'Platform health',
+          platform_snapshot: 'Global operating snapshot',
+          active_companies: 'Active companies',
+          trial_companies: 'Companies in trial',
+          past_due_companies: 'Expired / past due',
+          starter_plan: 'Starter plan',
+          pro_plan: 'Pro plan',
+          business_plan: 'Business plan',
+          revenue: 'Revenue core',
+          estimated_mrr: 'Estimated MRR',
+          projected_mrr: 'Projected MRR',
+          mrr_note: 'MRR is estimated from company subscriptions using current plan pricing and active or past_due states.'
+        },
+        tables: {
+          companies_label: 'Registry stream',
+          companies_title: 'Companies table',
+          users_label: 'Identity stream',
+          users_title: 'Users table',
+          company: 'Company',
+          owner: 'Owner email',
+          plan: 'Plan',
+          subscription: 'Subscription',
+          users: 'Users',
+          products: 'Products',
+          customers: 'Customers',
+          orders: 'Orders',
+          revenue: 'Revenue',
+          created_at: 'Created',
+          user_email: 'Email',
+          user_name: 'Name',
+          user_role: 'Role',
+          registered_at: 'Registered'
+        },
+        latest: {
+          companies_label: 'Latest companies',
+          companies_title: 'Newest companies',
+          users_label: 'Latest users',
+          users_title: 'Newest users'
+        },
+        alerts: {
+          label: 'Alert matrix',
+          title: 'Basic alerts',
+          billing_title: 'Billing pressure detected',
+          billing_body: '{{count}} companies need subscription review.',
+          owner_title: 'Owner data missing',
+          owner_body: 'At least one company is missing a clear owner email mapping.',
+          orders_title: 'No order activity yet',
+          orders_body: 'The platform has companies but no recorded orders yet.',
+          healthy_title: 'Platform stable',
+          healthy_body: 'No immediate global alerts were detected.'
+        }
       }
     }
   },
@@ -662,6 +730,7 @@ const resources = {
         orders: 'Pedidos',
         pos: 'POS',
         team: 'Equipo',
+        super_admin: 'Super Admin',
         insights: 'Copiloto IA',
         billing: 'Facturación',
         settings: 'Configuración',
@@ -1298,6 +1367,73 @@ const resources = {
           desc_label: 'Manifiesto del Activo / Descripción',
           desc_placeholder: 'Especificaciones detalladas para el registro del nodo...'
         }
+      },
+      super_admin: {
+        badge: 'Ra\u00edz de plataforma',
+        title: 'Consola Super Admin',
+        subtitle: 'Supervisa empresas, operadores, suscripciones, pedidos y salud global de Remix OS desde una sola consola.',
+        identity: 'Operador',
+        role: 'Rol',
+        loading: 'Cargando consola de plataforma...',
+        errors: {
+          load_failed: 'No se pudieron cargar las m\u00e9tricas de la plataforma.'
+        },
+        metrics: {
+          total_companies: 'Empresas totales',
+          total_users: 'Usuarios totales',
+          total_orders: 'Pedidos de la plataforma',
+          total_sales: 'Ventas de la plataforma',
+          platform_health: 'Salud de plataforma',
+          platform_snapshot: 'Snapshot operativo global',
+          active_companies: 'Empresas activas',
+          trial_companies: 'Empresas en trial',
+          past_due_companies: 'Vencidas / past due',
+          starter_plan: 'Plan starter',
+          pro_plan: 'Plan pro',
+          business_plan: 'Plan business',
+          revenue: 'N\u00facleo de ingresos',
+          estimated_mrr: 'MRR estimado',
+          projected_mrr: 'MRR proyectado',
+          mrr_note: 'El MRR se estima usando la suscripci\u00f3n actual de cada empresa y los planes activos o past_due.'
+        },
+        tables: {
+          companies_label: 'Flujo de empresas',
+          companies_title: 'Tabla de empresas',
+          users_label: 'Flujo de identidades',
+          users_title: 'Tabla de usuarios',
+          company: 'Empresa',
+          owner: 'Email owner',
+          plan: 'Plan',
+          subscription: 'Suscripci\u00f3n',
+          users: 'Usuarios',
+          products: 'Productos',
+          customers: 'Clientes',
+          orders: 'Pedidos',
+          revenue: 'Revenue',
+          created_at: 'Creaci\u00f3n',
+          user_email: 'Email',
+          user_name: 'Nombre',
+          user_role: 'Rol',
+          registered_at: 'Registro'
+        },
+        latest: {
+          companies_label: '\u00daltimas empresas',
+          companies_title: 'Empresas recientes',
+          users_label: '\u00daltimos usuarios',
+          users_title: 'Usuarios recientes'
+        },
+        alerts: {
+          label: 'Matriz de alertas',
+          title: 'Alertas b\u00e1sicas',
+          billing_title: 'Presi\u00f3n de cobro detectada',
+          billing_body: '{{count}} empresas necesitan revisi\u00f3n de suscripci\u00f3n.',
+          owner_title: 'Falta mapeo de owner',
+          owner_body: 'Al menos una empresa no tiene un email de owner claramente vinculado.',
+          orders_title: 'A\u00fan no hay pedidos',
+          orders_body: 'La plataforma tiene empresas, pero todav\u00eda no registra pedidos.',
+          healthy_title: 'Plataforma estable',
+          healthy_body: 'No se detectaron alertas globales inmediatas.'
+        }
       }
     }
   },
@@ -1311,6 +1447,7 @@ const resources = {
         orders: 'Pedidos',
         pos: 'POS',
         team: 'Equipe',
+        super_admin: 'Super Admin',
         insights: 'Copiloto IA',
         billing: 'Faturamento',
         settings: 'Configurações',
@@ -1946,6 +2083,73 @@ const resources = {
           name_placeholder: 'ex: Processador Kinético Pro',
           desc_label: 'Manifesto do Ativo / Descrição',
           desc_placeholder: 'Especificações detalhadas para o registro do nodo...'
+        }
+      },
+      super_admin: {
+        badge: 'Raiz da plataforma',
+        title: 'Console Super Admin',
+        subtitle: 'Controle empresas, operadores, assinaturas, pedidos e a sa\u00fade global do Remix OS em uma s\u00f3 superf\u00edcie.',
+        identity: 'Operador',
+        role: 'Fun\u00e7\u00e3o',
+        loading: 'Carregando console da plataforma...',
+        errors: {
+          load_failed: 'N\u00e3o foi poss\u00edvel carregar as m\u00e9tricas da plataforma.'
+        },
+        metrics: {
+          total_companies: 'Empresas totais',
+          total_users: 'Usu\u00e1rios totais',
+          total_orders: 'Pedidos da plataforma',
+          total_sales: 'Vendas da plataforma',
+          platform_health: 'Sa\u00fade da plataforma',
+          platform_snapshot: 'Snapshot operacional global',
+          active_companies: 'Empresas ativas',
+          trial_companies: 'Empresas em trial',
+          past_due_companies: 'Vencidas / past due',
+          starter_plan: 'Plano starter',
+          pro_plan: 'Plano pro',
+          business_plan: 'Plano business',
+          revenue: 'N\u00facleo de receita',
+          estimated_mrr: 'MRR estimado',
+          projected_mrr: 'MRR projetado',
+          mrr_note: 'O MRR \u00e9 estimado com base no plano atual de cada empresa e assinaturas ativas ou past_due.'
+        },
+        tables: {
+          companies_label: 'Fluxo de empresas',
+          companies_title: 'Tabela de empresas',
+          users_label: 'Fluxo de identidades',
+          users_title: 'Tabela de usu\u00e1rios',
+          company: 'Empresa',
+          owner: 'Email do owner',
+          plan: 'Plano',
+          subscription: 'Assinatura',
+          users: 'Usu\u00e1rios',
+          products: 'Produtos',
+          customers: 'Clientes',
+          orders: 'Pedidos',
+          revenue: 'Receita',
+          created_at: 'Cria\u00e7\u00e3o',
+          user_email: 'Email',
+          user_name: 'Nome',
+          user_role: 'Fun\u00e7\u00e3o',
+          registered_at: 'Registro'
+        },
+        latest: {
+          companies_label: '\u00daltimas empresas',
+          companies_title: 'Empresas recentes',
+          users_label: '\u00daltimos usu\u00e1rios',
+          users_title: 'Usu\u00e1rios recentes'
+        },
+        alerts: {
+          label: 'Matriz de alertas',
+          title: 'Alertas b\u00e1sicos',
+          billing_title: 'Press\u00e3o de cobran\u00e7a detectada',
+          billing_body: '{{count}} empresas precisam de revis\u00e3o de assinatura.',
+          owner_title: 'Mapeamento de owner ausente',
+          owner_body: 'Pelo menos uma empresa est\u00e1 sem email de owner claramente associado.',
+          orders_title: 'Ainda sem pedidos',
+          orders_body: 'A plataforma j\u00e1 possui empresas, mas ainda n\u00e3o registra pedidos.',
+          healthy_title: 'Plataforma est\u00e1vel',
+          healthy_body: 'Nenhum alerta global imediato foi detectado.'
         }
       }
     }

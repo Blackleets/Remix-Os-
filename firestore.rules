@@ -46,6 +46,23 @@ service cloud.firestore {
       return isSignedIn() && existsAfter(/databases/$(database)/documents/memberships/$(request.auth.uid + '_' + companyId));
     }
 
+    // Production note: once custom claims are deployed, prefer
+    // request.auth.token.superAdmin == true over document lookups.
+    function hasPlatformAdminClaim() {
+      return isSignedIn() && request.auth.token.superAdmin == true;
+    }
+
+    function hasPlatformAdminRecord() {
+      return isSignedIn() &&
+             exists(/databases/$(database)/documents/platformAdmins/$(request.auth.uid)) &&
+             get(/databases/$(database)/documents/platformAdmins/$(request.auth.uid)).data.active == true &&
+             get(/databases/$(database)/documents/platformAdmins/$(request.auth.uid)).data.role == 'super_admin';
+    }
+
+    function isPlatformAdmin() {
+      return hasPlatformAdminClaim() || hasPlatformAdminRecord();
+    }
+
     // --- Entity Validations ---
 
     function isValidMembership(data) {
@@ -108,8 +125,16 @@ service cloud.firestore {
 
     // 1. Users
     match /users/{userId} {
-      allow read: if isSignedIn() && (request.auth.uid == userId || (resource != null && isMember(resource.data.currentCompanyId)));
+      allow read: if isPlatformAdmin() || (isSignedIn() && (request.auth.uid == userId || (resource != null && isMember(resource.data.currentCompanyId))));
       allow write: if isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Platform Admin records
+    match /platformAdmins/{uid} {
+      allow read: if isSignedIn() && (request.auth.uid == uid || hasPlatformAdminClaim());
+      // Client-side writes are blocked. Provision this collection from the
+      // Firebase console, Admin SDK, or secure server tooling.
+      allow create, update, delete: if false;
     }
 
     // 0.2 Test connection
@@ -120,10 +145,10 @@ service cloud.firestore {
     // 2. Memberships
     match /memberships/{membershipId} {
       // Allow user to see their own membership OR admins to see all in company
-      allow read: if isSignedIn() && (
+      allow read: if isPlatformAdmin() || (isSignedIn() && (
         resource.data.userId == request.auth.uid || 
         hasRole(resource.data.companyId, ['owner', 'admin'])
-      );
+      ));
       
       // Create: user linking themselves to a company (during onboarding/invite acceptance)
       allow create: if isSignedIn() && isEmailVerified() && isValidMembership(incoming()) && (
@@ -155,7 +180,7 @@ service cloud.firestore {
 
     // 3. Companies
     match /companies/{companyId} {
-      allow read: if isMember(companyId);
+      allow read: if isPlatformAdmin() || isMember(companyId);
       // The new owner must match the caller, and any subscription field must be 'starter'.
       // Updates to subscription.planId are reserved for the server (admin SDK / webhook).
       allow create: if isSignedIn() && isEmailVerified() && isValidNewCompany(incoming());
@@ -168,8 +193,8 @@ service cloud.firestore {
 
     // 4. Products
     match /products/{productId} {
-      allow get: if isMember(resource.data.companyId);
-      allow list: if isSignedIn() && exists(/databases/$(database)/documents/memberships/$(request.auth.uid + '_' + resource.data.companyId));
+      allow get: if isPlatformAdmin() || isMember(resource.data.companyId);
+      allow list: if isPlatformAdmin() || (isSignedIn() && exists(/databases/$(database)/documents/memberships/$(request.auth.uid + '_' + resource.data.companyId)));
       allow create: if hasRole(incoming().companyId, ['owner', 'admin', 'staff']) && isValidProduct(incoming());
       allow update: if hasRole(existing().companyId, ['owner', 'admin', 'staff']) && 
                     isValidProduct(incoming()) &&
@@ -195,8 +220,8 @@ service cloud.firestore {
 
     // 6. Operational Data (Customers, Orders, Inventory, Activities)
     match /customers/{id} {
-      allow get: if isMember(resource.data.companyId);
-      allow list: if isSignedIn() && exists(/databases/$(database)/documents/memberships/$(request.auth.uid + '_' + resource.data.companyId));
+      allow get: if isPlatformAdmin() || isMember(resource.data.companyId);
+      allow list: if isPlatformAdmin() || (isSignedIn() && exists(/databases/$(database)/documents/memberships/$(request.auth.uid + '_' + resource.data.companyId)));
       allow create: if hasRole(incoming().companyId, ['owner', 'admin', 'staff']) && isValidCustomer(incoming());
       allow update: if hasRole(existing().companyId, ['owner', 'admin', 'staff']) && 
                     isValidCustomer(incoming()) &&
@@ -205,8 +230,8 @@ service cloud.firestore {
     }
 
     match /reminders/{id} {
-      allow get: if isMember(resource.data.companyId);
-      allow list: if isSignedIn() && exists(/databases/$(database)/documents/memberships/$(request.auth.uid + '_' + resource.data.companyId));
+      allow get: if isPlatformAdmin() || isMember(resource.data.companyId);
+      allow list: if isPlatformAdmin() || (isSignedIn() && exists(/databases/$(database)/documents/memberships/$(request.auth.uid + '_' + resource.data.companyId)));
       allow create: if hasRole(incoming().companyId, ['owner', 'admin', 'staff']) && isValidReminder(incoming());
       allow update: if hasRole(existing().companyId, ['owner', 'admin', 'staff']) && 
                     isValidReminder(incoming()) &&
@@ -215,8 +240,8 @@ service cloud.firestore {
     }
 
     match /customerMessages/{id} {
-      allow get: if isMember(resource.data.companyId);
-      allow list: if isSignedIn() && exists(/databases/$(database)/documents/memberships/$(request.auth.uid + '_' + resource.data.companyId));
+      allow get: if isPlatformAdmin() || isMember(resource.data.companyId);
+      allow list: if isPlatformAdmin() || (isSignedIn() && exists(/databases/$(database)/documents/memberships/$(request.auth.uid + '_' + resource.data.companyId)));
       allow create: if hasRole(incoming().companyId, ['owner', 'admin', 'staff']) && isValidCustomerMessage(incoming());
       allow update: if hasRole(existing().companyId, ['owner', 'admin', 'staff']) && 
                     isValidCustomerMessage(incoming()) &&
@@ -225,8 +250,8 @@ service cloud.firestore {
     }
 
     match /orders/{id} {
-      allow get: if isMember(resource.data.companyId);
-      allow list: if isSignedIn() && exists(/databases/$(database)/documents/memberships/$(request.auth.uid + '_' + resource.data.companyId));
+      allow get: if isPlatformAdmin() || isMember(resource.data.companyId);
+      allow list: if isPlatformAdmin() || (isSignedIn() && exists(/databases/$(database)/documents/memberships/$(request.auth.uid + '_' + resource.data.companyId)));
       allow create: if hasRole(incoming().companyId, ['owner', 'admin', 'staff']);
       allow update: if hasRole(existing().companyId, ['owner', 'admin', 'staff']);
       allow delete: if hasRole(existing().companyId, ['owner', 'admin']);
@@ -238,13 +263,13 @@ service cloud.firestore {
     }
 
     match /inventoryMovements/{id} {
-      allow read: if isMember(resource.data.companyId);
+      allow read: if isPlatformAdmin() || isMember(resource.data.companyId);
       allow create: if hasRole(incoming().companyId, ['owner', 'admin', 'staff']);
     }
 
     match /cashSessions/{id} {
-      allow get: if isMember(resource.data.companyId);
-      allow list: if isSignedIn() && exists(/databases/$(database)/documents/memberships/$(request.auth.uid + '_' + resource.data.companyId));
+      allow get: if isPlatformAdmin() || isMember(resource.data.companyId);
+      allow list: if isPlatformAdmin() || (isSignedIn() && exists(/databases/$(database)/documents/memberships/$(request.auth.uid + '_' + resource.data.companyId)));
       allow create: if hasRole(incoming().companyId, ['owner', 'admin', 'staff']);
       allow update: if hasRole(existing().companyId, ['owner', 'admin', 'staff']) &&
                     incoming().companyId == existing().companyId;
@@ -252,12 +277,12 @@ service cloud.firestore {
     }
 
     match /activities/{id} {
-      allow read: if isMember(resource.data.companyId);
+      allow read: if isPlatformAdmin() || isMember(resource.data.companyId);
       allow create: if isMember(incoming().companyId) || isMemberAfter(incoming().companyId);
     }
     
     match /aiInsights/{insightId} {
-      allow read: if hasRole(resource.data.companyId, ['owner', 'admin']);
+      allow read: if isPlatformAdmin() || hasRole(resource.data.companyId, ['owner', 'admin']);
       allow write: if false; // System only
     }
   }
