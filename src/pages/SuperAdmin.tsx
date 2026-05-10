@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
+  Activity,
   AlertTriangle,
   ArrowUpRight,
   Building2,
@@ -7,14 +8,17 @@ import {
   DollarSign,
   Flame,
   Layers3,
+  Loader2,
+  Radar,
   RefreshCcw,
   Save,
   ShieldCheck,
   ShoppingBag,
   Sparkles,
+  TrendingUp,
   Users,
 } from 'lucide-react';
-import { collection, doc, getDocs, serverTimestamp, setDoc } from 'firebase/firestore';
+import { addDoc, collection, doc, getDocs, serverTimestamp, setDoc, writeBatch } from 'firebase/firestore';
 import type { ComponentType } from 'react';
 import { Button, Card, cn, Input, Label } from '../components/Common';
 import { db } from '../lib/firebase';
@@ -75,7 +79,9 @@ interface OrderDoc {
   id: string;
   companyId: string;
   total?: number;
+  totalAmount?: number;
   status?: string;
+  createdAt?: any;
 }
 
 interface PlatformMetrics {
@@ -96,6 +102,11 @@ interface PlatformMetrics {
   companiesWithoutOrders: number;
   trialExpiringSoon: number;
   ownerlessCompanies: number;
+  estimatedArr: number;
+  monthlyPlatformSales: number;
+  statsCoverage: number;
+  activeNoConversionCompanies: number;
+  pastDueWatchCount: number;
 }
 
 interface CompanyRow {
@@ -123,6 +134,19 @@ interface CompanyRow {
   orders: number;
   revenue: number;
   createdAt?: any;
+}
+
+interface CompanyStatsDoc {
+  companyId: string;
+  ordersCount: number;
+  customersCount: number;
+  productsCount: number;
+  lifetimeRevenue: number;
+  monthlyRevenue: number;
+  lastOrderAt?: any;
+  firstOrderAt?: any;
+  activeUsers: number;
+  updatedAt?: any;
 }
 
 interface UserRow {
@@ -160,6 +184,14 @@ interface CompanyControlForm {
   notes: string;
 }
 
+interface PlatformAuditLog {
+  type: string;
+  companyId?: string;
+  actorUid: string;
+  payload?: Record<string, unknown>;
+  createdAt?: unknown;
+}
+
 const PLAN_MRR: Record<string, number> = {
   starter: 29,
   pro: 99,
@@ -179,6 +211,17 @@ function compareByCreatedAtDesc<T extends { createdAt?: any }>(items: T[]) {
     const bTime = toDate(b.createdAt)?.getTime() || 0;
     return bTime - aTime;
   });
+}
+
+function normalizeOrderTotal(order: OrderDoc) {
+  return order.totalAmount ?? order.total ?? 0;
+}
+
+function isCurrentMonth(value: any) {
+  const date = toDate(value);
+  if (!date) return false;
+  const now = new Date();
+  return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth();
 }
 
 function SuperMetricCard({
@@ -234,11 +277,17 @@ export function SuperAdmin() {
     companiesWithoutOrders: 0,
     trialExpiringSoon: 0,
     ownerlessCompanies: 0,
+    estimatedArr: 0,
+    monthlyPlatformSales: 0,
+    statsCoverage: 0,
+    activeNoConversionCompanies: 0,
+    pastDueWatchCount: 0,
   });
   const [companiesTable, setCompaniesTable] = useState<CompanyRow[]>([]);
   const [usersTable, setUsersTable] = useState<UserRow[]>([]);
   const [latestUsers, setLatestUsers] = useState<UserRow[]>([]);
   const [companyControls, setCompanyControls] = useState<Record<string, PlatformCompanyControlDoc>>({});
+  const [companyStats, setCompanyStats] = useState<Record<string, CompanyStatsDoc>>({});
   const [controlForm, setControlForm] = useState<CompanyControlForm>({
     lifecycleStatus: 'active',
     priority: 'normal',
@@ -247,6 +296,7 @@ export function SuperAdmin() {
     notes: '',
   });
   const [savingControl, setSavingControl] = useState(false);
+  const [syncingStats, setSyncingStats] = useState(false);
   const [controlFeedback, setControlFeedback] = useState<string | null>(null);
 
   useEffect(() => {
@@ -265,6 +315,7 @@ export function SuperAdmin() {
           customersSnap,
           ordersSnap,
           controlsSnap,
+          statsSnap,
         ] = await Promise.all([
           getDocs(collection(db, 'companies')),
           getDocs(collection(db, 'users')),
@@ -273,6 +324,7 @@ export function SuperAdmin() {
           getDocs(collection(db, 'customers')),
           getDocs(collection(db, 'orders')),
           getDocs(collection(db, 'platformCompanyControls')),
+          getDocs(collection(db, 'companyStats')),
         ]);
 
         if (!isMounted) return;
@@ -285,6 +337,9 @@ export function SuperAdmin() {
         const orders = ordersSnap.docs.map((entry) => ({ id: entry.id, ...entry.data() } as OrderDoc));
         const controls = Object.fromEntries(
           controlsSnap.docs.map((entry) => [entry.id, { companyId: entry.id, ...entry.data() } as PlatformCompanyControlDoc])
+        );
+        const stats = Object.fromEntries(
+          statsSnap.docs.map((entry) => [entry.id, { companyId: entry.id, ...entry.data() } as CompanyStatsDoc])
         );
 
         const usersById = new Map(users.map((user) => [user.id, user]));
@@ -335,13 +390,17 @@ export function SuperAdmin() {
           return sum + (PLAN_MRR[planId] || 0);
         }, 0);
         const totalOrders = orders.length;
-        const totalSales = orders.reduce((sum, order) => sum + (order.total || 0), 0);
+        const totalSales = orders.reduce((sum, order) => sum + normalizeOrderTotal(order), 0);
         const averageOrderValue = totalOrders > 0 ? totalSales / totalOrders : 0;
+        const monthlyPlatformSales = orders
+          .filter((order) => isCurrentMonth(order.createdAt))
+          .reduce((sum, order) => sum + normalizeOrderTotal(order), 0);
+        const estimatedArr = estimatedMrr * 12;
 
         const companyRows: CompanyRow[] = companies.map((company) => {
           const companyMemberships = membershipsByCompany.get(company.id) || [];
           const companyOrders = ordersByCompany.get(company.id) || [];
-          const revenue = companyOrders.reduce((sum, order) => sum + (order.total || 0), 0);
+          const revenue = companyOrders.reduce((sum, order) => sum + normalizeOrderTotal(order), 0);
           const ownerMembership = companyMemberships.find((membership) => membership.role === 'owner');
           const ownerUser = ownerMembership ? usersById.get(ownerMembership.userId) : undefined;
           return {
@@ -386,6 +445,11 @@ export function SuperAdmin() {
 
         const companiesWithoutOrders = companyRows.filter((company) => company.orders === 0).length;
         const ownerlessCompanies = companyRows.filter((company) => company.ownerEmail === 'No owner email').length;
+        const statsCoverage = companies.length > 0 ? Math.round((Object.keys(stats).length / companies.length) * 100) : 0;
+        const activeNoConversionCompanies = companyRows.filter(
+          (company) => company.subscriptionStatus === 'active' && company.orders === 0
+        ).length;
+        const pastDueWatchCount = companyRows.filter((company) => company.subscriptionStatus === 'past_due').length;
         const trialExpiringSoon = companies.filter((company) => {
           if (company.subscription?.status !== 'trialing') return false;
           const trialEndsAt = toDate(company.subscription?.trialEndsAt);
@@ -413,11 +477,17 @@ export function SuperAdmin() {
           companiesWithoutOrders,
           trialExpiringSoon,
           ownerlessCompanies,
+          estimatedArr,
+          monthlyPlatformSales,
+          statsCoverage,
+          activeNoConversionCompanies,
+          pastDueWatchCount,
         });
         setCompaniesTable(compareByCreatedAtDesc(companyRows));
         setUsersTable(compareByCreatedAtDesc(userRows));
         setLatestUsers(compareByCreatedAtDesc(userRows).slice(0, 6));
         setCompanyControls(controls);
+        setCompanyStats(stats);
         if (!selectedCompanyId && companyRows.length > 0) {
           setSelectedCompanyId(compareByCreatedAtDesc(companyRows)[0].id);
         }
@@ -496,6 +566,33 @@ export function SuperAdmin() {
     [companiesTable]
   );
 
+  const trialToPaidWatchlist = useMemo(
+    () =>
+      companiesTable
+        .filter((company) => {
+          const stats = companyStats[company.id];
+          return (
+            company.subscriptionStatus === 'trialing' &&
+            ((stats?.ordersCount || company.orders) > 0 || (stats?.monthlyRevenue || 0) > 0)
+          );
+        })
+        .slice(0, 6),
+    [companiesTable, companyStats]
+  );
+
+  const pastDueWatchlist = useMemo(
+    () =>
+      companiesTable
+        .filter((company) => company.subscriptionStatus === 'past_due')
+        .sort((a, b) => {
+          const aRevenue = companyStats[a.id]?.monthlyRevenue ?? 0;
+          const bRevenue = companyStats[b.id]?.monthlyRevenue ?? 0;
+          return bRevenue - aRevenue;
+        })
+        .slice(0, 6),
+    [companiesTable, companyStats]
+  );
+
   const activationWatchlist = useMemo(
     () =>
       companiesTable
@@ -548,6 +645,25 @@ export function SuperAdmin() {
     return 'healthy';
   }, [companyControls, selectedCompany]);
 
+  const selectedStats = selectedCompany ? companyStats[selectedCompany.id] || null : null;
+  const selectedTenantAgeDays = selectedCompany
+    ? Math.max(
+        0,
+        Math.floor(((new Date()).getTime() - (toDate(selectedCompany.createdAt)?.getTime() || Date.now())) / (1000 * 60 * 60 * 24))
+      )
+    : 0;
+  const selectedMonetizationPressure = selectedCompany
+    ? selectedCompany.subscriptionStatus === 'past_due'
+      ? t('super_admin.company_panel.pressure_high')
+      : selectedCompany.subscriptionStatus === 'trialing' && selectedCompany.orders > 0
+        ? t('super_admin.company_panel.pressure_conversion')
+        : !selectedStats
+          ? t('super_admin.company_panel.pressure_pending')
+          : (selectedStats.monthlyRevenue || 0) === 0
+            ? t('super_admin.company_panel.pressure_low_signal')
+            : t('super_admin.company_panel.pressure_healthy')
+    : '';
+
   useEffect(() => {
     if (!selectedCompany) return;
     const existingControl = companyControls[selectedCompany.id];
@@ -593,12 +709,109 @@ export function SuperAdmin() {
           updatedBy: platformAdmin.uid,
         },
       }));
+      await addDoc(collection(db, 'platformAuditLogs'), {
+        type: 'company_control_updated',
+        companyId: selectedCompany.id,
+        actorUid: platformAdmin.uid,
+        payload: {
+          lifecycleStatus: controlForm.lifecycleStatus,
+          priority: controlForm.priority,
+        },
+        createdAt: serverTimestamp(),
+      } as PlatformAuditLog);
       setControlFeedback(t('super_admin.company_panel.saved'));
     } catch (saveError) {
       console.error('Failed to save platform company control:', saveError);
       setControlFeedback(t('super_admin.company_panel.save_failed'));
     } finally {
       setSavingControl(false);
+    }
+  };
+
+  const syncCompanyStats = async () => {
+    if (!platformAdmin?.uid) return;
+    setSyncingStats(true);
+    setError(null);
+    try {
+      const [membershipsSnap, productsSnap, customersSnap, ordersSnap] = await Promise.all([
+        getDocs(collection(db, 'memberships')),
+        getDocs(collection(db, 'products')),
+        getDocs(collection(db, 'customers')),
+        getDocs(collection(db, 'orders')),
+      ]);
+
+      const memberships = membershipsSnap.docs.map((entry) => ({ id: entry.id, ...entry.data() } as MembershipDoc));
+      const products = productsSnap.docs.map((entry) => ({ id: entry.id, ...entry.data() } as ProductDoc));
+      const customers = customersSnap.docs.map((entry) => ({ id: entry.id, ...entry.data() } as CustomerDoc));
+      const orders = ordersSnap.docs.map((entry) => ({ id: entry.id, ...entry.data() } as OrderDoc));
+
+      const productsByCompany = new Map<string, number>();
+      const customersByCompany = new Map<string, number>();
+      const membershipsByCompany = new Map<string, number>();
+      const ordersByCompany = new Map<string, OrderDoc[]>();
+
+      memberships.forEach((membership) => {
+        membershipsByCompany.set(membership.companyId, (membershipsByCompany.get(membership.companyId) || 0) + 1);
+      });
+      products.forEach((product) => {
+        productsByCompany.set(product.companyId, (productsByCompany.get(product.companyId) || 0) + 1);
+      });
+      customers.forEach((customer) => {
+        customersByCompany.set(customer.companyId, (customersByCompany.get(customer.companyId) || 0) + 1);
+      });
+      orders.forEach((order) => {
+        ordersByCompany.set(order.companyId, [...(ordersByCompany.get(order.companyId) || []), order]);
+      });
+
+      const batch = writeBatch(db);
+      const nextStats: Record<string, CompanyStatsDoc> = {};
+
+      companiesTable.forEach((company) => {
+        const companyOrders = ordersByCompany.get(company.id) || [];
+        const sortedOrders = [...companyOrders].sort((a, b) => {
+          const aTime = toDate(a.createdAt)?.getTime() || 0;
+          const bTime = toDate(b.createdAt)?.getTime() || 0;
+          return aTime - bTime;
+        });
+        const payload: CompanyStatsDoc = {
+          companyId: company.id,
+          ordersCount: companyOrders.length,
+          customersCount: customersByCompany.get(company.id) || 0,
+          productsCount: productsByCompany.get(company.id) || 0,
+          lifetimeRevenue: companyOrders.reduce((sum, order) => sum + normalizeOrderTotal(order), 0),
+          monthlyRevenue: companyOrders
+            .filter((order) => isCurrentMonth(order.createdAt))
+            .reduce((sum, order) => sum + normalizeOrderTotal(order), 0),
+          firstOrderAt: sortedOrders[0]?.createdAt || null,
+          lastOrderAt: sortedOrders[sortedOrders.length - 1]?.createdAt || null,
+          activeUsers: membershipsByCompany.get(company.id) || 0,
+          updatedAt: serverTimestamp(),
+        };
+        nextStats[company.id] = payload;
+        batch.set(doc(db, 'companyStats', company.id), payload, { merge: true });
+      });
+
+      batch.set(
+        doc(collection(db, 'platformAuditLogs')),
+        {
+          type: 'company_stats_synced',
+          actorUid: platformAdmin.uid,
+          payload: {
+            companies: companiesTable.length,
+          },
+          createdAt: serverTimestamp(),
+        } as PlatformAuditLog
+      );
+
+      await batch.commit();
+      setCompanyStats((current) => ({ ...current, ...nextStats }));
+      setRefreshKey((current) => current + 1);
+      setControlFeedback(t('super_admin.metrics.sync_success'));
+    } catch (syncError) {
+      console.error('Failed to sync company stats:', syncError);
+      setError(t('super_admin.errors.stats_sync_failed'));
+    } finally {
+      setSyncingStats(false);
     }
   };
 
@@ -618,14 +831,25 @@ export function SuperAdmin() {
             </p>
           </div>
           <div className="flex flex-col gap-3 lg:w-[360px]">
-            <Button
-              variant="secondary"
-              onClick={() => setRefreshKey((current) => current + 1)}
-              className="justify-center gap-2 border-white/10 bg-black/30"
-            >
-              <RefreshCcw className="h-4 w-4" />
-              {t('super_admin.actions.refresh')}
-            </Button>
+            <div className="grid grid-cols-2 gap-3">
+              <Button
+                variant="secondary"
+                onClick={() => setRefreshKey((current) => current + 1)}
+                className="justify-center gap-2 border-white/10 bg-black/30"
+              >
+                <RefreshCcw className="h-4 w-4" />
+                {t('super_admin.actions.refresh')}
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={syncCompanyStats}
+                disabled={syncingStats}
+                className="justify-center gap-2 border-white/10 bg-black/30"
+              >
+                {syncingStats ? <Loader2 className="h-4 w-4 animate-spin" /> : <Activity className="h-4 w-4" />}
+                {t('super_admin.actions.sync_stats')}
+              </Button>
+            </div>
             <div className="grid grid-cols-2 gap-3">
             <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
               <p className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.identity')}</p>
@@ -739,6 +963,72 @@ export function SuperAdmin() {
                     <p className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.metrics.ownerless_companies')}</p>
                     <p className="mt-2 text-xl font-bold text-white">{metrics.ownerlessCompanies}</p>
                   </div>
+                </div>
+              </div>
+            </Card>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
+            <Card className="border-white/5 bg-neutral-900/40 p-5 xl:col-span-4">
+              <div className="mb-5 flex items-center justify-between">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-600">{t('super_admin.metrics.revenue')}</p>
+                  <h2 className="mt-2 text-lg font-bold text-white">{t('super_admin.metrics.arr_estimated')}</h2>
+                </div>
+                <TrendingUp className="h-5 w-5 text-emerald-300" />
+              </div>
+              <div className="space-y-3">
+                <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-4">
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.metrics.arr_estimated')}</p>
+                  <p className="mt-3 text-2xl font-bold text-white">{formatCurrency(metrics.estimatedArr)}</p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-4">
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.metrics.monthly_platform_sales')}</p>
+                  <p className="mt-3 text-2xl font-bold text-white">{formatCurrency(metrics.monthlyPlatformSales)}</p>
+                </div>
+              </div>
+            </Card>
+
+            <Card className="border-white/5 bg-neutral-900/40 p-5 xl:col-span-4">
+              <div className="mb-5 flex items-center justify-between">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-600">{t('super_admin.metrics.activation')}</p>
+                  <h2 className="mt-2 text-lg font-bold text-white">{t('super_admin.metrics.conversion_watch')}</h2>
+                </div>
+                <Radar className="h-5 w-5 text-blue-300" />
+              </div>
+              <div className="space-y-3">
+                <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.metrics.trial_to_paid_watch')}</p>
+                  <p className="mt-2 text-xl font-bold text-white">{trialToPaidWatchlist.length}</p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.metrics.active_no_conversion')}</p>
+                  <p className="mt-2 text-xl font-bold text-white">{metrics.activeNoConversionCompanies}</p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.metrics.stats_coverage')}</p>
+                  <p className="mt-2 text-xl font-bold text-white">{metrics.statsCoverage}%</p>
+                </div>
+              </div>
+            </Card>
+
+            <Card className="border-white/5 bg-neutral-900/40 p-5 xl:col-span-4">
+              <div className="mb-5 flex items-center justify-between">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-600">{t('super_admin.alerts.label')}</p>
+                  <h2 className="mt-2 text-lg font-bold text-white">{t('super_admin.metrics.billing_watch')}</h2>
+                </div>
+                <CreditCard className="h-5 w-5 text-amber-300" />
+              </div>
+              <div className="space-y-3">
+                <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.metrics.past_due_watch')}</p>
+                  <p className="mt-2 text-xl font-bold text-white">{metrics.pastDueWatchCount}</p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.metrics.trial_expiring_soon')}</p>
+                  <p className="mt-2 text-xl font-bold text-white">{metrics.trialExpiringSoon}</p>
                 </div>
               </div>
             </Card>
@@ -912,6 +1202,30 @@ export function SuperAdmin() {
                         <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.tables.revenue')}</p>
                         <p className="mt-2 text-xl font-bold text-white">{formatCurrency(selectedCompany.revenue)}</p>
                       </div>
+                    </div>
+
+                    <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                      <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.company_panel.commercial')}</p>
+                      {selectedStats ? (
+                        <>
+                          <div className="mt-3 grid grid-cols-2 gap-3">
+                            <div><p className="text-[10px] text-neutral-600">{t('super_admin.company_panel.lifetime_revenue')}</p><p className="mt-1 text-lg font-bold text-white">{formatCurrency(selectedStats.lifetimeRevenue)}</p></div>
+                            <div><p className="text-[10px] text-neutral-600">{t('super_admin.company_panel.monthly_revenue')}</p><p className="mt-1 text-lg font-bold text-white">{formatCurrency(selectedStats.monthlyRevenue)}</p></div>
+                            <div><p className="text-[10px] text-neutral-600">{t('super_admin.company_panel.last_sale')}</p><p className="mt-1 text-sm font-semibold text-white">{toDate(selectedStats.lastOrderAt)?.toLocaleDateString() || '-'}</p></div>
+                            <div><p className="text-[10px] text-neutral-600">{t('super_admin.company_panel.first_sale')}</p><p className="mt-1 text-sm font-semibold text-white">{toDate(selectedStats.firstOrderAt)?.toLocaleDateString() || '-'}</p></div>
+                            <div><p className="text-[10px] text-neutral-600">{t('super_admin.company_panel.active_users')}</p><p className="mt-1 text-lg font-bold text-white">{selectedStats.activeUsers}</p></div>
+                            <div><p className="text-[10px] text-neutral-600">{t('super_admin.company_panel.tenant_age')}</p><p className="mt-1 text-lg font-bold text-white">{selectedTenantAgeDays}d</p></div>
+                          </div>
+                          <div className="mt-4 rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                            <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.company_panel.monetization_pressure')}</p>
+                            <p className="mt-2 text-sm font-semibold text-white">{selectedMonetizationPressure}</p>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="mt-3 rounded-2xl border border-dashed border-white/10 bg-black/30 px-4 py-6 text-center text-sm text-neutral-500">
+                          {t('super_admin.company_panel.stats_pending')}
+                        </div>
+                      )}
                     </div>
 
                     <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
@@ -1143,6 +1457,54 @@ export function SuperAdmin() {
                       <p className="mt-1 text-[11px] text-neutral-400">{user.email}</p>
                     </div>
                   ))}
+                </div>
+              </Card>
+
+              <Card className="border-white/5 bg-neutral-900/40 p-5">
+                <div className="mb-5 flex items-center justify-between">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-600">{t('super_admin.metrics.activation')}</p>
+                    <h2 className="mt-2 text-lg font-bold text-white">{t('super_admin.metrics.trial_to_paid_watch')}</h2>
+                  </div>
+                  <Sparkles className="h-5 w-5 text-emerald-300" />
+                </div>
+                <div className="space-y-3">
+                  {trialToPaidWatchlist.length > 0 ? trialToPaidWatchlist.map((company) => (
+                    <div key={company.id} className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                      <p className="text-sm font-bold text-white">{company.name}</p>
+                      <p className="mt-1 text-[11px] text-neutral-400">
+                        {formatCurrency(companyStats[company.id]?.monthlyRevenue ?? 0)} | {company.orders} {t('super_admin.latest.orders_count')}
+                      </p>
+                    </div>
+                  )) : (
+                    <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-6 text-center text-sm text-neutral-500">
+                      {t('super_admin.metrics.no_trial_watch')}
+                    </div>
+                  )}
+                </div>
+              </Card>
+
+              <Card className="border-white/5 bg-neutral-900/40 p-5">
+                <div className="mb-5 flex items-center justify-between">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-600">{t('super_admin.alerts.label')}</p>
+                    <h2 className="mt-2 text-lg font-bold text-white">{t('super_admin.metrics.past_due_watch')}</h2>
+                  </div>
+                  <AlertTriangle className="h-5 w-5 text-red-300" />
+                </div>
+                <div className="space-y-3">
+                  {pastDueWatchlist.length > 0 ? pastDueWatchlist.map((company) => (
+                    <div key={company.id} className="rounded-2xl border border-red-500/10 bg-red-500/[0.06] px-4 py-3">
+                      <p className="text-sm font-bold text-white">{company.name}</p>
+                      <p className="mt-1 text-[11px] text-neutral-300">
+                        {formatCurrency(companyStats[company.id]?.monthlyRevenue ?? 0)} | {company.ownerEmail}
+                      </p>
+                    </div>
+                  )) : (
+                    <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-6 text-center text-sm text-neutral-500">
+                      {t('super_admin.metrics.no_past_due_watch')}
+                    </div>
+                  )}
                 </div>
               </Card>
             </div>

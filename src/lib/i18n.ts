@@ -658,11 +658,13 @@ const resources = {
         identity: 'Operator',
         role: 'Role',
         actions: {
-          refresh: 'Refresh data'
+          refresh: 'Refresh data',
+          sync_stats: 'Sync stats'
         },
         loading: 'Loading platform console...',
         errors: {
-          load_failed: 'Failed to load platform metrics.'
+          load_failed: 'Failed to load platform metrics.',
+          stats_sync_failed: 'Failed to sync company stats.'
         },
         metrics: {
           total_companies: 'Total companies',
@@ -683,12 +685,23 @@ const resources = {
           estimated_mrr: 'Estimated MRR',
           projected_mrr: 'Projected MRR',
           mrr_note: 'MRR is estimated from company subscriptions using current plan pricing and active or past_due states.',
+          sync_success: 'Company stats synced successfully.',
           activation: 'Activation pulse',
           activation_title: 'Conversion and retention watch',
+          conversion_watch: 'Conversion watch',
           average_order_value: 'Average order value',
           companies_without_orders: 'Companies without orders',
           trial_expiring_soon: 'Trials expiring in 7d',
-          ownerless_companies: 'Companies without owner map'
+          ownerless_companies: 'Companies without owner map',
+          arr_estimated: 'Estimated ARR',
+          monthly_platform_sales: 'Monthly platform sales',
+          stats_coverage: 'Stats coverage',
+          active_no_conversion: 'Active with no conversion',
+          trial_to_paid_watch: 'Trial to paid watch',
+          past_due_watch: 'Past due watch',
+          billing_watch: 'Billing watch',
+          no_trial_watch: 'No high-intent trial accounts right now.',
+          no_past_due_watch: 'No past due accounts right now.'
         },
         tables: {
           companies_label: 'Registry stream',
@@ -754,6 +767,20 @@ const resources = {
           onboarding: 'Onboarding checklist',
           onboarding_step: 'Current onboarding step: {{step}}',
           usage: 'Usage footprint',
+          commercial: 'Commercial view',
+          lifetime_revenue: 'Lifetime revenue',
+          monthly_revenue: 'Monthly revenue',
+          last_sale: 'Last sale',
+          first_sale: 'First sale',
+          active_users: 'Active users',
+          tenant_age: 'Tenant age',
+          monetization_pressure: 'Monetization pressure',
+          pressure_high: 'High pressure: billing follow-up required.',
+          pressure_conversion: 'Healthy trial activity: push conversion before trial ends.',
+          pressure_pending: 'Stats pending: sync tenant metrics before deciding.',
+          pressure_low_signal: 'Low signal: account active but monetization is still weak.',
+          pressure_healthy: 'Healthy monetization signal.',
+          stats_pending: 'No stats yet. Run a stats sync to initialize monetization metrics.',
           controls_label: 'Platform control',
           controls_title: 'Internal control overlay',
           controls_note: 'These controls are platform-only and do not mutate tenant billing or orders.',
@@ -1452,11 +1479,13 @@ const resources = {
         identity: 'Operador',
         role: 'Rol',
         actions: {
-          refresh: 'Actualizar datos'
+          refresh: 'Actualizar datos',
+          sync_stats: 'Sincronizar stats'
         },
         loading: 'Cargando consola de plataforma...',
         errors: {
-          load_failed: 'No se pudieron cargar las m\u00e9tricas de la plataforma.'
+          load_failed: 'No se pudieron cargar las m\u00e9tricas de la plataforma.',
+          stats_sync_failed: 'No se pudieron sincronizar las stats de empresa.'
         },
         metrics: {
           total_companies: 'Empresas totales',
@@ -1477,12 +1506,23 @@ const resources = {
           estimated_mrr: 'MRR estimado',
           projected_mrr: 'MRR proyectado',
           mrr_note: 'El MRR se estima usando la suscripci\u00f3n actual de cada empresa y los planes activos o past_due.',
+          sync_success: 'Stats de empresas sincronizadas correctamente.',
           activation: 'Pulso de activaci\u00f3n',
           activation_title: 'Vigilancia de conversi\u00f3n y retenci\u00f3n',
+          conversion_watch: 'Monitor de conversi\u00f3n',
           average_order_value: 'Ticket promedio',
           companies_without_orders: 'Empresas sin pedidos',
           trial_expiring_soon: 'Trials por vencer en 7 d\u00edas',
-          ownerless_companies: 'Empresas sin owner mapeado'
+          ownerless_companies: 'Empresas sin owner mapeado',
+          arr_estimated: 'ARR estimado',
+          monthly_platform_sales: 'Ventas mensuales de la plataforma',
+          stats_coverage: 'Cobertura de stats',
+          active_no_conversion: 'Activas sin conversi\u00f3n',
+          trial_to_paid_watch: 'Watch trial -> pago',
+          past_due_watch: 'Watch past due',
+          billing_watch: 'Vigilancia de cobro',
+          no_trial_watch: 'No hay cuentas trial con alta intenci\u00f3n ahora mismo.',
+          no_past_due_watch: 'No hay cuentas past due ahora mismo.'
         },
         tables: {
           companies_label: 'Flujo de empresas',
@@ -1548,6 +1588,20 @@ const resources = {
           onboarding: 'Checklist de onboarding',
           onboarding_step: 'Paso actual de onboarding: {{step}}',
           usage: 'Huella de uso',
+          commercial: 'Vista comercial',
+          lifetime_revenue: 'Revenue acumulado',
+          monthly_revenue: 'Revenue mensual',
+          last_sale: '\u00daltima venta',
+          first_sale: 'Primera venta',
+          active_users: 'Usuarios activos',
+          tenant_age: 'Edad del tenant',
+          monetization_pressure: 'Presi\u00f3n de monetizaci\u00f3n',
+          pressure_high: 'Presi\u00f3n alta: requiere seguimiento de cobro.',
+          pressure_conversion: 'Trial saludable con actividad: empujar conversi\u00f3n antes del vencimiento.',
+          pressure_pending: 'Stats pendientes: sincroniza las m\u00e9tricas antes de decidir.',
+          pressure_low_signal: 'Se\u00f1al baja: la cuenta existe, pero monetiza poco.',
+          pressure_healthy: 'Se\u00f1al de monetizaci\u00f3n saludable.',
+          stats_pending: 'Todav\u00eda no hay stats. Ejecuta una sincronizaci\u00f3n para inicializar las m\u00e9tricas.',
           controls_label: 'Control de plataforma',
           controls_title: 'Overlay interno de control',
           controls_note: 'Estos controles son solo de plataforma y no alteran billing ni pedidos del tenant.',
@@ -2246,11 +2300,13 @@ const resources = {
         identity: 'Operador',
         role: 'Fun\u00e7\u00e3o',
         actions: {
-          refresh: 'Atualizar dados'
+          refresh: 'Atualizar dados',
+          sync_stats: 'Sincronizar stats'
         },
         loading: 'Carregando console da plataforma...',
         errors: {
-          load_failed: 'N\u00e3o foi poss\u00edvel carregar as m\u00e9tricas da plataforma.'
+          load_failed: 'N\u00e3o foi poss\u00edvel carregar as m\u00e9tricas da plataforma.',
+          stats_sync_failed: 'N\u00e3o foi poss\u00edvel sincronizar as stats das empresas.'
         },
         metrics: {
           total_companies: 'Empresas totais',
@@ -2271,12 +2327,23 @@ const resources = {
           estimated_mrr: 'MRR estimado',
           projected_mrr: 'MRR projetado',
           mrr_note: 'O MRR \u00e9 estimado com base no plano atual de cada empresa e assinaturas ativas ou past_due.',
+          sync_success: 'Stats das empresas sincronizadas com sucesso.',
           activation: 'Pulso de ativa\u00e7\u00e3o',
           activation_title: 'Monitor de convers\u00e3o e reten\u00e7\u00e3o',
+          conversion_watch: 'Monitor de convers\u00e3o',
           average_order_value: 'Ticket m\u00e9dio',
           companies_without_orders: 'Empresas sem pedidos',
           trial_expiring_soon: 'Trials vencendo em 7 dias',
-          ownerless_companies: 'Empresas sem owner mapeado'
+          ownerless_companies: 'Empresas sem owner mapeado',
+          arr_estimated: 'ARR estimado',
+          monthly_platform_sales: 'Vendas mensais da plataforma',
+          stats_coverage: 'Cobertura de stats',
+          active_no_conversion: 'Ativas sem convers\u00e3o',
+          trial_to_paid_watch: 'Watch trial -> pago',
+          past_due_watch: 'Watch past due',
+          billing_watch: 'Vigil\u00e2ncia de cobran\u00e7a',
+          no_trial_watch: 'N\u00e3o h\u00e1 contas trial de alta inten\u00e7\u00e3o no momento.',
+          no_past_due_watch: 'N\u00e3o h\u00e1 contas past due no momento.'
         },
         tables: {
           companies_label: 'Fluxo de empresas',
@@ -2342,6 +2409,20 @@ const resources = {
           onboarding: 'Checklist de onboarding',
           onboarding_step: 'Etapa atual do onboarding: {{step}}',
           usage: 'Pegada de uso',
+          commercial: 'Vis\u00e3o comercial',
+          lifetime_revenue: 'Receita acumulada',
+          monthly_revenue: 'Receita mensal',
+          last_sale: '\u00daltima venda',
+          first_sale: 'Primeira venda',
+          active_users: 'Usu\u00e1rios ativos',
+          tenant_age: 'Idade do tenant',
+          monetization_pressure: 'Press\u00e3o de monetiza\u00e7\u00e3o',
+          pressure_high: 'Press\u00e3o alta: requer acompanhamento de cobran\u00e7a.',
+          pressure_conversion: 'Trial saud\u00e1vel com atividade: empurrar convers\u00e3o antes do vencimento.',
+          pressure_pending: 'Stats pendentes: sincronize as m\u00e9tricas antes de decidir.',
+          pressure_low_signal: 'Sinal baixo: a conta existe, mas monetiza pouco.',
+          pressure_healthy: 'Sinal de monetiza\u00e7\u00e3o saud\u00e1vel.',
+          stats_pending: 'Ainda n\u00e3o h\u00e1 stats. Execute uma sincroniza\u00e7\u00e3o para inicializar as m\u00e9tricas.',
           controls_label: 'Controle da plataforma',
           controls_title: 'Overlay interno de controle',
           controls_note: 'Esses controles são apenas da plataforma e não alteram billing nem pedidos do tenant.',
