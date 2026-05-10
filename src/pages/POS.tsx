@@ -765,7 +765,7 @@ export function POS() {
   }
 
   return (
-    <div className="space-y-5 pb-28 xl:pb-8 xl:pl-20 2xl:pl-24">
+    <div className="space-y-5 pb-28 xl:pb-8 xl:pl-10 2xl:pl-16">
       <AnimatePresence>
         {isCommandBarOpen && (
           <>
@@ -999,7 +999,7 @@ export function POS() {
         </Card>
       )}
 
-      <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-2 xl:grid-cols-[minmax(320px,360px)_minmax(380px,1fr)_minmax(360px,400px)] 2xl:grid-cols-[360px_minmax(420px,1fr)_400px]">
+      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(280px,340px)_minmax(0,1fr)] 2xl:grid-cols-[340px_minmax(380px,1fr)_360px]">
         <Card className="p-0 overflow-hidden border-white/5 bg-neutral-900/40">
           <div className="space-y-4 border-b border-white/[0.05] bg-white/[0.01] p-5">
             <div className="flex items-center justify-between gap-4">
@@ -1022,7 +1022,7 @@ export function POS() {
             </div>
           </div>
 
-          <div className="custom-scrollbar min-h-[560px] max-h-[calc(100vh-240px)] overflow-y-auto p-4 space-y-3">
+          <div className="custom-scrollbar min-h-[480px] lg:min-h-[520px] 2xl:max-h-[calc(100vh-240px)] 2xl:overflow-y-auto p-4 space-y-3">
             {filteredProducts.map((product, index) => {
               const isLowStock = product.stockLevel <= 10;
               const isOutOfStock = product.stockLevel <= 0;
@@ -1104,8 +1104,8 @@ export function POS() {
           </div>
         </Card>
 
-        <div className="space-y-5">
-          <Card className="flex min-h-[680px] flex-col overflow-hidden border-white/5 bg-neutral-900/40 p-0">
+        <div className="space-y-5 min-w-0">
+          <Card className="flex min-h-[620px] 2xl:min-h-[680px] flex-col overflow-hidden border-white/5 bg-neutral-900/40 p-0">
             <div className="flex items-center justify-between border-b border-white/[0.05] bg-white/[0.01] p-5">
               <div>
                 <p className="mb-2 text-[10px] font-black uppercase tracking-[0.35em] text-neutral-600">{t('pos.cart.label')}</p>
@@ -1116,7 +1116,7 @@ export function POS() {
               </div>
             </div>
 
-            <div className="custom-scrollbar flex-1 min-h-[360px] max-h-[calc(100vh-310px)] overflow-y-auto p-4 space-y-3">
+            <div className="custom-scrollbar flex-1 min-h-[280px] lg:min-h-[340px] 2xl:max-h-[calc(100vh-310px)] 2xl:overflow-y-auto p-4 space-y-3">
               {cart.map((item) => {
                 const availableStock = getAvailableStock(item.productId);
                 const lineTotal = item.price * item.quantity;
@@ -1221,7 +1221,7 @@ export function POS() {
           </Card>
         </div>
 
-        <div className="custom-scrollbar space-y-5 md:col-span-2 xl:col-span-1 xl:sticky xl:top-24 xl:max-h-[calc(100vh-120px)] xl:overflow-y-auto xl:pr-1">
+        <div className="space-y-5 lg:col-span-2 2xl:col-span-1 2xl:sticky 2xl:top-24 2xl:max-h-[calc(100vh-120px)] 2xl:overflow-y-auto 2xl:pr-1">
           <Card className="space-y-4 border-white/5 bg-neutral-900/40 p-5">
             <div className="flex items-center justify-between">
               <div>
