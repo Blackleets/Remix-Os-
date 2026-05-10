@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
+  ArrowUpRight,
   Building2,
   CreditCard,
   DollarSign,
   Layers3,
+  RefreshCcw,
   ShieldCheck,
   ShoppingBag,
   Sparkles,
@@ -12,7 +14,7 @@ import {
 } from 'lucide-react';
 import { collection, getDocs } from 'firebase/firestore';
 import type { ComponentType } from 'react';
-import { Card, cn } from '../components/Common';
+import { Button, Card, cn } from '../components/Common';
 import { db } from '../lib/firebase';
 import { useLocale } from '../hooks/useLocale';
 import { usePlatformAdmin } from '../hooks/usePlatformAdmin';
@@ -65,6 +67,8 @@ interface OrderDoc {
 interface PlatformMetrics {
   totalCompanies: number;
   totalUsers: number;
+  totalProducts: number;
+  totalCustomers: number;
   activeCompanies: number;
   trialCompanies: number;
   expiredOrPastDueCompanies: number;
@@ -74,6 +78,10 @@ interface PlatformMetrics {
   estimatedMrr: number;
   totalOrders: number;
   totalSales: number;
+  averageOrderValue: number;
+  companiesWithoutOrders: number;
+  trialExpiringSoon: number;
+  ownerlessCompanies: number;
 }
 
 interface CompanyRow {
@@ -156,11 +164,14 @@ function SuperMetricCard({
 export function SuperAdmin() {
   const { t, formatCurrency } = useLocale();
   const { platformAdmin } = usePlatformAdmin();
+  const [refreshKey, setRefreshKey] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [metrics, setMetrics] = useState<PlatformMetrics>({
     totalCompanies: 0,
     totalUsers: 0,
+    totalProducts: 0,
+    totalCustomers: 0,
     activeCompanies: 0,
     trialCompanies: 0,
     expiredOrPastDueCompanies: 0,
@@ -170,10 +181,13 @@ export function SuperAdmin() {
     estimatedMrr: 0,
     totalOrders: 0,
     totalSales: 0,
+    averageOrderValue: 0,
+    companiesWithoutOrders: 0,
+    trialExpiringSoon: 0,
+    ownerlessCompanies: 0,
   });
   const [companiesTable, setCompaniesTable] = useState<CompanyRow[]>([]);
   const [usersTable, setUsersTable] = useState<UserRow[]>([]);
-  const [latestCompanies, setLatestCompanies] = useState<CompanyRow[]>([]);
   const [latestUsers, setLatestUsers] = useState<UserRow[]>([]);
 
   useEffect(() => {
@@ -258,6 +272,7 @@ export function SuperAdmin() {
         }, 0);
         const totalOrders = orders.length;
         const totalSales = orders.reduce((sum, order) => sum + (order.total || 0), 0);
+        const averageOrderValue = totalOrders > 0 ? totalSales / totalOrders : 0;
 
         const companyRows: CompanyRow[] = companies.map((company) => {
           const companyMemberships = membershipsByCompany.get(company.id) || [];
@@ -265,7 +280,6 @@ export function SuperAdmin() {
           const revenue = companyOrders.reduce((sum, order) => sum + (order.total || 0), 0);
           const ownerMembership = companyMemberships.find((membership) => membership.role === 'owner');
           const ownerUser = ownerMembership ? usersById.get(ownerMembership.userId) : undefined;
-
           return {
             id: company.id,
             name: company.name || 'Unnamed company',
@@ -293,9 +307,22 @@ export function SuperAdmin() {
           };
         });
 
+        const companiesWithoutOrders = companyRows.filter((company) => company.orders === 0).length;
+        const ownerlessCompanies = companyRows.filter((company) => company.ownerEmail === 'No owner email').length;
+        const trialExpiringSoon = companies.filter((company) => {
+          if (company.subscription?.status !== 'trialing') return false;
+          const trialEndsAt = toDate(company.subscription?.trialEndsAt);
+          if (!trialEndsAt || trialEndsAt < now) return false;
+          const diff = trialEndsAt.getTime() - now.getTime();
+          const days = diff / (1000 * 60 * 60 * 24);
+          return days <= 7;
+        }).length;
+
         setMetrics({
           totalCompanies: companies.length,
           totalUsers: users.length,
+          totalProducts: products.length,
+          totalCustomers: customers.length,
           activeCompanies,
           trialCompanies,
           expiredOrPastDueCompanies,
@@ -305,10 +332,13 @@ export function SuperAdmin() {
           estimatedMrr,
           totalOrders,
           totalSales,
+          averageOrderValue,
+          companiesWithoutOrders,
+          trialExpiringSoon,
+          ownerlessCompanies,
         });
         setCompaniesTable(compareByCreatedAtDesc(companyRows));
         setUsersTable(compareByCreatedAtDesc(userRows));
-        setLatestCompanies(compareByCreatedAtDesc(companyRows).slice(0, 6));
         setLatestUsers(compareByCreatedAtDesc(userRows).slice(0, 6));
       } catch (loadError) {
         console.error('Failed to load super admin data:', loadError);
@@ -327,7 +357,7 @@ export function SuperAdmin() {
     return () => {
       isMounted = false;
     };
-  }, [t]);
+  }, [refreshKey, t]);
 
   const alerts = useMemo<PlatformAlert[]>(() => {
     const items: PlatformAlert[] = [];
@@ -359,6 +389,15 @@ export function SuperAdmin() {
       });
     }
 
+    if (metrics.trialExpiringSoon > 0) {
+      items.push({
+        id: 'trial-window',
+        tone: 'info',
+        title: t('super_admin.alerts.trial_title'),
+        body: t('super_admin.alerts.trial_body', { count: metrics.trialExpiringSoon }),
+      });
+    }
+
     if (items.length === 0) {
       items.push({
         id: 'healthy',
@@ -371,11 +410,30 @@ export function SuperAdmin() {
     return items;
   }, [companiesTable, metrics, t]);
 
+  const revenueLeaderboard = useMemo(
+    () => [...companiesTable].sort((a, b) => b.revenue - a.revenue).slice(0, 5),
+    [companiesTable]
+  );
+
+  const activationWatchlist = useMemo(
+    () =>
+      companiesTable
+        .filter(
+          (company) =>
+            company.orders === 0 ||
+            company.subscriptionStatus === 'past_due' ||
+            company.subscriptionStatus === 'canceled' ||
+            company.ownerEmail === 'No owner email'
+        )
+        .slice(0, 6),
+    [companiesTable]
+  );
+
   return (
     <div className="space-y-8">
       <div className="relative overflow-hidden rounded-[28px] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.18),transparent_35%),linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.01))] p-8">
         <div className="absolute inset-y-0 right-0 w-1/3 bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.08),transparent_55%)] pointer-events-none" />
-        <div className="relative flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+          <div className="relative flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
           <div className="max-w-3xl">
             <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-blue-500/20 bg-blue-500/10 px-3 py-1 text-[10px] font-black uppercase tracking-[0.3em] text-blue-300">
               <ShieldCheck className="h-3.5 w-3.5" />
@@ -386,7 +444,16 @@ export function SuperAdmin() {
               {t('super_admin.subtitle')}
             </p>
           </div>
-          <div className="grid grid-cols-2 gap-3 lg:w-[360px]">
+          <div className="flex flex-col gap-3 lg:w-[360px]">
+            <Button
+              variant="secondary"
+              onClick={() => setRefreshKey((current) => current + 1)}
+              className="justify-center gap-2 border-white/10 bg-black/30"
+            >
+              <RefreshCcw className="h-4 w-4" />
+              {t('super_admin.actions.refresh')}
+            </Button>
+            <div className="grid grid-cols-2 gap-3">
             <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
               <p className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.identity')}</p>
               <p className="mt-2 text-sm font-semibold text-white truncate">{platformAdmin?.email || '...'}</p>
@@ -394,6 +461,7 @@ export function SuperAdmin() {
             <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
               <p className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.role')}</p>
               <p className="mt-2 text-sm font-semibold uppercase tracking-[0.2em] text-blue-300">{platformAdmin?.role || 'super_admin'}</p>
+            </div>
             </div>
           </div>
         </div>
@@ -409,15 +477,17 @@ export function SuperAdmin() {
         </Card>
       ) : (
         <>
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
             <SuperMetricCard icon={Building2} label={t('super_admin.metrics.total_companies')} value={String(metrics.totalCompanies)} accent="border-blue-500/20 bg-blue-500/10 text-blue-300" />
             <SuperMetricCard icon={Users} label={t('super_admin.metrics.total_users')} value={String(metrics.totalUsers)} accent="border-white/10 bg-white/[0.03] text-white" />
+            <SuperMetricCard icon={Layers3} label={t('super_admin.metrics.total_products')} value={String(metrics.totalProducts)} accent="border-violet-500/20 bg-violet-500/10 text-violet-300" />
+            <SuperMetricCard icon={ShieldCheck} label={t('super_admin.metrics.total_customers')} value={String(metrics.totalCustomers)} accent="border-cyan-500/20 bg-cyan-500/10 text-cyan-300" />
             <SuperMetricCard icon={ShoppingBag} label={t('super_admin.metrics.total_orders')} value={String(metrics.totalOrders)} accent="border-emerald-500/20 bg-emerald-500/10 text-emerald-300" />
             <SuperMetricCard icon={DollarSign} label={t('super_admin.metrics.total_sales')} value={formatCurrency(metrics.totalSales)} accent="border-amber-500/20 bg-amber-500/10 text-amber-300" />
           </div>
 
-          <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-            <Card className="border-white/5 bg-neutral-900/40 p-5 xl:col-span-2">
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
+            <Card className="border-white/5 bg-neutral-900/40 p-5 xl:col-span-6">
               <div className="mb-5 flex items-center justify-between">
                 <div>
                   <p className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-600">{t('super_admin.metrics.platform_health')}</p>
@@ -453,7 +523,7 @@ export function SuperAdmin() {
               </div>
             </Card>
 
-            <Card className="border-white/5 bg-neutral-900/40 p-5">
+            <Card className="border-white/5 bg-neutral-900/40 p-5 xl:col-span-3">
               <div className="mb-5 flex items-center justify-between">
                 <div>
                   <p className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-600">{t('super_admin.metrics.revenue')}</p>
@@ -468,6 +538,36 @@ export function SuperAdmin() {
               <p className="mt-4 text-xs leading-relaxed text-neutral-500">
                 {t('super_admin.metrics.mrr_note')}
               </p>
+            </Card>
+
+            <Card className="border-white/5 bg-neutral-900/40 p-5 xl:col-span-3">
+              <div className="mb-5 flex items-center justify-between">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-600">{t('super_admin.metrics.activation')}</p>
+                  <h2 className="mt-2 text-lg font-bold text-white">{t('super_admin.metrics.activation_title')}</h2>
+                </div>
+                <ArrowUpRight className="h-5 w-5 text-blue-300" />
+              </div>
+              <div className="space-y-3">
+                <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-4">
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.metrics.average_order_value')}</p>
+                  <p className="mt-3 text-2xl font-bold text-white">{formatCurrency(metrics.averageOrderValue)}</p>
+                </div>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 xl:grid-cols-1">
+                  <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.metrics.companies_without_orders')}</p>
+                    <p className="mt-2 text-xl font-bold text-white">{metrics.companiesWithoutOrders}</p>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.metrics.trial_expiring_soon')}</p>
+                    <p className="mt-2 text-xl font-bold text-white">{metrics.trialExpiringSoon}</p>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.metrics.ownerless_companies')}</p>
+                    <p className="mt-2 text-xl font-bold text-white">{metrics.ownerlessCompanies}</p>
+                  </div>
+                </div>
+              </div>
             </Card>
           </div>
 
@@ -584,10 +684,15 @@ export function SuperAdmin() {
                   <Layers3 className="h-5 w-5 text-blue-300" />
                 </div>
                 <div className="space-y-3">
-                  {latestCompanies.map((company) => (
+                  {revenueLeaderboard.map((company) => (
                     <div key={company.id} className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
-                      <p className="text-sm font-bold text-white">{company.name}</p>
-                      <p className="mt-1 text-[11px] text-neutral-400">{company.ownerEmail}</p>
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-bold text-white">{company.name}</p>
+                          <p className="mt-1 text-[11px] text-neutral-400">{company.orders} {t('super_admin.latest.orders_count')}</p>
+                        </div>
+                        <p className="text-[11px] font-mono font-bold text-emerald-300">{formatCurrency(company.revenue)}</p>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -602,7 +707,16 @@ export function SuperAdmin() {
                   <Users className="h-5 w-5 text-purple-300" />
                 </div>
                 <div className="space-y-3">
-                  {latestUsers.map((user) => (
+                  {activationWatchlist.length > 0 ? activationWatchlist.map((company) => (
+                    <div key={company.id} className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                      <p className="text-sm font-bold text-white">{company.name}</p>
+                      <p className="mt-1 text-[11px] text-neutral-400">
+                        {company.orders === 0
+                          ? t('super_admin.latest.no_orders_watch')
+                          : `${company.subscriptionStatus.toUpperCase()} | ${company.ownerEmail}`}
+                      </p>
+                    </div>
+                  )) : latestUsers.map((user) => (
                     <div key={user.id} className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
                       <p className="text-sm font-bold text-white">{user.displayName}</p>
                       <p className="mt-1 text-[11px] text-neutral-400">{user.email}</p>

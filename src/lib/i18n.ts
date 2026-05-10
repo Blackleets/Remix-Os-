@@ -657,6 +657,9 @@ const resources = {
         subtitle: 'Global control surface for companies, operators, subscriptions, orders, and platform health.',
         identity: 'Operator',
         role: 'Role',
+        actions: {
+          refresh: 'Refresh data'
+        },
         loading: 'Loading platform console...',
         errors: {
           load_failed: 'Failed to load platform metrics.'
@@ -664,6 +667,8 @@ const resources = {
         metrics: {
           total_companies: 'Total companies',
           total_users: 'Total users',
+          total_products: 'Total products',
+          total_customers: 'Total customers',
           total_orders: 'Platform orders',
           total_sales: 'Platform sales',
           platform_health: 'Platform health',
@@ -677,7 +682,13 @@ const resources = {
           revenue: 'Revenue core',
           estimated_mrr: 'Estimated MRR',
           projected_mrr: 'Projected MRR',
-          mrr_note: 'MRR is estimated from company subscriptions using current plan pricing and active or past_due states.'
+          mrr_note: 'MRR is estimated from company subscriptions using current plan pricing and active or past_due states.',
+          activation: 'Activation pulse',
+          activation_title: 'Conversion and retention watch',
+          average_order_value: 'Average order value',
+          companies_without_orders: 'Companies without orders',
+          trial_expiring_soon: 'Trials expiring in 7d',
+          ownerless_companies: 'Companies without owner map'
         },
         tables: {
           companies_label: 'Registry stream',
@@ -701,9 +712,11 @@ const resources = {
         },
         latest: {
           companies_label: 'Latest companies',
-          companies_title: 'Newest companies',
+          companies_title: 'Revenue leaderboard',
           users_label: 'Latest users',
-          users_title: 'Newest users'
+          users_title: 'Activation watchlist',
+          orders_count: 'orders',
+          no_orders_watch: 'No orders recorded yet'
         },
         alerts: {
           label: 'Alert matrix',
@@ -714,6 +727,8 @@ const resources = {
           owner_body: 'At least one company is missing a clear owner email mapping.',
           orders_title: 'No order activity yet',
           orders_body: 'The platform has companies but no recorded orders yet.',
+          trial_title: 'Trial window closing',
+          trial_body: '{{count}} trial companies are within the next 7 days of expiration.',
           healthy_title: 'Platform stable',
           healthy_body: 'No immediate global alerts were detected.'
         }
@@ -1374,6 +1389,9 @@ const resources = {
         subtitle: 'Supervisa empresas, operadores, suscripciones, pedidos y salud global de Remix OS desde una sola consola.',
         identity: 'Operador',
         role: 'Rol',
+        actions: {
+          refresh: 'Actualizar datos'
+        },
         loading: 'Cargando consola de plataforma...',
         errors: {
           load_failed: 'No se pudieron cargar las m\u00e9tricas de la plataforma.'
@@ -1381,6 +1399,8 @@ const resources = {
         metrics: {
           total_companies: 'Empresas totales',
           total_users: 'Usuarios totales',
+          total_products: 'Productos totales',
+          total_customers: 'Clientes totales',
           total_orders: 'Pedidos de la plataforma',
           total_sales: 'Ventas de la plataforma',
           platform_health: 'Salud de plataforma',
@@ -1394,7 +1414,13 @@ const resources = {
           revenue: 'N\u00facleo de ingresos',
           estimated_mrr: 'MRR estimado',
           projected_mrr: 'MRR proyectado',
-          mrr_note: 'El MRR se estima usando la suscripci\u00f3n actual de cada empresa y los planes activos o past_due.'
+          mrr_note: 'El MRR se estima usando la suscripci\u00f3n actual de cada empresa y los planes activos o past_due.',
+          activation: 'Pulso de activaci\u00f3n',
+          activation_title: 'Vigilancia de conversi\u00f3n y retenci\u00f3n',
+          average_order_value: 'Ticket promedio',
+          companies_without_orders: 'Empresas sin pedidos',
+          trial_expiring_soon: 'Trials por vencer en 7 d\u00edas',
+          ownerless_companies: 'Empresas sin owner mapeado'
         },
         tables: {
           companies_label: 'Flujo de empresas',
@@ -1418,9 +1444,11 @@ const resources = {
         },
         latest: {
           companies_label: '\u00daltimas empresas',
-          companies_title: 'Empresas recientes',
+          companies_title: 'Ranking de revenue',
           users_label: '\u00daltimos usuarios',
-          users_title: 'Usuarios recientes'
+          users_title: 'Watchlist de activaci\u00f3n',
+          orders_count: 'pedidos',
+          no_orders_watch: 'Todav\u00eda sin pedidos'
         },
         alerts: {
           label: 'Matriz de alertas',
@@ -1431,6 +1459,8 @@ const resources = {
           owner_body: 'Al menos una empresa no tiene un email de owner claramente vinculado.',
           orders_title: 'A\u00fan no hay pedidos',
           orders_body: 'La plataforma tiene empresas, pero todav\u00eda no registra pedidos.',
+          trial_title: 'Ventana de trial cerr\u00e1ndose',
+          trial_body: '{{count}} empresas en trial vencen dentro de los pr\u00f3ximos 7 d\u00edas.',
           healthy_title: 'Plataforma estable',
           healthy_body: 'No se detectaron alertas globales inmediatas.'
         }
@@ -2091,6 +2121,9 @@ const resources = {
         subtitle: 'Controle empresas, operadores, assinaturas, pedidos e a sa\u00fade global do Remix OS em uma s\u00f3 superf\u00edcie.',
         identity: 'Operador',
         role: 'Fun\u00e7\u00e3o',
+        actions: {
+          refresh: 'Atualizar dados'
+        },
         loading: 'Carregando console da plataforma...',
         errors: {
           load_failed: 'N\u00e3o foi poss\u00edvel carregar as m\u00e9tricas da plataforma.'
@@ -2098,6 +2131,8 @@ const resources = {
         metrics: {
           total_companies: 'Empresas totais',
           total_users: 'Usu\u00e1rios totais',
+          total_products: 'Produtos totais',
+          total_customers: 'Clientes totais',
           total_orders: 'Pedidos da plataforma',
           total_sales: 'Vendas da plataforma',
           platform_health: 'Sa\u00fade da plataforma',
@@ -2111,7 +2146,13 @@ const resources = {
           revenue: 'N\u00facleo de receita',
           estimated_mrr: 'MRR estimado',
           projected_mrr: 'MRR projetado',
-          mrr_note: 'O MRR \u00e9 estimado com base no plano atual de cada empresa e assinaturas ativas ou past_due.'
+          mrr_note: 'O MRR \u00e9 estimado com base no plano atual de cada empresa e assinaturas ativas ou past_due.',
+          activation: 'Pulso de ativa\u00e7\u00e3o',
+          activation_title: 'Monitor de convers\u00e3o e reten\u00e7\u00e3o',
+          average_order_value: 'Ticket m\u00e9dio',
+          companies_without_orders: 'Empresas sem pedidos',
+          trial_expiring_soon: 'Trials vencendo em 7 dias',
+          ownerless_companies: 'Empresas sem owner mapeado'
         },
         tables: {
           companies_label: 'Fluxo de empresas',
@@ -2135,9 +2176,11 @@ const resources = {
         },
         latest: {
           companies_label: '\u00daltimas empresas',
-          companies_title: 'Empresas recentes',
+          companies_title: 'Ranking de receita',
           users_label: '\u00daltimos usu\u00e1rios',
-          users_title: 'Usu\u00e1rios recentes'
+          users_title: 'Watchlist de ativa\u00e7\u00e3o',
+          orders_count: 'pedidos',
+          no_orders_watch: 'Ainda sem pedidos'
         },
         alerts: {
           label: 'Matriz de alertas',
@@ -2148,6 +2191,8 @@ const resources = {
           owner_body: 'Pelo menos uma empresa est\u00e1 sem email de owner claramente associado.',
           orders_title: 'Ainda sem pedidos',
           orders_body: 'A plataforma j\u00e1 possui empresas, mas ainda n\u00e3o registra pedidos.',
+          trial_title: 'Janela de trial fechando',
+          trial_body: '{{count}} empresas em trial vencem nos pr\u00f3ximos 7 dias.',
           healthy_title: 'Plataforma est\u00e1vel',
           healthy_body: 'Nenhum alerta global imediato foi detectado.'
         }
