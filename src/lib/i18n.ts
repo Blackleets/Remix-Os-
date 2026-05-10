@@ -265,11 +265,65 @@ const resources = {
         outflow: 'Outflow [-]',
         quantity: 'Quantity',
         rationale: 'Adjustment Rationale',
-        rationale_placeholder: 'e.g. SYSTEM_SYNC_ERROR',
+        rationale_required: 'Rationale is required so the audit log captures every manual change.',
+        rationale_placeholder: 'e.g. damaged_unit, supplier_return, recount',
         commit: 'Commit Adjustment',
         access_denied: 'Vector Lock Active',
         access_denied_desc: 'Your designated identity role lack the clearance required for manual stock manipulation.',
         movement_logs: 'Movement Logs',
+        tiles: {
+          total_stock: 'Stock units',
+          total_value: 'Stock retail value',
+          estimated_margin: 'Estimated margin',
+          alerts: 'Stock alerts',
+          alerts_subtitle: '{{low}} low · {{out}} out',
+          coverage: 'Cost coverage'
+        },
+        chart: {
+          title: 'Movement velocity',
+          subtitle: 'Inflow vs outflow per day · last 30 days',
+          inflow: 'Inflow',
+          outflow: 'Outflow',
+          empty: 'No movements in the last 30 days.'
+        },
+        alerts_panel: {
+          title: 'Stock alerts',
+          subtitle: 'Items needing attention',
+          tab_low: 'Low stock',
+          tab_out: 'Out of stock',
+          tab_no_sku: 'Without SKU',
+          tab_no_cost: 'No cost price',
+          empty_low: 'All stock levels are healthy.',
+          empty_out: 'Nothing is out of stock right now.',
+          empty_no_sku: 'Every product has a SKU registered.',
+          empty_no_cost: 'Every product has a cost price set, margins are computable.',
+          stock_remaining: '{{count}} units left',
+          out_label: 'Out of stock',
+          fix_now: 'Open in catalog'
+        },
+        reorder: {
+          title: 'Reorder suggestions',
+          subtitle: 'Outpacing stock in the last 30 days',
+          urgent: 'Urgent',
+          recommended: 'Recommended',
+          empty: 'Outflow rate is sustainable for current stock levels.',
+          movement_label: '{{out}} sold · {{stock}} left'
+        },
+        history: {
+          title: 'Movement history',
+          subtitle_for: 'Recent movements for {{name}}',
+          empty: 'No movements logged for this product yet.',
+          inflow: 'Inflow',
+          outflow: 'Outflow'
+        },
+        filters: {
+          type_all: 'All types',
+          type_in: 'Inflow',
+          type_out: 'Outflow',
+          product_all: 'All products',
+          no_match: 'No movements match the active filters.',
+          reset: 'Reset filters'
+        },
         table: {
           timestamp: 'Timestamp',
           asset: 'Asset Identity',
@@ -1013,11 +1067,65 @@ const resources = {
         outflow: 'Salida [-]',
         quantity: 'Cantidad',
         rationale: 'Razón del Ajuste',
-        rationale_placeholder: 'ej. ERROR_SINC_SISTEMA',
+        rationale_required: 'La razón es obligatoria para que el log de auditoría capture cada cambio manual.',
+        rationale_placeholder: 'ej. unidad_dañada, devolución_proveedor, recuento',
         commit: 'Confirmar Ajuste',
         access_denied: 'Bloqueo de Vector Activo',
         access_denied_desc: 'Su rol de identidad designado carece de la autorización requerida para la manipulación manual de stock.',
         movement_logs: 'Registros de Movimiento',
+        tiles: {
+          total_stock: 'Unidades en stock',
+          total_value: 'Valor de venta del stock',
+          estimated_margin: 'Margen estimado',
+          alerts: 'Alertas de stock',
+          alerts_subtitle: '{{low}} bajo · {{out}} agotado',
+          coverage: 'Cobertura de costo'
+        },
+        chart: {
+          title: 'Velocidad de movimientos',
+          subtitle: 'Entradas vs salidas por día · últimos 30 días',
+          inflow: 'Entradas',
+          outflow: 'Salidas',
+          empty: 'Sin movimientos en los últimos 30 días.'
+        },
+        alerts_panel: {
+          title: 'Alertas de stock',
+          subtitle: 'Productos que requieren atención',
+          tab_low: 'Stock bajo',
+          tab_out: 'Sin stock',
+          tab_no_sku: 'Sin SKU',
+          tab_no_cost: 'Sin precio de costo',
+          empty_low: 'Todos los niveles de stock están saludables.',
+          empty_out: 'Ningún producto está agotado.',
+          empty_no_sku: 'Todos los productos tienen SKU registrado.',
+          empty_no_cost: 'Todos los productos tienen precio de costo, los márgenes son calculables.',
+          stock_remaining: '{{count}} unidades restantes',
+          out_label: 'Agotado',
+          fix_now: 'Abrir en catálogo'
+        },
+        reorder: {
+          title: 'Sugerencias de reposición',
+          subtitle: 'Salidas superan al stock en los últimos 30 días',
+          urgent: 'Urgente',
+          recommended: 'Recomendado',
+          empty: 'La rotación de salidas es sostenible para el stock actual.',
+          movement_label: '{{out}} vendidas · {{stock}} restantes'
+        },
+        history: {
+          title: 'Historial de movimientos',
+          subtitle_for: 'Movimientos recientes de {{name}}',
+          empty: 'Aún no hay movimientos registrados para este producto.',
+          inflow: 'Entrada',
+          outflow: 'Salida'
+        },
+        filters: {
+          type_all: 'Todos los tipos',
+          type_in: 'Entrada',
+          type_out: 'Salida',
+          product_all: 'Todos los productos',
+          no_match: 'Ningún movimiento coincide con los filtros activos.',
+          reset: 'Limpiar filtros'
+        },
         table: {
           timestamp: 'Marca de Tiempo',
           asset: 'Identidad del Activo',
