@@ -204,6 +204,75 @@
       },
       "required": ["companyId", "type", "title", "createdAt"]
     },
+    "CompanyStats": {
+      "title": "Company Stats",
+      "description": "Aggregated platform-facing company metrics for Super Admin monetization.",
+      "type": "object",
+      "properties": {
+        "companyId": { "type": "string" },
+        "ordersCount": { "type": "number" },
+        "customersCount": { "type": "number" },
+        "productsCount": { "type": "number" },
+        "lifetimeRevenue": { "type": "number" },
+        "monthlyRevenue": { "type": "number" },
+        "lastOrderAt": { "type": "string", "format": "date-time" },
+        "firstOrderAt": { "type": "string", "format": "date-time" },
+        "activeUsers": { "type": "number" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["companyId", "ordersCount", "customersCount", "productsCount", "lifetimeRevenue", "monthlyRevenue", "activeUsers"]
+    },
+    "CompanyBillingStats": {
+      "title": "Company Billing Stats",
+      "description": "Stripe-backed monetization snapshot for Super Admin billing visibility.",
+      "type": "object",
+      "properties": {
+        "companyId": { "type": "string" },
+        "stripeCustomerId": { "type": "string" },
+        "planId": { "type": "string", "enum": ["starter", "pro", "business"] },
+        "subscriptionStatus": { "type": "string" },
+        "mrr": { "type": "number" },
+        "arr": { "type": "number" },
+        "currency": { "type": "string" },
+        "currentPeriodEnd": { "type": "string", "format": "date-time" },
+        "trialEndsAt": { "type": "string", "format": "date-time" },
+        "pastDue": { "type": "boolean" },
+        "cancelAtPeriodEnd": { "type": "boolean" },
+        "lastInvoiceAt": { "type": "string", "format": "date-time" },
+        "lastPaymentStatus": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["companyId", "mrr", "arr", "pastDue", "cancelAtPeriodEnd"]
+    },
+    "PlatformCompanyControl": {
+      "title": "Platform Company Control",
+      "description": "Internal platform overlay for tenant lifecycle and follow-up control.",
+      "type": "object",
+      "properties": {
+        "companyId": { "type": "string" },
+        "lifecycleStatus": { "type": "string", "enum": ["active", "watch", "internal_hold", "suspended"] },
+        "priority": { "type": "string", "enum": ["low", "normal", "high", "critical"] },
+        "nextAction": { "type": "string" },
+        "assignedTo": { "type": "string" },
+        "notes": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "updatedBy": { "type": "string" }
+      },
+      "required": ["companyId", "lifecycleStatus", "priority"]
+    },
+    "PlatformAuditLog": {
+      "title": "Platform Audit Log",
+      "description": "Owner-level audit trail for Super Admin actions.",
+      "type": "object",
+      "properties": {
+        "type": { "type": "string" },
+        "companyId": { "type": "string" },
+        "actorUid": { "type": "string" },
+        "payload": { "type": "object" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["type", "actorUid", "createdAt"]
+    },
     "Reminder": {
       "title": "Reminder",
       "description": "Follow-up tasks for customers",
@@ -293,6 +362,22 @@
     "/activities/{activityId}": {
       "schema": "Activity",
       "description": "Audit trail"
+    },
+    "/companyStats/{companyId}": {
+      "schema": "CompanyStats",
+      "description": "Aggregated monetization and usage metrics for Super Admin"
+    },
+    "/companyBillingStats/{companyId}": {
+      "schema": "CompanyBillingStats",
+      "description": "Stripe-backed billing metrics for Super Admin monetization"
+    },
+    "/platformCompanyControls/{companyId}": {
+      "schema": "PlatformCompanyControl",
+      "description": "Internal tenant control overlay for platform operations"
+    },
+    "/platformAuditLogs/{logId}": {
+      "schema": "PlatformAuditLog",
+      "description": "Platform-level audit log for owner actions"
     }
   }
 }

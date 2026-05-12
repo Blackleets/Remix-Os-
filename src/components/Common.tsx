@@ -11,17 +11,27 @@ export const Button = React.forwardRef<
   React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'secondary' | 'ghost' | 'danger' }
 >(({ className, variant = 'primary', ...props }, ref) => {
   const variants = {
-    primary: 'bg-white text-black hover:bg-neutral-200 shadow-[0_0_20px_rgba(255,255,255,0.1)]',
-    secondary: 'bg-white/5 text-white border border-white/10 hover:bg-white/10',
-    ghost: 'bg-transparent text-neutral-400 hover:text-white hover:bg-white/5',
-    danger: 'bg-red-500/10 text-red-500 border border-red-500/20 hover:bg-red-500/20',
+    primary: [
+      'text-white border border-blue-400/30',
+      'bg-[linear-gradient(180deg,rgba(91,136,255,0.95),rgba(50,95,219,0.95))]',
+      'shadow-[0_14px_34px_rgba(61,103,255,0.32)] hover:shadow-[0_18px_42px_rgba(61,103,255,0.38)]',
+      'hover:brightness-105',
+    ].join(' '),
+    secondary: [
+      'text-neutral-100 border border-white/10',
+      'bg-white/[0.04] hover:bg-white/[0.08] hover:border-white/16',
+      'shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]',
+    ].join(' '),
+    ghost: 'bg-transparent text-neutral-400 hover:text-white hover:bg-white/[0.05]',
+    danger: 'bg-red-500/10 text-red-300 border border-red-500/20 hover:bg-red-500/16',
   };
 
   return (
     <button
       ref={ref}
       className={cn(
-        'inline-flex items-center justify-center rounded-xl px-5 py-2.5 text-sm font-medium transition-all duration-200 disabled:opacity-50 disabled:pointer-events-none active:scale-[0.98]',
+        'inline-flex items-center justify-center rounded-2xl px-5 py-2.5 text-sm font-semibold tracking-tight transition-all duration-200',
+        'disabled:pointer-events-none disabled:opacity-50 active:scale-[0.985] focus:outline-none focus:ring-2 focus:ring-blue-400/30',
         variants[variant],
         className
       )}
@@ -30,7 +40,13 @@ export const Button = React.forwardRef<
   );
 });
 
-export const Card = ({ children, className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
+Button.displayName = 'Button';
+
+export const Card = ({
+  children,
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement>) => (
   <div className={cn('dashboard-card', className)} {...props}>
     {children}
   </div>
@@ -41,7 +57,8 @@ export const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttribute
     <input
       ref={ref}
       className={cn(
-        'w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500/50 transition-all duration-200',
+        'w-full rounded-2xl border border-white/10 bg-white/[0.035] px-4 py-3 text-sm text-white placeholder:text-neutral-600',
+        'transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-blue-400/24 focus:border-blue-400/40',
         className
       )}
       {...props}
@@ -49,8 +66,10 @@ export const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttribute
   )
 );
 
+Input.displayName = 'Input';
+
 export const Label = ({ children, className }: { children: React.ReactNode; className?: string }) => (
-  <label className={cn('block text-[10px] font-bold text-neutral-500 uppercase tracking-widest mb-2', className)}>
+  <label className={cn('mb-2 block text-[10px] font-black uppercase tracking-[0.24em] text-neutral-500', className)}>
     {children}
   </label>
 );
@@ -80,7 +99,7 @@ export function handleFirestoreError(error: any, operationType: OperationType, p
       emailVerified: auth.currentUser?.emailVerified,
     },
     operationType,
-    path
+    path,
   };
   console.error('Firestore Error: ', JSON.stringify(errInfo));
   throw new Error(JSON.stringify(errInfo));

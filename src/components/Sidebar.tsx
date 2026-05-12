@@ -1,19 +1,19 @@
 import { Link, useLocation } from 'react-router-dom';
 import { motion } from 'motion/react';
-import { 
-  Grip, 
-  User, 
-  Package, 
-  Database, 
-  Receipt, 
+import {
+  Grip,
+  User,
+  Package,
+  Database,
+  Receipt,
   Store,
-  Shield, 
-  Sparkle, 
-  CreditCard, 
-  Settings, 
+  Shield,
+  Sparkle,
+  CreditCard,
+  Settings,
   LogOut,
   X,
-  Radar
+  Radar,
 } from 'lucide-react';
 import { cn } from './Common';
 import { useAuth } from '../contexts/AuthContext';
@@ -42,121 +42,133 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
   ];
 
   return (
-    <aside className="w-full lg:w-64 border-r border-white/5 h-full lg:h-screen flex flex-col bg-black lg:sticky lg:top-0 overflow-y-auto">
-      <div className="p-6">
-        <div className="flex items-center justify-between mb-10">
+    <aside className="h-full w-full overflow-y-auto border-r border-white/6 bg-[rgba(6,8,12,0.92)] backdrop-blur-2xl lg:h-screen lg:w-[300px] lg:sticky lg:top-0">
+      <div className="flex min-h-full flex-col px-5 py-5">
+        <div className="mb-6 flex items-center justify-between">
           <Link to="/" className="flex items-center gap-3 group" onClick={onClose}>
-            <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center transition-all duration-500 group-hover:rotate-12 group-hover:scale-110">
-              <div className="w-4 h-4 bg-black rounded-sm group-hover:rounded-full transition-all duration-500" />
+            <div className="relative flex h-11 w-11 items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-white/[0.04]">
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(77,124,255,0.35),transparent_60%)] opacity-80" />
+              <div className="relative h-5 w-5 rounded-md bg-white transition-all duration-500 group-hover:rotate-45 group-hover:rounded-[10px]" />
             </div>
-            <span className="font-display font-medium text-lg tracking-tight text-white uppercase italic">Remix</span>
+            <div>
+              <p className="section-kicker mb-1 !tracking-[0.26em] text-blue-300/80">AI Operating System</p>
+              <span className="font-display text-xl font-bold tracking-tight text-white">Remix OS</span>
+            </div>
           </Link>
-          <button 
+          <button
             onClick={onClose}
-            className="p-2 text-neutral-500 hover:text-white lg:hidden"
+            className="rounded-xl border border-white/8 bg-white/[0.03] p-2 text-neutral-500 transition-colors hover:text-white lg:hidden"
           >
-            <X className="w-6 h-6" />
+            <X className="h-5 w-5" />
           </button>
         </div>
 
-        <div className="mb-10">
-          <p className="text-[9px] font-black text-neutral-800 uppercase tracking-[0.4em] mb-4">Registry</p>
-          <div className="flex items-center gap-3 px-3 py-3 bg-white/[0.02] rounded-2xl border border-white/[0.04] group hover:border-white/[0.1] transition-all duration-300">
-            <div className="w-9 h-9 bg-blue-600/10 border border-blue-500/10 rounded-xl flex items-center justify-center text-blue-400 font-bold text-xs shadow-inner overflow-hidden">
+        <div className="shell-panel mb-6 p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <span className="section-kicker !text-neutral-400">Entity Registry</span>
+            <span className="telemetry-chip !px-2.5 !py-1 !text-[9px]">
+              <span className="status-dot bg-emerald-400 text-emerald-400" />
+              Live
+            </span>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl border border-blue-400/14 bg-blue-500/10 text-sm font-bold text-blue-200">
               {company?.logoURL ? (
-                <img src={company.logoURL} alt={company.name} className="w-full h-full object-cover" />
+                <img src={company.logoURL} alt={company.name} className="h-full w-full object-cover" />
               ) : (
-                company?.name?.[0] || 'B'
+                company?.name?.[0] || 'R'
               )}
             </div>
-            <div className="overflow-hidden">
-              <p className="text-xs font-bold text-neutral-200 truncate tracking-tight">{company?.name || 'Main Grid'}</p>
-              <p className="text-[9px] text-neutral-600 truncate uppercase font-black tracking-widest leading-tight">{company?.industry || 'System Root'}</p>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold text-white">{company?.name || 'Main Grid'}</p>
+              <p className="mt-1 truncate font-mono text-[10px] uppercase tracking-[0.2em] text-neutral-500">
+                {company?.industry || 'Operating Core'}
+              </p>
             </div>
           </div>
         </div>
 
-        <nav className="space-y-1">
-          <p className="text-[9px] font-black text-neutral-800 uppercase tracking-[0.4em] mb-4">Operations</p>
-          {navItems.map((item) => {
-            const isActive = location.pathname === item.path;
-            
-            if (item.path === '/billing' && role !== 'owner' && role !== 'admin') {
-              return null;
-            }
-            if (item.path === '/insights' && role !== 'owner' && role !== 'admin') {
-              return null;
-            }
+        <div className="mb-4">
+          <p className="mb-3 px-2 text-[10px] font-black uppercase tracking-[0.28em] text-neutral-600">Operations</p>
+          <nav className="space-y-1.5">
+            {navItems.map((item) => {
+              const isActive = location.pathname === item.path;
 
-            return (
-              <Link
-                key={item.path}
-                to={item.path}
-                onClick={onClose}
-                className="block"
-              >
-                <motion.div
-                  whileHover={{ x: 4 }}
-                  whileTap={{ scale: 0.98 }}
-                  className={cn(
-                    'flex items-center gap-3 px-4 py-2.5 rounded-xl text-[11px] transition-all duration-300 group relative uppercase tracking-widest font-black',
-                    isActive 
-                      ? 'bg-blue-600/10 text-white border border-blue-500/10 shadow-[0_4px_20px_rgba(59,130,246,0.05)]' 
-                      : 'text-neutral-500 hover:text-neutral-200 hover:bg-white/[0.03]'
-                  )}
-                >
-                  {isActive && (
-                    <motion.div 
-                      layoutId="activeNav"
-                      className="absolute left-1 w-0.5 h-3 bg-blue-500 rounded-full"
-                    />
-                  )}
-                  <item.icon className={cn(
-                    'w-3.5 h-3.5 transition-all duration-500', 
-                    isActive ? 'text-blue-400 scale-110' : 'text-neutral-600 group-hover:text-neutral-400 group-hover:scale-110'
-                  )} />
-                  {item.label}
-                </motion.div>
-              </Link>
-            );
-          })}
-        </nav>
-      </div>
+              if (item.path === '/billing' && role !== 'owner' && role !== 'admin') return null;
+              if (item.path === '/insights' && role !== 'owner' && role !== 'admin') return null;
 
-      <div className="mt-auto p-6 space-y-2">
-        <Link
-          to="/settings"
-          onClick={onClose}
-          className="block"
-        >
-          <motion.div
-            whileHover={{ x: 4 }}
-            className={cn(
-              'flex items-center gap-3 px-4 py-2.5 rounded-xl text-[11px] transition-all duration-300 uppercase tracking-widest font-black group',
-              location.pathname === '/settings' 
-                ? 'bg-white/10 text-white border border-white/10' 
-                : 'text-neutral-500 hover:text-white hover:bg-white/[0.03]'
-            )}
-          >
-            <Settings className="w-3.5 h-3.5 group-hover:rotate-90 transition-transform duration-700 ease-in-out" />
-            {t('nav.settings')}
-          </motion.div>
-        </Link>
-        <button
-          onClick={() => signOut(auth)}
-          className="block w-full text-left"
-        >
-          <motion.div
-            whileHover={{ x: 4 }}
-            className="flex items-center gap-3 px-4 py-2.5 rounded-xl text-[11px] text-red-500/50 hover:text-red-400 hover:bg-red-400/5 transition-all duration-300 uppercase tracking-widest font-black"
-          >
-            <LogOut className="w-3.5 h-3.5" />
-            {t('nav.logout')}
-          </motion.div>
-        </button>
+              return (
+                <Link key={item.path} to={item.path} onClick={onClose} className="block">
+                  <motion.div
+                    whileHover={{ x: 3 }}
+                    whileTap={{ scale: 0.985 }}
+                    className={cn(
+                      'group relative flex items-center gap-3 overflow-hidden rounded-2xl px-4 py-3 text-[11px] font-black uppercase tracking-[0.18em] transition-all duration-300',
+                      isActive
+                        ? 'border border-blue-400/18 bg-blue-500/10 text-white shadow-[0_14px_34px_rgba(61,103,255,0.10)]'
+                        : 'border border-transparent text-neutral-500 hover:border-white/8 hover:bg-white/[0.04] hover:text-neutral-200'
+                    )}
+                  >
+                    {isActive && (
+                      <motion.div
+                        layoutId="active-nav"
+                        className="absolute left-0 top-1/2 h-8 w-[3px] -translate-y-1/2 rounded-full bg-blue-400 shadow-[0_0_20px_rgba(96,165,250,0.7)]"
+                      />
+                    )}
+                    <div className={cn(
+                      'flex h-9 w-9 items-center justify-center rounded-xl border transition-all duration-300',
+                      isActive
+                        ? 'border-blue-300/20 bg-blue-400/10 text-blue-200'
+                        : 'border-white/8 bg-white/[0.03] text-neutral-600 group-hover:text-neutral-300'
+                    )}>
+                      <item.icon className="h-4 w-4" />
+                    </div>
+                    <div className="flex-1">
+                      <span>{item.label}</span>
+                    </div>
+                    <span className={cn(
+                      'font-mono text-[10px] tracking-normal transition-opacity',
+                      isActive ? 'text-blue-200/70' : 'text-neutral-700 group-hover:text-neutral-500'
+                    )}>
+                      OS
+                    </span>
+                  </motion.div>
+                </Link>
+              );
+            })}
+          </nav>
+        </div>
+
+        <div className="mt-auto space-y-2 pt-4">
+          <Link to="/settings" onClick={onClose} className="block">
+            <motion.div
+              whileHover={{ x: 3 }}
+              className={cn(
+                'flex items-center gap-3 rounded-2xl border px-4 py-3 text-[11px] font-black uppercase tracking-[0.18em] transition-all duration-300',
+                location.pathname === '/settings'
+                  ? 'border-white/12 bg-white/[0.05] text-white'
+                  : 'border-white/0 text-neutral-500 hover:border-white/8 hover:bg-white/[0.04] hover:text-white'
+              )}
+            >
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/8 bg-white/[0.03]">
+                <Settings className="h-4 w-4" />
+              </div>
+              {t('nav.settings')}
+            </motion.div>
+          </Link>
+          <button onClick={() => signOut(auth)} className="block w-full text-left">
+            <motion.div
+              whileHover={{ x: 3 }}
+              className="flex items-center gap-3 rounded-2xl border border-red-400/0 px-4 py-3 text-[11px] font-black uppercase tracking-[0.18em] text-red-300/60 transition-all duration-300 hover:border-red-400/10 hover:bg-red-400/6 hover:text-red-200"
+            >
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-red-400/10 bg-red-400/5">
+                <LogOut className="h-4 w-4" />
+              </div>
+              {t('nav.logout')}
+            </motion.div>
+          </button>
+        </div>
       </div>
     </aside>
-
-
   );
 }

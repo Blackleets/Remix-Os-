@@ -126,7 +126,7 @@ interface PulseInsight {
 }
 
 const PAYMENT_METHODS = ['Cash', 'Card', 'Transfer', 'Stripe', 'Crypto'] as const;
-const COMING_SOON = ['Stripe Terminal', 'Square POS', 'Shopify POS', 'SumUp'];
+const INTEGRATION_ROADMAP = ['Stripe Terminal', 'Square POS', 'Shopify POS', 'SumUp'];
 const QUICK_DISCOUNT_RATE = 0.1;
 
 function getTimestampValue(value: any) {
@@ -748,6 +748,57 @@ export function POS() {
     }
   };
 
+  const handlePrintReceipt = () => {
+    if (!latestReceipt) return;
+
+    const receiptWindow = window.open('', '_blank', 'width=420,height=720');
+    if (!receiptWindow) return;
+
+    const rows = latestReceipt.items.map((item) => `
+      <tr>
+        <td>${item.name}</td>
+        <td>${item.quantity}</td>
+        <td>${formatCurrency(item.price * item.quantity)}</td>
+      </tr>
+    `).join('');
+
+    receiptWindow.document.write(`
+      <html>
+        <head>
+          <title>Receipt ${latestReceipt.orderId}</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 24px; color: #111; }
+            h1, h2, p { margin: 0 0 8px; }
+            table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+            td, th { border-bottom: 1px solid #ddd; padding: 8px 0; text-align: left; }
+            .meta, .summary { font-size: 12px; color: #555; }
+            .total { font-size: 20px; font-weight: 700; }
+          </style>
+        </head>
+        <body>
+          <h1>${company?.name || 'Remix OS'}</h1>
+          <p class="meta">Order ${latestReceipt.orderId}</p>
+          <p class="meta">${latestReceipt.createdAt.toLocaleString()}</p>
+          <p>${latestReceipt.customerName} / ${latestReceipt.paymentMethod}</p>
+          <table>
+            <thead>
+              <tr><th>Item</th><th>Qty</th><th>Total</th></tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+          <p class="summary">Subtotal: ${formatCurrency(latestReceipt.subtotal)}</p>
+          <p class="summary">Discount: ${formatCurrency(latestReceipt.discount)}</p>
+          <p class="summary">Tax: ${formatCurrency(latestReceipt.tax)}</p>
+          <p class="total">Total: ${formatCurrency(latestReceipt.total)}</p>
+          <p class="summary">${latestReceipt.footerMessage}</p>
+        </body>
+      </html>
+    `);
+    receiptWindow.document.close();
+    receiptWindow.focus();
+    receiptWindow.print();
+  };
+
   if (!canUsePOS) {
     return (
       <Card className="p-10 text-center bg-neutral-900/40 border-white/5 space-y-6">
@@ -938,9 +989,9 @@ export function POS() {
                 <BadgeDollarSign className="w-4 h-4" />
                 {t('pos.receipt.download_pdf')}
               </Button>
-              <Button variant="secondary" className="gap-2 px-5 h-11" disabled>
+              <Button variant="secondary" className="gap-2 px-5 h-11" onClick={handlePrintReceipt}>
                 <Printer className="w-4 h-4" />
-                {t('pos.receipt.print_coming_soon')}
+                {t('common.print') || 'Print'}
               </Button>
             </div>
           </div>
@@ -1475,7 +1526,7 @@ export function POS() {
               </div>
             </div>
             <div className="space-y-3">
-              {COMING_SOON.map((integration) => (
+              {INTEGRATION_ROADMAP.map((integration) => (
                 <div
                   key={integration}
                   className="flex items-center justify-between rounded-2xl border border-white/10 bg-black/30 px-4 py-3"
@@ -1490,7 +1541,7 @@ export function POS() {
             </div>
             <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.01] p-4 flex items-center gap-3 text-neutral-500 text-xs">
               <Printer className="w-4 h-4" />
-              {t('pos.integrations.note')}
+              Manual tenders are live now. Hardware connectors stay in roadmap until certified.
             </div>
           </Card>
         </div>

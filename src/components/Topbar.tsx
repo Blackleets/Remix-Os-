@@ -1,4 +1,4 @@
-import { Search, Command, CircleUser, Menu, Inbox } from 'lucide-react';
+import { Search, Command, CircleUser, Menu, Inbox, Sparkles } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useTranslation } from 'react-i18next';
 import { LanguageSwitcher } from './LanguageSwitcher';
@@ -12,58 +12,71 @@ export function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
   const email = userProfile?.email || user?.email;
 
   return (
-    <header className="h-16 border-b border-white/5 flex items-center justify-between px-4 lg:px-8 bg-black/50 backdrop-blur-md sticky top-0 z-30 w-full">
-      <div className="flex items-center gap-4 flex-1">
-        <button 
-          onClick={onMenuClick}
-          className="p-2 -ml-2 text-neutral-500 hover:text-white lg:hidden transition-colors"
-        >
-          <Menu className="w-6 h-6" />
-        </button>
-        
-        <div className="relative max-w-md w-full group hidden sm:block">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-600 group-focus-within:text-blue-500 transition-colors" />
-          <input 
-            type="text" 
-            placeholder={t('common.search')} 
-            className="w-full bg-white/5 border border-white/5 rounded-xl pl-10 pr-4 py-2 text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:ring-1 focus:ring-blue-500/50 transition-all font-medium"
-          />
-          <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1 px-1.5 py-0.5 rounded border border-white/10 bg-white/5">
-            <Command className="w-2.5 h-2.5 text-neutral-500" />
-            <span className="text-[10px] font-mono text-neutral-500">K</span>
-          </div>
-        </div>
-      </div>
-
-      <div className="flex items-center gap-3 lg:gap-6">
-        {/* Language Switcher */}
-        <LanguageSwitcher />
-
-        <div className="hidden md:flex items-center gap-4 pr-6 border-r border-white/10">
-          <div className="flex flex-col items-end">
-            <span className="text-[10px] font-bold text-emerald-500 uppercase tracking-widest flex items-center gap-1.5">
-              <span className="w-1 h-1 bg-emerald-500 rounded-full animate-pulse" />
-              {t('common.live')}
-            </span>
-            <span className="text-[9px] text-neutral-600 font-mono tracking-tighter">NODE_TRANS_12.4</span>
-          </div>
-          <button className="p-2 text-neutral-500 hover:text-white transition-colors relative">
-            <Inbox className="w-5 h-5" />
-            <span className="absolute top-2.5 right-2.5 w-1.5 h-1.5 bg-blue-500 rounded-full border border-black shadow-[0_0_10px_rgba(59,130,246,0.5)]" />
+    <header className="sticky top-0 z-30 w-full px-4 pt-4 md:px-6 xl:px-8">
+      <div className="shell-panel flex h-18 items-center justify-between gap-4 px-4 py-3 md:px-5">
+        <div className="flex min-w-0 flex-1 items-center gap-3 md:gap-4">
+          <button
+            onClick={onMenuClick}
+            className="rounded-2xl border border-white/8 bg-white/[0.03] p-2.5 text-neutral-500 transition-colors hover:text-white lg:hidden"
+          >
+            <Menu className="h-5 w-5" />
           </button>
+
+          <div className="hidden min-w-0 sm:block">
+            <p className="section-kicker mb-1 !tracking-[0.22em] text-neutral-400">Command Layer</p>
+            <p className="truncate text-sm font-semibold text-white">AI-guided operations console</p>
+          </div>
+
+          <div className="relative hidden max-w-xl flex-1 sm:block">
+            <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-600" />
+            <input
+              type="text"
+              placeholder={t('common.search')}
+              className="h-12 w-full rounded-2xl border border-white/10 bg-white/[0.03] pl-11 pr-24 text-sm text-white placeholder:text-neutral-600 transition-all focus:outline-none focus:ring-2 focus:ring-blue-400/25 focus:border-blue-400/30"
+            />
+            <div className="pointer-events-none absolute right-3 top-1/2 flex -translate-y-1/2 items-center gap-1 rounded-xl border border-white/8 bg-white/[0.03] px-2 py-1">
+              <Command className="h-3 w-3 text-neutral-500" />
+              <span className="font-mono text-[10px] text-neutral-500">K</span>
+            </div>
+          </div>
         </div>
 
-        <div className="flex items-center gap-2 lg:gap-3">
-          <div className="hidden sm:flex flex-col items-end">
-            <p className="text-xs font-bold text-white truncate max-w-[140px] xl:max-w-none uppercase tracking-tight">{displayName}</p>
-            <p className="text-[9px] text-neutral-500 truncate max-w-[140px] xl:max-w-none font-mono uppercase">{email}</p>
+        <div className="flex items-center gap-2 md:gap-4">
+          <div className="hidden items-center gap-2 rounded-2xl border border-emerald-400/10 bg-emerald-400/5 px-3 py-2 md:flex">
+            <span className="status-dot bg-emerald-400 text-emerald-400" />
+            <div className="leading-tight">
+              <p className="text-[10px] font-black uppercase tracking-[0.22em] text-emerald-300">Live Sync</p>
+              <p className="font-mono text-[10px] text-neutral-500">Operator watch active</p>
+            </div>
           </div>
-          <div className="w-9 h-9 lg:w-10 lg:h-10 rounded-full bg-neutral-900 flex items-center justify-center border border-white/10 shadow-lg group cursor-pointer hover:border-blue-500/50 hover:bg-blue-600/5 transition-all duration-300 shrink-0 overflow-hidden">
-            {photoURL ? (
-              <img src={photoURL} alt={displayName} className="w-full h-full object-cover" />
-            ) : (
-              <CircleUser className="w-5 h-5 text-neutral-400 group-hover:text-blue-400 transition-colors" />
-            )}
+
+          <div className="hidden items-center gap-2 rounded-2xl border border-blue-400/10 bg-blue-400/5 px-3 py-2 lg:flex">
+            <Sparkles className="h-4 w-4 text-blue-300" />
+            <div className="leading-tight">
+              <p className="text-[10px] font-black uppercase tracking-[0.22em] text-blue-200">AI Layer</p>
+              <p className="font-mono text-[10px] text-neutral-500">Copilot ready</p>
+            </div>
+          </div>
+
+          <LanguageSwitcher />
+
+          <button className="relative hidden rounded-2xl border border-white/8 bg-white/[0.03] p-3 text-neutral-500 transition-colors hover:text-white md:block">
+            <Inbox className="h-4.5 w-4.5" />
+            <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-blue-400 shadow-[0_0_14px_rgba(96,165,250,0.7)]" />
+          </button>
+
+          <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-2.5 py-2 pr-3">
+            <div className="hidden min-w-0 text-right sm:block">
+              <p className="truncate text-xs font-semibold text-white">{displayName}</p>
+              <p className="truncate font-mono text-[10px] uppercase tracking-[0.14em] text-neutral-500">{email}</p>
+            </div>
+            <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-neutral-900">
+              {photoURL ? (
+                <img src={photoURL} alt={displayName} className="h-full w-full object-cover" />
+              ) : (
+                <CircleUser className="h-5 w-5 text-neutral-400" />
+              )}
+            </div>
           </div>
         </div>
       </div>

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Card, Button, Input, Label } from '../components/Common';
+import { Card, Button, Input, Label, cn } from '../components/Common';
 import { 
   Plus, 
   Search, 
@@ -19,7 +19,10 @@ import {
   Clock,
   CheckCircle2,
   AlertCircle,
-  FileText
+  FileText,
+  Radar,
+  Sparkles,
+  Users
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useLocale } from '../hooks/useLocale';
@@ -372,34 +375,92 @@ export function Customers() {
     return matchesSearch && c.segment === segmentFilter;
   });
 
+  const whalesCount = customers.filter((c) => c.segment === 'whale' || c.segment === 'vip').length;
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  const activeCount = customers.filter((c) => {
+    const lastOrderDate = c.lastOrderAt?.toDate ? c.lastOrderAt.toDate() : null;
+    return Boolean(lastOrderDate && lastOrderDate > thirtyDaysAgo);
+  }).length;
+
+  const getSegmentClasses = (segment?: string) =>
+    SEGMENTS.find((s) => s.id === segment)?.color || 'bg-neutral-500/10 text-neutral-300 border-white/10';
+
   return (
-    <div className="space-y-10">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
-        <div>
-          <h1 className="font-display text-4xl font-bold tracking-tight mb-2 text-white">{t('customers.title')}</h1>
-          <p className="text-neutral-500 text-sm">{t('customers.subtitle')}</p>
-        </div>
-        <div className="flex gap-3">
-          <Button 
-            variant="secondary" 
-            className="gap-2 px-6"
-            onClick={() => exportToCSV(customers.map(c => ({
-              ID: c.id,
-              Name: c.name,
-              Email: c.email,
-              Phone: c.phone
-            })), 'customers')}
-            disabled={customers.length === 0}
-          >
-            <Download className="w-4 h-4" /> {t('common.export')}
-          </Button>
-          {canEditCustomers && (
-            <Button onClick={handleCreateNew} className="gap-2 px-6">
-              <Plus className="w-4 h-4" /> {t('customers.add')}
+    <div className="space-y-6 md:space-y-8">
+      <section className="hero-gradient overflow-hidden rounded-[30px] border border-white/10 p-6 md:p-8">
+        <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
+          <div className="max-w-3xl">
+            <div className="mb-4 flex flex-wrap items-center gap-2">
+              <span className="operator-badge">
+                <span className="status-dot bg-blue-400 text-blue-400" />
+                Customer Graph
+              </span>
+              <span className="telemetry-chip">
+                <Radar className="h-3 w-3 text-blue-300" />
+                Relationship Watch
+              </span>
+            </div>
+            <h1 className="section-title text-4xl md:text-5xl text-white">{t('customers.title')}</h1>
+            <p className="mt-3 max-w-2xl text-sm leading-relaxed text-neutral-300 md:text-base">
+              Track customer quality, engagement posture and direct follow-up actions from one operational layer.
+            </p>
+          </div>
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <Button
+              variant="secondary"
+              className="h-12 gap-2 px-6"
+              onClick={() => exportToCSV(customers.map(c => ({
+                ID: c.id,
+                Name: c.name,
+                Email: c.email,
+                Phone: c.phone
+              })), 'customers')}
+              disabled={customers.length === 0}
+            >
+              <Download className="w-4 h-4" /> {t('common.export')}
             </Button>
-          )}
+            {canEditCustomers && (
+              <Button onClick={handleCreateNew} className="h-12 gap-2 px-6">
+                <Plus className="w-4 h-4" /> {t('customers.add')}
+              </Button>
+            )}
+          </div>
         </div>
-      </div>
+
+        <div className="mt-6 grid gap-3 md:grid-cols-3">
+          <div className="data-tile">
+            <p className="section-kicker mb-2 !text-neutral-500">Customer Nodes</p>
+            <div className="flex items-end justify-between gap-4">
+              <div>
+                <p className="text-3xl font-bold text-white">{customers.length}</p>
+                <p className="mt-1 text-sm text-neutral-400">Profiles currently tracked in the relationship graph.</p>
+              </div>
+              <Users className="h-5 w-5 text-blue-300" />
+            </div>
+          </div>
+          <div className="data-tile">
+            <p className="section-kicker mb-2 !text-neutral-500">High Value Segments</p>
+            <div className="flex items-end justify-between gap-4">
+              <div>
+                <p className="text-3xl font-bold text-white">{whalesCount}</p>
+                <p className="mt-1 text-sm text-neutral-400">VIP and whale profiles prioritized for operator follow-up.</p>
+              </div>
+              <Sparkles className="h-5 w-5 text-amber-300" />
+            </div>
+          </div>
+          <div className="data-tile">
+            <p className="section-kicker mb-2 !text-neutral-500">Active Relationships</p>
+            <div className="flex items-end justify-between gap-4">
+              <div>
+                <p className="text-3xl font-bold text-white">{activeCount}</p>
+                <p className="mt-1 text-sm text-neutral-400">Profiles marked active in the latest operational cycle.</p>
+              </div>
+              <Contact className="h-5 w-5 text-emerald-300" />
+            </div>
+          </div>
+        </div>
+      </section>
 
       <UpgradeModal 
         isOpen={isUpgradeModalOpen}
@@ -409,17 +470,22 @@ export function Customers() {
         limitName={t('nav.customers')}
       />
 
-      <Card className="relative overflow-hidden group border-white/5 bg-neutral-900/40 p-0">
-        <div className="p-6 border-b border-white/[0.05] bg-white/[0.01] space-y-6">
+      <Card className="overflow-hidden p-0">
+        <div className="space-y-6 border-b border-white/[0.05] bg-white/[0.02] p-6">
+          <div>
+            <p className="section-kicker mb-2">Audience Filters</p>
+            <h2 className="section-title text-2xl">{t('customers.table.identity')}</h2>
+            <p className="mt-2 text-sm text-neutral-400">Filter customer segments, search profiles and open operator actions from the active graph.</p>
+          </div>
           <div className="flex flex-wrap gap-2">
             {SEGMENTS.map(seg => (
               <button
                 key={seg.id}
                 onClick={() => setSegmentFilter(seg.id)}
-                className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${
+                className={`px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-[0.18em] border transition-all ${
                   segmentFilter === seg.id 
-                    ? 'bg-blue-600/10 border-blue-500/40 text-blue-400 ring-2 ring-blue-500/10' 
-                    : 'bg-black/20 border-white/5 text-neutral-500 hover:border-white/20'
+                    ? 'bg-blue-600/10 border-blue-500/40 text-blue-300 ring-2 ring-blue-500/10'
+                    : 'bg-black/20 border-white/10 text-neutral-500 hover:border-white/20'
                 }`}
               >
                 {seg.label}
@@ -430,7 +496,7 @@ export function Customers() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-600 group-focus-within:text-blue-500 transition-colors" />
             <Input 
               placeholder={t('customers.search_placeholder')} 
-              className="pl-10 h-11 bg-black/40 border-white/10" 
+              className="pl-10 h-12 bg-black/30 border-white/10" 
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
@@ -439,8 +505,8 @@ export function Customers() {
 
         <div className="hidden sm:block overflow-x-auto">
           <table className="w-full border-collapse">
-            <thead>
-              <tr>
+            <thead className="sticky top-0 z-10">
+              <tr className="bg-[rgba(6,10,16,0.92)] backdrop-blur-xl">
                 <th className="table-header w-1/3">{t('customers.table.identity')}</th>
                 <th className="table-header">{t('customers.table.engagement')}</th>
                 <th className="table-header">{t('customers.table.ltv')}</th>
@@ -454,7 +520,7 @@ export function Customers() {
                   initial={{ opacity: 0, y: 5 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: i * 0.03 }}
-                  className="group hover:bg-white/[0.02] transition-colors"
+                  className="group border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors"
                 >
                   <td className="table-cell" onClick={() => {
                     setDetailCustomer(customer);
@@ -476,7 +542,7 @@ export function Customers() {
                       <div className="flex flex-col">
                         <span className="font-medium text-neutral-200 group-hover:text-blue-400 transition-colors">{customer.name}</span>
                         {customer.segment && (
-                          <span className={`text-[8px] font-black uppercase tracking-tighter mt-0.5 px-1 rounded inline-block w-fit ${SEGMENTS.find(s => s.id === customer.segment)?.color || ''}`}>
+                          <span className={cn('mt-1 inline-block w-fit rounded-full border px-2 py-0.5 text-[8px] font-black uppercase tracking-[0.16em]', getSegmentClasses(customer.segment))}>
                             {customer.segment}
                           </span>
                         )}
@@ -509,10 +575,10 @@ export function Customers() {
                   <td className="table-cell text-right">
                     {canEditCustomers && (
                       <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-all transform translate-x-2 group-hover:translate-x-0">
-                        <Button variant="ghost" className="w-9 h-9 p-0 rounded-lg" onClick={() => handleEdit(customer)}>
+                        <Button variant="ghost" className="w-9 h-9 p-0 rounded-xl" onClick={() => handleEdit(customer)}>
                           <Edit2 className="w-3.5 h-3.5" />
                         </Button>
-                        <Button variant="ghost" className="w-9 h-9 p-0 rounded-lg text-red-400 hover:text-red-300 hover:bg-red-400/5" onClick={() => handleDelete(customer.id)}>
+                        <Button variant="ghost" className="w-9 h-9 p-0 rounded-xl text-red-400 hover:text-red-300 hover:bg-red-400/5" onClick={() => handleDelete(customer.id)}>
                           <Trash2 className="w-3.5 h-3.5" />
                         </Button>
                       </div>
@@ -553,7 +619,7 @@ export function Customers() {
               </div>
               <div className="flex gap-1 shrink-0">
                 {canEditCustomers && (
-                  <Button variant="ghost" className="w-8 h-8 p-0 rounded-lg" onClick={() => handleEdit(customer)}>
+                  <Button variant="ghost" className="w-8 h-8 p-0 rounded-xl" onClick={() => handleEdit(customer)}>
                     <Edit2 className="w-3.5 h-3.5" />
                   </Button>
                 )}
@@ -564,16 +630,16 @@ export function Customers() {
 
         {filtered.length === 0 && (
           <div className="py-24 text-center">
-            <div className="flex flex-col items-center gap-6 text-neutral-600 max-w-xs mx-auto">
-              <div className="w-20 h-20 rounded-3xl border border-dashed border-white/10 flex items-center justify-center bg-white/[0.01]">
+            <div className="flex flex-col items-center gap-6 text-neutral-600 max-w-md mx-auto p-6">
+              <div className="w-20 h-20 rounded-[28px] border border-dashed border-white/10 flex items-center justify-center bg-white/[0.01]">
                 <Contact className="w-10 h-10 opacity-20" />
               </div>
               <div className="space-y-2">
                 <p className="text-lg font-bold text-neutral-200">{t('customers.empty.title')}</p>
-                <p className="text-xs leading-relaxed">{t('customers.empty.subtitle')}</p>
+                <p className="text-xs leading-relaxed text-neutral-500 px-4">{t('customers.empty.subtitle')}</p>
               </div>
               {canEditCustomers && (
-                <Button onClick={handleCreateNew} className="gap-2 px-8 h-12 shadow-xl shadow-blue-600/20">
+                <Button onClick={handleCreateNew} className="gap-2 px-8 h-12">
                   <Plus className="w-4 h-4" /> {t('customers.add')}
                 </Button>
               )}
@@ -663,9 +729,9 @@ export function Customers() {
               animate={{ x: 0 }}
               exit={{ x: '100%' }}
               transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-              className="bg-neutral-900 w-full max-w-2xl h-full border-l border-white/5 shadow-2xl flex flex-col"
+              className="bg-[rgba(5,8,12,0.98)] w-full max-w-2xl h-full border-l border-white/8 shadow-2xl flex flex-col backdrop-blur-2xl"
             >
-              <div className="p-8 border-b border-white/[0.05] bg-white/[0.01] flex justify-between items-center">
+              <div className="p-8 border-b border-white/[0.05] bg-white/[0.02] flex justify-between items-center">
                 <div className="flex items-center gap-4">
                   <div className="w-14 h-14 rounded-2xl bg-blue-600/10 border border-blue-500/20 flex items-center justify-center text-blue-500 font-bold text-xl uppercase overflow-hidden">
                     {detailCustomer.imageURL ? (
@@ -698,8 +764,8 @@ export function Customers() {
                     key={tab.id}
                     onClick={() => setActiveTab(tab.id as any)}
                     className={`flex-1 flex items-center justify-center gap-2 py-4 text-[11px] font-black uppercase tracking-widest transition-all ${
-                      activeTab === tab.id 
-                        ? 'text-blue-500 border-b-2 border-blue-500 bg-blue-500/5' 
+                      activeTab === tab.id
+                        ? 'text-blue-300 border-b-2 border-blue-400 bg-blue-500/5'
                         : 'text-neutral-500 hover:text-neutral-300'
                     }`}
                   >
@@ -888,7 +954,7 @@ export function Customers() {
                           </Button>
                           <Button 
                             className="h-12 gap-2 shadow-lg shadow-blue-600/10"
-                            onClick={() => handleCreateMessage('ready')}
+                            onClick={() => handleCreateMessage('sent')}
                           >
                             <Send className="w-3.5 h-3.5" /> {t('customers.details.messages.btn_send')}
                           </Button>

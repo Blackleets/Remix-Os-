@@ -1,31 +1,52 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
+  Activity,
   AlertTriangle,
+  ArrowUpRight,
   Building2,
   CreditCard,
   DollarSign,
+  Flame,
   Layers3,
+  Loader2,
+  Radar,
+  RefreshCcw,
+  Save,
   ShieldCheck,
   ShoppingBag,
   Sparkles,
+  TrendingUp,
   Users,
 } from 'lucide-react';
-import { collection, getDocs } from 'firebase/firestore';
+import { addDoc, collection, doc, serverTimestamp, setDoc } from 'firebase/firestore';
 import type { ComponentType } from 'react';
-import { Card, cn } from '../components/Common';
+import { Button, Card, cn, Input, Label } from '../components/Common';
 import { db } from '../lib/firebase';
 import { useLocale } from '../hooks/useLocale';
 import { usePlatformAdmin } from '../hooks/usePlatformAdmin';
+import { fetchPlatformOverview, syncPlatformBilling, syncPlatformStats } from '../services/companyApi';
 
 interface CompanyDoc {
   id: string;
   name?: string;
   ownerId?: string;
   industry?: string;
+  stripeCustomerId?: string;
   createdAt?: any;
+  onboardingState?: {
+    isComplete?: boolean;
+    step?: number;
+    checklist?: {
+      profile?: boolean;
+      product?: boolean;
+      customer?: boolean;
+      order?: boolean;
+    };
+  };
   subscription?: {
     planId?: 'starter' | 'pro' | 'business';
     status?: 'active' | 'past_due' | 'trialing' | 'canceled';
+    currentPeriodEnd?: any;
     trialEndsAt?: any;
   };
 }
@@ -59,12 +80,16 @@ interface OrderDoc {
   id: string;
   companyId: string;
   total?: number;
+  totalAmount?: number;
   status?: string;
+  createdAt?: any;
 }
 
 interface PlatformMetrics {
   totalCompanies: number;
   totalUsers: number;
+  totalProducts: number;
+  totalCustomers: number;
   activeCompanies: number;
   trialCompanies: number;
   expiredOrPastDueCompanies: number;
@@ -74,20 +99,81 @@ interface PlatformMetrics {
   estimatedMrr: number;
   totalOrders: number;
   totalSales: number;
+  averageOrderValue: number;
+  companiesWithoutOrders: number;
+  trialExpiringSoon: number;
+  ownerlessCompanies: number;
+  estimatedArr: number;
+  monthlyPlatformSales: number;
+  statsCoverage: number;
+  activeNoConversionCompanies: number;
+  pastDueWatchCount: number;
+  realMrr: number;
+  realArr: number;
+  activeSubscriptions: number;
+  trialingSubscriptions: number;
+  pastDueSubscriptions: number;
+  canceledSubscriptions: number;
+  cancelAtPeriodEndCount: number;
+  billingCoverage: number;
+  topRevenueShare: number;
 }
 
 interface CompanyRow {
   id: string;
   name: string;
+  industry: string;
   ownerEmail: string;
+  ownerId?: string;
   plan: string;
   subscriptionStatus: string;
+  stripeCustomerId?: string;
+  onboardingComplete: boolean;
+  onboardingStep: number;
+  onboardingChecklist: {
+    profile: boolean;
+    product: boolean;
+    customer: boolean;
+    order: boolean;
+  };
+  trialEndsAt?: any;
+  currentPeriodEnd?: any;
   users: number;
   products: number;
   customers: number;
   orders: number;
   revenue: number;
   createdAt?: any;
+}
+
+interface CompanyStatsDoc {
+  companyId: string;
+  ordersCount: number;
+  customersCount: number;
+  productsCount: number;
+  lifetimeRevenue: number;
+  monthlyRevenue: number;
+  lastOrderAt?: any;
+  firstOrderAt?: any;
+  activeUsers: number;
+  updatedAt?: any;
+}
+
+interface CompanyBillingStatsDoc {
+  companyId: string;
+  stripeCustomerId?: string;
+  planId?: 'starter' | 'pro' | 'business';
+  subscriptionStatus?: 'active' | 'past_due' | 'trialing' | 'canceled' | 'incomplete' | 'unpaid';
+  mrr: number;
+  arr: number;
+  currency?: string;
+  currentPeriodEnd?: any;
+  trialEndsAt?: any;
+  pastDue: boolean;
+  cancelAtPeriodEnd: boolean;
+  lastInvoiceAt?: any;
+  lastPaymentStatus?: string;
+  updatedAt?: any;
 }
 
 interface UserRow {
@@ -106,10 +192,37 @@ interface PlatformAlert {
   body: string;
 }
 
+interface PlatformCompanyControlDoc {
+  companyId: string;
+  lifecycleStatus: 'active' | 'watch' | 'internal_hold' | 'suspended';
+  priority: 'low' | 'normal' | 'high' | 'critical';
+  nextAction?: string;
+  assignedTo?: string;
+  notes?: string;
+  updatedAt?: unknown;
+  updatedBy?: string;
+}
+
+interface CompanyControlForm {
+  lifecycleStatus: 'active' | 'watch' | 'internal_hold' | 'suspended';
+  priority: 'low' | 'normal' | 'high' | 'critical';
+  nextAction: string;
+  assignedTo: string;
+  notes: string;
+}
+
+interface PlatformAuditLog {
+  type: string;
+  companyId?: string;
+  actorUid: string;
+  payload?: Record<string, unknown>;
+  createdAt?: unknown;
+}
+
 const PLAN_MRR: Record<string, number> = {
-  starter: 29,
-  pro: 99,
-  business: 299,
+  starter: 19,
+  pro: 49,
+  business: 99,
 };
 
 function toDate(value: any) {
@@ -125,6 +238,17 @@ function compareByCreatedAtDesc<T extends { createdAt?: any }>(items: T[]) {
     const bTime = toDate(b.createdAt)?.getTime() || 0;
     return bTime - aTime;
   });
+}
+
+function normalizeOrderTotal(order: OrderDoc) {
+  return order.totalAmount ?? order.total ?? 0;
+}
+
+function isCurrentMonth(value: any) {
+  const date = toDate(value);
+  if (!date) return false;
+  const now = new Date();
+  return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth();
 }
 
 function SuperMetricCard({
@@ -156,11 +280,17 @@ function SuperMetricCard({
 export function SuperAdmin() {
   const { t, formatCurrency } = useLocale();
   const { platformAdmin } = usePlatformAdmin();
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [companySearch, setCompanySearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'trialing' | 'past_due' | 'canceled'>('all');
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [metrics, setMetrics] = useState<PlatformMetrics>({
     totalCompanies: 0,
     totalUsers: 0,
+    totalProducts: 0,
+    totalCustomers: 0,
     activeCompanies: 0,
     trialCompanies: 0,
     expiredOrPastDueCompanies: 0,
@@ -170,11 +300,42 @@ export function SuperAdmin() {
     estimatedMrr: 0,
     totalOrders: 0,
     totalSales: 0,
+    averageOrderValue: 0,
+    companiesWithoutOrders: 0,
+    trialExpiringSoon: 0,
+    ownerlessCompanies: 0,
+    estimatedArr: 0,
+    monthlyPlatformSales: 0,
+    statsCoverage: 0,
+    activeNoConversionCompanies: 0,
+    pastDueWatchCount: 0,
+    realMrr: 0,
+    realArr: 0,
+    activeSubscriptions: 0,
+    trialingSubscriptions: 0,
+    pastDueSubscriptions: 0,
+    canceledSubscriptions: 0,
+    cancelAtPeriodEndCount: 0,
+    billingCoverage: 0,
+    topRevenueShare: 0,
   });
   const [companiesTable, setCompaniesTable] = useState<CompanyRow[]>([]);
   const [usersTable, setUsersTable] = useState<UserRow[]>([]);
-  const [latestCompanies, setLatestCompanies] = useState<CompanyRow[]>([]);
   const [latestUsers, setLatestUsers] = useState<UserRow[]>([]);
+  const [companyControls, setCompanyControls] = useState<Record<string, PlatformCompanyControlDoc>>({});
+  const [companyStats, setCompanyStats] = useState<Record<string, CompanyStatsDoc>>({});
+  const [companyBillingStats, setCompanyBillingStats] = useState<Record<string, CompanyBillingStatsDoc>>({});
+  const [controlForm, setControlForm] = useState<CompanyControlForm>({
+    lifecycleStatus: 'active',
+    priority: 'normal',
+    nextAction: '',
+    assignedTo: '',
+    notes: '',
+  });
+  const [savingControl, setSavingControl] = useState(false);
+  const [syncingStats, setSyncingStats] = useState(false);
+  const [syncingBilling, setSyncingBilling] = useState(false);
+  const [controlFeedback, setControlFeedback] = useState<string | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -184,132 +345,21 @@ export function SuperAdmin() {
       setError(null);
 
       try {
-        const [
-          companiesSnap,
-          usersSnap,
-          membershipsSnap,
-          productsSnap,
-          customersSnap,
-          ordersSnap,
-        ] = await Promise.all([
-          getDocs(collection(db, 'companies')),
-          getDocs(collection(db, 'users')),
-          getDocs(collection(db, 'memberships')),
-          getDocs(collection(db, 'products')),
-          getDocs(collection(db, 'customers')),
-          getDocs(collection(db, 'orders')),
-        ]);
-
+        const payload = await fetchPlatformOverview();
+        const companies = (payload.companiesTable || []) as CompanyRow[];
+        const users = (payload.usersTable || []) as UserRow[];
+        const latest = (payload.latestUsers || []) as UserRow[];
         if (!isMounted) return;
-
-        const companies = companiesSnap.docs.map((entry) => ({ id: entry.id, ...entry.data() } as CompanyDoc));
-        const users = usersSnap.docs.map((entry) => ({ id: entry.id, ...entry.data() } as UserDoc));
-        const memberships = membershipsSnap.docs.map((entry) => ({ id: entry.id, ...entry.data() } as MembershipDoc));
-        const products = productsSnap.docs.map((entry) => ({ id: entry.id, ...entry.data() } as ProductDoc));
-        const customers = customersSnap.docs.map((entry) => ({ id: entry.id, ...entry.data() } as CustomerDoc));
-        const orders = ordersSnap.docs.map((entry) => ({ id: entry.id, ...entry.data() } as OrderDoc));
-
-        const usersById = new Map(users.map((user) => [user.id, user]));
-        const companyNameById = new Map(companies.map((company) => [company.id, company.name || 'Unknown company']));
-        const membershipsByCompany = new Map<string, MembershipDoc[]>();
-        const productsByCompany = new Map<string, number>();
-        const customersByCompany = new Map<string, number>();
-        const ordersByCompany = new Map<string, OrderDoc[]>();
-
-        memberships.forEach((membership) => {
-          membershipsByCompany.set(
-            membership.companyId,
-            [...(membershipsByCompany.get(membership.companyId) || []), membership]
-          );
-        });
-
-        products.forEach((product) => {
-          productsByCompany.set(product.companyId, (productsByCompany.get(product.companyId) || 0) + 1);
-        });
-
-        customers.forEach((customer) => {
-          customersByCompany.set(customer.companyId, (customersByCompany.get(customer.companyId) || 0) + 1);
-        });
-
-        orders.forEach((order) => {
-          ordersByCompany.set(order.companyId, [...(ordersByCompany.get(order.companyId) || []), order]);
-        });
-
-        const now = new Date();
-        const activeCompanies = companies.filter((company) => company.subscription?.status === 'active').length;
-        const trialCompanies = companies.filter((company) => company.subscription?.status === 'trialing').length;
-        const expiredOrPastDueCompanies = companies.filter((company) => {
-          if (company.subscription?.status === 'past_due' || company.subscription?.status === 'canceled') return true;
-          if (company.subscription?.status === 'trialing') {
-            const trialEndsAt = toDate(company.subscription?.trialEndsAt);
-            return Boolean(trialEndsAt && trialEndsAt < now);
-          }
-          return false;
-        }).length;
-
-        const starterPlans = companies.filter((company) => (company.subscription?.planId || 'starter') === 'starter').length;
-        const proPlans = companies.filter((company) => company.subscription?.planId === 'pro').length;
-        const businessPlans = companies.filter((company) => company.subscription?.planId === 'business').length;
-        const estimatedMrr = companies.reduce((sum, company) => {
-          const status = company.subscription?.status || 'trialing';
-          if (!['active', 'past_due'].includes(status)) return sum;
-          const planId = company.subscription?.planId || 'starter';
-          return sum + (PLAN_MRR[planId] || 0);
-        }, 0);
-        const totalOrders = orders.length;
-        const totalSales = orders.reduce((sum, order) => sum + (order.total || 0), 0);
-
-        const companyRows: CompanyRow[] = companies.map((company) => {
-          const companyMemberships = membershipsByCompany.get(company.id) || [];
-          const companyOrders = ordersByCompany.get(company.id) || [];
-          const revenue = companyOrders.reduce((sum, order) => sum + (order.total || 0), 0);
-          const ownerMembership = companyMemberships.find((membership) => membership.role === 'owner');
-          const ownerUser = ownerMembership ? usersById.get(ownerMembership.userId) : undefined;
-
-          return {
-            id: company.id,
-            name: company.name || 'Unnamed company',
-            ownerEmail: ownerUser?.email || usersById.get(company.ownerId || '')?.email || 'No owner email',
-            plan: company.subscription?.planId || 'starter',
-            subscriptionStatus: company.subscription?.status || 'trialing',
-            users: companyMemberships.length,
-            products: productsByCompany.get(company.id) || 0,
-            customers: customersByCompany.get(company.id) || 0,
-            orders: companyOrders.length,
-            revenue,
-            createdAt: company.createdAt,
-          };
-        });
-
-        const userRows: UserRow[] = users.map((user) => {
-          const membership = memberships.find((entry) => entry.userId === user.id);
-          return {
-            id: user.id,
-            email: user.email || 'No email',
-            displayName: user.displayName || 'Unnamed user',
-            companyName: membership ? companyNameById.get(membership.companyId) || 'Unknown company' : 'No company',
-            role: membership?.role || 'unassigned',
-            createdAt: user.createdAt,
-          };
-        });
-
-        setMetrics({
-          totalCompanies: companies.length,
-          totalUsers: users.length,
-          activeCompanies,
-          trialCompanies,
-          expiredOrPastDueCompanies,
-          starterPlans,
-          proPlans,
-          businessPlans,
-          estimatedMrr,
-          totalOrders,
-          totalSales,
-        });
-        setCompaniesTable(compareByCreatedAtDesc(companyRows));
-        setUsersTable(compareByCreatedAtDesc(userRows));
-        setLatestCompanies(compareByCreatedAtDesc(companyRows).slice(0, 6));
-        setLatestUsers(compareByCreatedAtDesc(userRows).slice(0, 6));
+        setMetrics(payload.metrics);
+        setCompaniesTable(compareByCreatedAtDesc(companies));
+        setUsersTable(compareByCreatedAtDesc(users));
+        setLatestUsers(latest);
+        setCompanyControls(payload.companyControls || {});
+        setCompanyStats(payload.companyStats || {});
+        setCompanyBillingStats(payload.companyBillingStats || {});
+        if (!selectedCompanyId && companies.length > 0) {
+          setSelectedCompanyId(compareByCreatedAtDesc(companies)[0].id);
+        }
       } catch (loadError) {
         console.error('Failed to load super admin data:', loadError);
         if (isMounted) {
@@ -327,7 +377,7 @@ export function SuperAdmin() {
     return () => {
       isMounted = false;
     };
-  }, [t]);
+  }, [refreshKey, t]);
 
   const alerts = useMemo<PlatformAlert[]>(() => {
     const items: PlatformAlert[] = [];
@@ -359,6 +409,15 @@ export function SuperAdmin() {
       });
     }
 
+    if (metrics.trialExpiringSoon > 0) {
+      items.push({
+        id: 'trial-window',
+        tone: 'info',
+        title: t('super_admin.alerts.trial_title'),
+        body: t('super_admin.alerts.trial_body', { count: metrics.trialExpiringSoon }),
+      });
+    }
+
     if (items.length === 0) {
       items.push({
         id: 'healthy',
@@ -371,11 +430,295 @@ export function SuperAdmin() {
     return items;
   }, [companiesTable, metrics, t]);
 
+  const revenueLeaderboard = useMemo(
+    () => [...companiesTable].sort((a, b) => b.revenue - a.revenue).slice(0, 5),
+    [companiesTable]
+  );
+
+  const trialToPaidWatchlist = useMemo(
+    () =>
+      companiesTable
+        .filter((company) => {
+          const stats = companyStats[company.id];
+          return (
+            company.subscriptionStatus === 'trialing' &&
+            ((stats?.ordersCount || company.orders) > 0 || (stats?.monthlyRevenue || 0) > 0)
+          );
+        })
+        .slice(0, 6),
+    [companiesTable, companyStats]
+  );
+
+  const trialEndingWithUsageWatchlist = useMemo(
+    () =>
+      companiesTable
+        .filter((company) => {
+          const billing = companyBillingStats[company.id];
+          const stats = companyStats[company.id];
+          const trialEnd = toDate(billing?.trialEndsAt || company.trialEndsAt);
+          if ((billing?.subscriptionStatus || company.subscriptionStatus) !== 'trialing' || !trialEnd) return false;
+          const diffDays = (trialEnd.getTime() - Date.now()) / (1000 * 60 * 60 * 24);
+          return diffDays <= 7 && diffDays >= 0 && ((stats?.ordersCount || company.orders) > 0 || (stats?.monthlyRevenue || 0) > 0);
+        })
+        .sort((a, b) => (companyStats[b.id]?.monthlyRevenue || 0) - (companyStats[a.id]?.monthlyRevenue || 0))
+        .slice(0, 6),
+    [companiesTable, companyBillingStats, companyStats]
+  );
+
+  const pastDueWatchlist = useMemo(
+    () =>
+      companiesTable
+        .filter((company) => (companyBillingStats[company.id]?.subscriptionStatus || company.subscriptionStatus) === 'past_due')
+        .sort((a, b) => {
+          const aMrr = companyBillingStats[a.id]?.mrr ?? 0;
+          const bMrr = companyBillingStats[b.id]?.mrr ?? 0;
+          return bMrr - aMrr;
+        })
+        .slice(0, 6),
+    [companiesTable, companyBillingStats]
+  );
+
+  const activeWithoutUsageWatchlist = useMemo(
+    () =>
+      companiesTable
+        .filter((company) => {
+          const billing = companyBillingStats[company.id];
+          const stats = companyStats[company.id];
+          return (
+            (billing?.subscriptionStatus || company.subscriptionStatus) === 'active' &&
+            (billing?.mrr || 0) > 0 &&
+            (stats?.ordersCount || company.orders) === 0 &&
+            (stats?.monthlyRevenue || 0) === 0
+          );
+        })
+        .sort((a, b) => (companyBillingStats[b.id]?.mrr || 0) - (companyBillingStats[a.id]?.mrr || 0))
+        .slice(0, 6),
+    [companiesTable, companyBillingStats, companyStats]
+  );
+
+  const highRevenueLowAdoptionWatchlist = useMemo(
+    () =>
+      companiesTable
+        .filter((company) => {
+          const billing = companyBillingStats[company.id];
+          const stats = companyStats[company.id];
+          return (
+            (billing?.mrr || 0) >= 49 &&
+            ((stats?.activeUsers || company.users) <= 1 || (stats?.ordersCount || company.orders) === 0)
+          );
+        })
+        .sort((a, b) => (companyBillingStats[b.id]?.mrr || 0) - (companyBillingStats[a.id]?.mrr || 0))
+        .slice(0, 6),
+    [companiesTable, companyBillingStats, companyStats]
+  );
+
+  const activationWatchlist = useMemo(
+    () =>
+      companiesTable
+        .filter(
+          (company) =>
+            company.orders === 0 ||
+            company.subscriptionStatus === 'past_due' ||
+            company.subscriptionStatus === 'canceled' ||
+            company.ownerEmail === 'No owner email'
+        )
+        .slice(0, 6),
+    [companiesTable]
+  );
+
+  const filteredCompanies = useMemo(() => {
+    const normalized = companySearch.trim().toLowerCase();
+    return companiesTable.filter((company) => {
+      const statusMatch = statusFilter === 'all' || company.subscriptionStatus === statusFilter;
+      const searchMatch =
+        normalized.length === 0 ||
+        company.name.toLowerCase().includes(normalized) ||
+        company.ownerEmail.toLowerCase().includes(normalized) ||
+        company.industry.toLowerCase().includes(normalized);
+      return statusMatch && searchMatch;
+    });
+  }, [companiesTable, companySearch, statusFilter]);
+
+  const selectedCompany =
+    filteredCompanies.find((company) => company.id === selectedCompanyId) ||
+    companiesTable.find((company) => company.id === selectedCompanyId) ||
+    filteredCompanies[0] ||
+    companiesTable[0] ||
+    null;
+
+  const selectedCompanyHealth = useMemo(() => {
+    if (!selectedCompany) return 'neutral';
+    const platformLifecycle = companyControls[selectedCompany.id]?.lifecycleStatus;
+    if (platformLifecycle === 'suspended' || platformLifecycle === 'internal_hold') {
+      return 'risk';
+    }
+    if (platformLifecycle === 'watch') {
+      return 'watch';
+    }
+    if (selectedCompany.subscriptionStatus === 'past_due' || selectedCompany.subscriptionStatus === 'canceled') {
+      return 'risk';
+    }
+    if (!selectedCompany.onboardingComplete || selectedCompany.orders === 0) {
+      return 'watch';
+    }
+    return 'healthy';
+  }, [companyControls, selectedCompany]);
+
+  const selectedStats = selectedCompany ? companyStats[selectedCompany.id] || null : null;
+  const selectedBilling = selectedCompany ? companyBillingStats[selectedCompany.id] || null : null;
+  const selectedTenantAgeDays = selectedCompany
+    ? Math.max(
+        0,
+        Math.floor(((new Date()).getTime() - (toDate(selectedCompany.createdAt)?.getTime() || Date.now())) / (1000 * 60 * 60 * 24))
+      )
+    : 0;
+  const selectedMonetizationPressure = selectedCompany
+    ? (selectedBilling?.subscriptionStatus || selectedCompany.subscriptionStatus) === 'past_due'
+      ? t('super_admin.company_panel.pressure_high')
+      : (selectedBilling?.subscriptionStatus || selectedCompany.subscriptionStatus) === 'trialing' && selectedCompany.orders > 0
+        ? t('super_admin.company_panel.pressure_conversion')
+        : !selectedBilling && !selectedStats
+          ? t('super_admin.company_panel.pressure_pending')
+          : ((selectedStats?.monthlyRevenue || 0) === 0 && (selectedBilling?.mrr || 0) > 0)
+            ? t('super_admin.company_panel.pressure_low_signal')
+            : t('super_admin.company_panel.pressure_healthy')
+    : '';
+  const selectedChurnRisk = selectedCompany
+    ? (selectedBilling?.subscriptionStatus === 'past_due' || selectedBilling?.cancelAtPeriodEnd)
+      ? t('super_admin.company_panel.churn_risk_high')
+      : (selectedBilling?.subscriptionStatus || selectedCompany.subscriptionStatus) === 'trialing' && (selectedStats?.ordersCount || selectedCompany.orders) > 0
+        ? t('super_admin.company_panel.churn_risk_medium')
+        : !selectedBilling
+          ? t('super_admin.company_panel.billing_pending')
+          : t('super_admin.company_panel.churn_risk_low')
+    : '';
+  const resolvedMrr = metrics.billingCoverage > 0 ? metrics.realMrr : metrics.estimatedMrr;
+  const resolvedArr = metrics.billingCoverage > 0 ? metrics.realArr : metrics.estimatedArr;
+  const usingRealBilling = metrics.billingCoverage > 0;
+
+  useEffect(() => {
+    if (!selectedCompany) return;
+    const existingControl = companyControls[selectedCompany.id];
+    setControlForm({
+      lifecycleStatus: existingControl?.lifecycleStatus || 'active',
+      priority: existingControl?.priority || 'normal',
+      nextAction: existingControl?.nextAction || '',
+      assignedTo: existingControl?.assignedTo || '',
+      notes: existingControl?.notes || '',
+    });
+    setControlFeedback(null);
+  }, [companyControls, selectedCompany?.id]);
+
+  const saveCompanyControl = async () => {
+    if (!selectedCompany || !platformAdmin?.uid) return;
+    setSavingControl(true);
+    setControlFeedback(null);
+    try {
+      await setDoc(
+        doc(db, 'platformCompanyControls', selectedCompany.id),
+        {
+          companyId: selectedCompany.id,
+          lifecycleStatus: controlForm.lifecycleStatus,
+          priority: controlForm.priority,
+          nextAction: controlForm.nextAction.trim(),
+          assignedTo: controlForm.assignedTo.trim(),
+          notes: controlForm.notes.trim(),
+          updatedAt: serverTimestamp(),
+          updatedBy: platformAdmin.uid,
+        },
+        { merge: true }
+      );
+
+      setCompanyControls((current) => ({
+        ...current,
+        [selectedCompany.id]: {
+          companyId: selectedCompany.id,
+          lifecycleStatus: controlForm.lifecycleStatus,
+          priority: controlForm.priority,
+          nextAction: controlForm.nextAction.trim(),
+          assignedTo: controlForm.assignedTo.trim(),
+          notes: controlForm.notes.trim(),
+          updatedBy: platformAdmin.uid,
+        },
+      }));
+      await addDoc(collection(db, 'platformAuditLogs'), {
+        type: 'company_control_updated',
+        companyId: selectedCompany.id,
+        actorUid: platformAdmin.uid,
+        payload: {
+          lifecycleStatus: controlForm.lifecycleStatus,
+          priority: controlForm.priority,
+        },
+        createdAt: serverTimestamp(),
+      } as PlatformAuditLog);
+      setControlFeedback(t('super_admin.company_panel.saved'));
+    } catch (saveError) {
+      console.error('Failed to save platform company control:', saveError);
+      setControlFeedback(t('super_admin.company_panel.save_failed'));
+    } finally {
+      setSavingControl(false);
+    }
+  };
+
+  const logBillingAction = async (
+    type: 'billing_note_added' | 'billing_status_reviewed' | 'churn_risk_marked' | 'followup_scheduled'
+  ) => {
+    if (!selectedCompany || !platformAdmin?.uid) return;
+    try {
+      await addDoc(collection(db, 'platformAuditLogs'), {
+        type,
+        companyId: selectedCompany.id,
+        actorUid: platformAdmin.uid,
+        payload: {
+          note: type === 'billing_note_added' ? controlForm.notes.trim() : undefined,
+          nextAction: controlForm.nextAction.trim() || undefined,
+          assignedTo: controlForm.assignedTo.trim() || undefined,
+        },
+        createdAt: serverTimestamp(),
+      } as PlatformAuditLog);
+      setControlFeedback(t(`super_admin.company_panel.action_feedback.${type}`));
+    } catch (auditError) {
+      console.error(`Failed to log ${type}:`, auditError);
+      setControlFeedback(t('super_admin.company_panel.save_failed'));
+    }
+  };
+
+  const syncCompanyStats = async () => {
+    if (!platformAdmin?.uid) return;
+    setSyncingStats(true);
+    setError(null);
+    try {
+      await syncPlatformStats();
+      setRefreshKey((current) => current + 1);
+      setControlFeedback(t('super_admin.metrics.sync_success'));
+    } catch (syncError) {
+      console.error('Failed to sync company stats:', syncError);
+      setError(t('super_admin.errors.stats_sync_failed'));
+    } finally {
+      setSyncingStats(false);
+    }
+  };
+
+  const syncBillingStats = async () => {
+    setSyncingBilling(true);
+    setError(null);
+    try {
+      const payload = await syncPlatformBilling(selectedCompany?.id || null);
+      setRefreshKey((current) => current + 1);
+      setControlFeedback(t('super_admin.metrics.billing_sync_success', { count: payload.syncedCompanies || 0 }));
+    } catch (syncError) {
+      console.error('Failed to sync billing stats:', syncError);
+      setError(t('super_admin.errors.billing_sync_failed'));
+    } finally {
+      setSyncingBilling(false);
+    }
+  };
+
   return (
     <div className="space-y-8">
       <div className="relative overflow-hidden rounded-[28px] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.18),transparent_35%),linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.01))] p-8">
         <div className="absolute inset-y-0 right-0 w-1/3 bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.08),transparent_55%)] pointer-events-none" />
-        <div className="relative flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+          <div className="relative flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
           <div className="max-w-3xl">
             <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-blue-500/20 bg-blue-500/10 px-3 py-1 text-[10px] font-black uppercase tracking-[0.3em] text-blue-300">
               <ShieldCheck className="h-3.5 w-3.5" />
@@ -386,7 +729,36 @@ export function SuperAdmin() {
               {t('super_admin.subtitle')}
             </p>
           </div>
-          <div className="grid grid-cols-2 gap-3 lg:w-[360px]">
+          <div className="flex flex-col gap-3 lg:w-[360px]">
+            <div className="grid grid-cols-3 gap-3">
+              <Button
+                variant="secondary"
+                onClick={() => setRefreshKey((current) => current + 1)}
+                className="justify-center gap-2 border-white/10 bg-black/30"
+              >
+                <RefreshCcw className="h-4 w-4" />
+                {t('super_admin.actions.refresh')}
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={syncCompanyStats}
+                disabled={syncingStats}
+                className="justify-center gap-2 border-white/10 bg-black/30"
+              >
+                {syncingStats ? <Loader2 className="h-4 w-4 animate-spin" /> : <Activity className="h-4 w-4" />}
+                {t('super_admin.actions.sync_stats')}
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={syncBillingStats}
+                disabled={syncingBilling}
+                className="justify-center gap-2 border-white/10 bg-black/30"
+              >
+                {syncingBilling ? <Loader2 className="h-4 w-4 animate-spin" /> : <CreditCard className="h-4 w-4" />}
+                {t('super_admin.actions.sync_billing')}
+              </Button>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
             <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
               <p className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.identity')}</p>
               <p className="mt-2 text-sm font-semibold text-white truncate">{platformAdmin?.email || '...'}</p>
@@ -394,6 +766,7 @@ export function SuperAdmin() {
             <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
               <p className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.role')}</p>
               <p className="mt-2 text-sm font-semibold uppercase tracking-[0.2em] text-blue-300">{platformAdmin?.role || 'super_admin'}</p>
+            </div>
             </div>
           </div>
         </div>
@@ -409,15 +782,17 @@ export function SuperAdmin() {
         </Card>
       ) : (
         <>
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
             <SuperMetricCard icon={Building2} label={t('super_admin.metrics.total_companies')} value={String(metrics.totalCompanies)} accent="border-blue-500/20 bg-blue-500/10 text-blue-300" />
             <SuperMetricCard icon={Users} label={t('super_admin.metrics.total_users')} value={String(metrics.totalUsers)} accent="border-white/10 bg-white/[0.03] text-white" />
+            <SuperMetricCard icon={Layers3} label={t('super_admin.metrics.total_products')} value={String(metrics.totalProducts)} accent="border-violet-500/20 bg-violet-500/10 text-violet-300" />
+            <SuperMetricCard icon={ShieldCheck} label={t('super_admin.metrics.total_customers')} value={String(metrics.totalCustomers)} accent="border-cyan-500/20 bg-cyan-500/10 text-cyan-300" />
             <SuperMetricCard icon={ShoppingBag} label={t('super_admin.metrics.total_orders')} value={String(metrics.totalOrders)} accent="border-emerald-500/20 bg-emerald-500/10 text-emerald-300" />
             <SuperMetricCard icon={DollarSign} label={t('super_admin.metrics.total_sales')} value={formatCurrency(metrics.totalSales)} accent="border-amber-500/20 bg-amber-500/10 text-amber-300" />
           </div>
 
-          <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-            <Card className="border-white/5 bg-neutral-900/40 p-5 xl:col-span-2">
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
+            <Card className="border-white/5 bg-neutral-900/40 p-5 xl:col-span-6">
               <div className="mb-5 flex items-center justify-between">
                 <div>
                   <p className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-600">{t('super_admin.metrics.platform_health')}</p>
@@ -453,29 +828,183 @@ export function SuperAdmin() {
               </div>
             </Card>
 
-            <Card className="border-white/5 bg-neutral-900/40 p-5">
+            <Card className="border-white/5 bg-neutral-900/40 p-5 xl:col-span-3">
               <div className="mb-5 flex items-center justify-between">
                 <div>
                   <p className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-600">{t('super_admin.metrics.revenue')}</p>
-                  <h2 className="mt-2 text-lg font-bold text-white">{t('super_admin.metrics.estimated_mrr')}</h2>
+                  <h2 className="mt-2 text-lg font-bold text-white">
+                    {usingRealBilling ? t('super_admin.metrics.real_mrr') : t('super_admin.metrics.estimated_mrr')}
+                  </h2>
                 </div>
                 <CreditCard className="h-5 w-5 text-emerald-300" />
               </div>
               <div className="rounded-3xl border border-emerald-500/20 bg-emerald-500/10 p-5">
-                <p className="text-[10px] font-black uppercase tracking-[0.25em] text-emerald-200/80">{t('super_admin.metrics.projected_mrr')}</p>
-                <p className="mt-4 text-4xl font-bold tracking-tight text-white">{formatCurrency(metrics.estimatedMrr)}</p>
+                <p className="text-[10px] font-black uppercase tracking-[0.25em] text-emerald-200/80">
+                  {usingRealBilling ? t('super_admin.metrics.billing_source_live') : t('super_admin.metrics.billing_source_fallback')}
+                </p>
+                <p className="mt-4 text-4xl font-bold tracking-tight text-white">{formatCurrency(resolvedMrr)}</p>
               </div>
               <p className="mt-4 text-xs leading-relaxed text-neutral-500">
-                {t('super_admin.metrics.mrr_note')}
+                {usingRealBilling
+                  ? t('super_admin.metrics.real_mrr_note', { coverage: metrics.billingCoverage })
+                  : t('super_admin.metrics.mrr_note')}
               </p>
+            </Card>
+
+            <Card className="border-white/5 bg-neutral-900/40 p-5 xl:col-span-3">
+              <div className="mb-5 flex items-center justify-between">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-600">{t('super_admin.metrics.activation')}</p>
+                  <h2 className="mt-2 text-lg font-bold text-white">{t('super_admin.metrics.activation_title')}</h2>
+                </div>
+                <ArrowUpRight className="h-5 w-5 text-blue-300" />
+              </div>
+              <div className="space-y-3">
+                <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-4">
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.metrics.average_order_value')}</p>
+                  <p className="mt-3 text-2xl font-bold text-white">{formatCurrency(metrics.averageOrderValue)}</p>
+                </div>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 xl:grid-cols-1">
+                  <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.metrics.companies_without_orders')}</p>
+                    <p className="mt-2 text-xl font-bold text-white">{metrics.companiesWithoutOrders}</p>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.metrics.trial_expiring_soon')}</p>
+                    <p className="mt-2 text-xl font-bold text-white">{metrics.trialExpiringSoon}</p>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.metrics.ownerless_companies')}</p>
+                    <p className="mt-2 text-xl font-bold text-white">{metrics.ownerlessCompanies}</p>
+                  </div>
+                </div>
+              </div>
             </Card>
           </div>
 
-          <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-            <Card className="border-white/5 bg-neutral-900/40 p-5 xl:col-span-2">
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
+            <Card className="border-white/5 bg-neutral-900/40 p-5 xl:col-span-4">
+              <div className="mb-5 flex items-center justify-between">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-600">{t('super_admin.metrics.revenue')}</p>
+                  <h2 className="mt-2 text-lg font-bold text-white">
+                    {usingRealBilling ? t('super_admin.metrics.arr_real') : t('super_admin.metrics.arr_estimated')}
+                  </h2>
+                </div>
+                <TrendingUp className="h-5 w-5 text-emerald-300" />
+              </div>
+              <div className="space-y-3">
+                <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-4">
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-600">
+                    {usingRealBilling ? t('super_admin.metrics.arr_real') : t('super_admin.metrics.arr_estimated')}
+                  </p>
+                  <p className="mt-3 text-2xl font-bold text-white">{formatCurrency(resolvedArr)}</p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-4">
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.metrics.monthly_platform_sales')}</p>
+                  <p className="mt-3 text-2xl font-bold text-white">{formatCurrency(metrics.monthlyPlatformSales)}</p>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.metrics.active_subscriptions')}</p>
+                    <p className="mt-2 text-xl font-bold text-white">{metrics.activeSubscriptions}</p>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.metrics.billing_coverage')}</p>
+                    <p className="mt-2 text-xl font-bold text-white">{metrics.billingCoverage}%</p>
+                  </div>
+                </div>
+              </div>
+            </Card>
+
+            <Card className="border-white/5 bg-neutral-900/40 p-5 xl:col-span-4">
+              <div className="mb-5 flex items-center justify-between">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-600">{t('super_admin.metrics.activation')}</p>
+                  <h2 className="mt-2 text-lg font-bold text-white">{t('super_admin.metrics.conversion_watch')}</h2>
+                </div>
+                <Radar className="h-5 w-5 text-blue-300" />
+              </div>
+              <div className="space-y-3">
+                <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.metrics.trial_to_paid_watch')}</p>
+                  <p className="mt-2 text-xl font-bold text-white">{trialToPaidWatchlist.length}</p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.metrics.active_no_conversion')}</p>
+                  <p className="mt-2 text-xl font-bold text-white">{metrics.activeNoConversionCompanies}</p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.metrics.stats_coverage')}</p>
+                  <p className="mt-2 text-xl font-bold text-white">{metrics.statsCoverage}%</p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.metrics.revenue_concentration')}</p>
+                  <p className="mt-2 text-xl font-bold text-white">{metrics.topRevenueShare}%</p>
+                </div>
+              </div>
+            </Card>
+
+            <Card className="border-white/5 bg-neutral-900/40 p-5 xl:col-span-4">
+              <div className="mb-5 flex items-center justify-between">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-600">{t('super_admin.alerts.label')}</p>
+                  <h2 className="mt-2 text-lg font-bold text-white">{t('super_admin.metrics.billing_watch')}</h2>
+                </div>
+                <CreditCard className="h-5 w-5 text-amber-300" />
+              </div>
+              <div className="space-y-3">
+                <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.metrics.past_due_watch')}</p>
+                  <p className="mt-2 text-xl font-bold text-white">{metrics.pastDueWatchCount}</p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.metrics.trial_expiring_soon')}</p>
+                  <p className="mt-2 text-xl font-bold text-white">{metrics.trialExpiringSoon}</p>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.metrics.cancel_at_period_end')}</p>
+                    <p className="mt-2 text-xl font-bold text-white">{metrics.cancelAtPeriodEndCount}</p>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.metrics.trialing_subscriptions')}</p>
+                    <p className="mt-2 text-xl font-bold text-white">{metrics.trialingSubscriptions}</p>
+                  </div>
+                </div>
+              </div>
+            </Card>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
+            <Card className="border-white/5 bg-neutral-900/40 p-5 xl:col-span-8">
               <div className="mb-5">
                 <p className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-600">{t('super_admin.tables.companies_label')}</p>
                 <h2 className="mt-2 text-lg font-bold text-white">{t('super_admin.tables.companies_title')}</h2>
+              </div>
+              <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <input
+                  value={companySearch}
+                  onChange={(event) => setCompanySearch(event.target.value)}
+                  placeholder={t('super_admin.tables.search_placeholder')}
+                  className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white placeholder:text-neutral-600 focus:border-blue-500/40 focus:outline-none lg:max-w-sm"
+                />
+                <div className="flex flex-wrap gap-2">
+                  {(['all', 'active', 'trialing', 'past_due', 'canceled'] as const).map((status) => (
+                    <button
+                      key={status}
+                      onClick={() => setStatusFilter(status)}
+                      className={cn(
+                        'rounded-full border px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.22em] transition-colors',
+                        statusFilter === status
+                          ? 'border-blue-500/30 bg-blue-500/10 text-blue-300'
+                          : 'border-white/10 bg-black/30 text-neutral-500 hover:text-white'
+                      )}
+                    >
+                      {t(`super_admin.filters.${status}`)}
+                    </button>
+                  ))}
+                </div>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full border-collapse">
@@ -494,12 +1023,19 @@ export function SuperAdmin() {
                     </tr>
                   </thead>
                   <tbody>
-                    {companiesTable.slice(0, 10).map((company) => (
-                      <tr key={company.id} className="border-t border-white/[0.04]">
+                    {filteredCompanies.slice(0, 10).map((company) => (
+                      <tr
+                        key={company.id}
+                        className={cn(
+                          'cursor-pointer border-t border-white/[0.04] transition-colors hover:bg-white/[0.02]',
+                          selectedCompany?.id === company.id && 'bg-blue-500/[0.06]'
+                        )}
+                        onClick={() => setSelectedCompanyId(company.id)}
+                      >
                         <td className="table-cell font-semibold text-white">{company.name}</td>
                         <td className="table-cell text-neutral-400">{company.ownerEmail}</td>
                         <td className="table-cell uppercase text-neutral-300">{company.plan}</td>
-                        <td className="table-cell uppercase text-neutral-300">{company.subscriptionStatus}</td>
+                        <td className="table-cell uppercase text-neutral-300">{companyBillingStats[company.id]?.subscriptionStatus || company.subscriptionStatus}</td>
                         <td className="table-cell text-neutral-300">{company.users}</td>
                         <td className="table-cell text-neutral-300">{company.products}</td>
                         <td className="table-cell text-neutral-300">{company.customers}</td>
@@ -513,33 +1049,320 @@ export function SuperAdmin() {
               </div>
             </Card>
 
-            <Card className="border-white/5 bg-neutral-900/40 p-5">
-              <div className="mb-5 flex items-center justify-between">
-                <div>
-                  <p className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-600">{t('super_admin.alerts.label')}</p>
-                  <h2 className="mt-2 text-lg font-bold text-white">{t('super_admin.alerts.title')}</h2>
-                </div>
-                <AlertTriangle className="h-5 w-5 text-amber-300" />
-              </div>
-              <div className="space-y-3">
-                {alerts.map((alert) => (
+            <div className="space-y-4 xl:col-span-4">
+              <Card className="border-white/5 bg-neutral-900/40 p-5">
+                <div className="mb-5 flex items-center justify-between">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-600">{t('super_admin.company_panel.label')}</p>
+                    <h2 className="mt-2 text-lg font-bold text-white">{t('super_admin.company_panel.title')}</h2>
+                  </div>
                   <div
-                    key={alert.id}
                     className={cn(
-                      'rounded-2xl border px-4 py-4',
-                      alert.tone === 'warning'
-                        ? 'border-amber-500/20 bg-amber-500/10'
-                        : alert.tone === 'success'
-                          ? 'border-emerald-500/20 bg-emerald-500/10'
-                          : 'border-blue-500/20 bg-blue-500/10'
+                      'rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.22em]',
+                      selectedCompanyHealth === 'healthy'
+                        ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-300'
+                        : selectedCompanyHealth === 'risk'
+                          ? 'border-red-500/20 bg-red-500/10 text-red-300'
+                          : 'border-amber-500/20 bg-amber-500/10 text-amber-300'
                     )}
                   >
-                    <p className="text-sm font-bold text-white">{alert.title}</p>
-                    <p className="mt-1 text-xs leading-relaxed text-neutral-200/85">{alert.body}</p>
+                    {t(`super_admin.company_panel.health.${selectedCompanyHealth}`)}
                   </div>
-                ))}
-              </div>
-            </Card>
+                </div>
+
+                {selectedCompany ? (
+                  <div className="space-y-4">
+                    <div className="rounded-3xl border border-white/10 bg-black/30 p-4">
+                      <p className="text-lg font-bold text-white">{selectedCompany.name}</p>
+                      <p className="mt-1 text-xs uppercase tracking-[0.2em] text-neutral-500">{selectedCompany.industry}</p>
+                      <div className="mt-4 grid grid-cols-2 gap-3">
+                        <div>
+                          <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.company_panel.plan')}</p>
+                          <p className="mt-1 text-sm font-semibold uppercase text-white">{selectedCompany.plan}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.company_panel.subscription')}</p>
+                          <p className="mt-1 text-sm font-semibold uppercase text-white">{selectedBilling?.subscriptionStatus || selectedCompany.subscriptionStatus}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.company_panel.owner')}</p>
+                          <p className="mt-1 text-sm text-neutral-300 break-all">{selectedCompany.ownerEmail}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.company_panel.created')}</p>
+                          <p className="mt-1 text-sm text-neutral-300">{toDate(selectedCompany.createdAt)?.toLocaleDateString() || '-'}</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                        <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.company_panel.stripe')}</p>
+                        <p className="mt-2 text-xs font-semibold text-white break-all">
+                          {selectedCompany.stripeCustomerId || t('super_admin.company_panel.not_connected')}
+                        </p>
+                      </div>
+                      <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                          <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.company_panel.renewal')}</p>
+                          <p className="mt-2 text-xs font-semibold text-white">
+                          {toDate(selectedBilling?.currentPeriodEnd || selectedBilling?.trialEndsAt || selectedCompany.currentPeriodEnd || selectedCompany.trialEndsAt)?.toLocaleDateString() || '-'}
+                          </p>
+                        </div>
+                    </div>
+
+                    <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                      <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.company_panel.onboarding')}</p>
+                      <div className="mt-3 grid grid-cols-2 gap-2">
+                        {(['profile', 'product', 'customer', 'order'] as const).map((item) => (
+                          <div
+                            key={item}
+                            className={cn(
+                              'rounded-xl border px-3 py-2 text-[10px] font-black uppercase tracking-[0.18em]',
+                              selectedCompany.onboardingChecklist[item]
+                                ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-300'
+                                : 'border-white/10 bg-black/30 text-neutral-500'
+                            )}
+                          >
+                            {t(`super_admin.company_panel.checklist.${item}`)}
+                          </div>
+                        ))}
+                      </div>
+                      <p className="mt-3 text-xs text-neutral-400">
+                        {t('super_admin.company_panel.onboarding_step', { step: selectedCompany.onboardingStep })}
+                      </p>
+                    </div>
+
+                    <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                      <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.company_panel.usage')}</p>
+                      <div className="mt-3 grid grid-cols-2 gap-3">
+                        <div><p className="text-[10px] text-neutral-600">{t('super_admin.tables.users')}</p><p className="mt-1 text-lg font-bold text-white">{selectedCompany.users}</p></div>
+                        <div><p className="text-[10px] text-neutral-600">{t('super_admin.tables.products')}</p><p className="mt-1 text-lg font-bold text-white">{selectedCompany.products}</p></div>
+                        <div><p className="text-[10px] text-neutral-600">{t('super_admin.tables.customers')}</p><p className="mt-1 text-lg font-bold text-white">{selectedCompany.customers}</p></div>
+                        <div><p className="text-[10px] text-neutral-600">{t('super_admin.tables.orders')}</p><p className="mt-1 text-lg font-bold text-white">{selectedCompany.orders}</p></div>
+                      </div>
+                      <div className="mt-4 rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                        <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.tables.revenue')}</p>
+                        <p className="mt-2 text-xl font-bold text-white">{formatCurrency(selectedCompany.revenue)}</p>
+                      </div>
+                    </div>
+
+                    <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                      <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.company_panel.commercial')}</p>
+                      {selectedStats || selectedBilling ? (
+                        <>
+                          <div className="mt-3 grid grid-cols-2 gap-3">
+                            <div><p className="text-[10px] text-neutral-600">{t('super_admin.company_panel.lifetime_revenue')}</p><p className="mt-1 text-lg font-bold text-white">{formatCurrency(selectedStats?.lifetimeRevenue || 0)}</p></div>
+                            <div><p className="text-[10px] text-neutral-600">{t('super_admin.company_panel.monthly_revenue')}</p><p className="mt-1 text-lg font-bold text-white">{formatCurrency(selectedStats?.monthlyRevenue || 0)}</p></div>
+                            <div><p className="text-[10px] text-neutral-600">{t('super_admin.company_panel.last_sale')}</p><p className="mt-1 text-sm font-semibold text-white">{toDate(selectedStats?.lastOrderAt)?.toLocaleDateString() || '-'}</p></div>
+                            <div><p className="text-[10px] text-neutral-600">{t('super_admin.company_panel.first_sale')}</p><p className="mt-1 text-sm font-semibold text-white">{toDate(selectedStats?.firstOrderAt)?.toLocaleDateString() || '-'}</p></div>
+                            <div><p className="text-[10px] text-neutral-600">{t('super_admin.company_panel.active_users')}</p><p className="mt-1 text-lg font-bold text-white">{selectedStats?.activeUsers || 0}</p></div>
+                            <div><p className="text-[10px] text-neutral-600">{t('super_admin.company_panel.tenant_age')}</p><p className="mt-1 text-lg font-bold text-white">{selectedTenantAgeDays}d</p></div>
+                            <div><p className="text-[10px] text-neutral-600">{t('super_admin.company_panel.billing_status')}</p><p className="mt-1 text-sm font-semibold uppercase text-white">{selectedBilling?.subscriptionStatus || t('super_admin.company_panel.billing_pending')}</p></div>
+                            <div><p className="text-[10px] text-neutral-600">{t('super_admin.company_panel.mrr')}</p><p className="mt-1 text-lg font-bold text-white">{selectedBilling ? formatCurrency(selectedBilling.mrr) : formatCurrency(0)}</p></div>
+                            <div><p className="text-[10px] text-neutral-600">{t('super_admin.company_panel.billing_plan')}</p><p className="mt-1 text-sm font-semibold uppercase text-white">{selectedBilling?.planId || selectedCompany.plan}</p></div>
+                            <div><p className="text-[10px] text-neutral-600">{t('super_admin.company_panel.last_payment_status')}</p><p className="mt-1 text-sm font-semibold uppercase text-white">{selectedBilling?.lastPaymentStatus || '-'}</p></div>
+                          </div>
+                          <div className="mt-4 grid grid-cols-1 gap-3">
+                            <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                              <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.company_panel.monetization_pressure')}</p>
+                              <p className="mt-2 text-sm font-semibold text-white">{selectedMonetizationPressure}</p>
+                            </div>
+                            <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                              <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.company_panel.churn_risk')}</p>
+                              <p className="mt-2 text-sm font-semibold text-white">{selectedChurnRisk}</p>
+                            </div>
+                            {selectedBilling ? (
+                              <div className="grid grid-cols-2 gap-3">
+                                <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                                  <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.company_panel.renewal')}</p>
+                                  <p className="mt-2 text-xs font-semibold text-white">{toDate(selectedBilling.currentPeriodEnd || selectedBilling.trialEndsAt)?.toLocaleDateString() || '-'}</p>
+                                </div>
+                                <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                                  <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.company_panel.cancel_at_period_end')}</p>
+                                  <p className="mt-2 text-xs font-semibold text-white">{selectedBilling.cancelAtPeriodEnd ? t('super_admin.company_panel.boolean_yes') : t('super_admin.company_panel.boolean_no')}</p>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="rounded-2xl border border-dashed border-white/10 bg-black/30 px-4 py-4 text-center text-sm text-neutral-500">
+                                {t('super_admin.company_panel.billing_pending')}
+                              </div>
+                            )}
+                          </div>
+                        </>
+                      ) : (
+                        <div className="mt-3 rounded-2xl border border-dashed border-white/10 bg-black/30 px-4 py-6 text-center text-sm text-neutral-500">
+                          {t('super_admin.company_panel.stats_pending')}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                      <div className="mb-4 flex items-center justify-between">
+                        <div>
+                          <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.company_panel.controls_label')}</p>
+                          <h3 className="mt-2 text-base font-bold text-white">{t('super_admin.company_panel.controls_title')}</h3>
+                        </div>
+                        <Flame className="h-5 w-5 text-blue-300" />
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-4">
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <Label>{t('super_admin.company_panel.lifecycle')}</Label>
+                            <select
+                              value={controlForm.lifecycleStatus}
+                              onChange={(event) =>
+                                setControlForm((current) => ({
+                                  ...current,
+                                  lifecycleStatus: event.target.value as CompanyControlForm['lifecycleStatus'],
+                                }))
+                              }
+                              className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white focus:border-blue-500/50 focus:outline-none"
+                            >
+                              {(['active', 'watch', 'internal_hold', 'suspended'] as const).map((value) => (
+                                <option key={value} value={value} className="bg-neutral-950 text-white">
+                                  {t(`super_admin.company_panel.lifecycle_options.${value}`)}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <Label>{t('super_admin.company_panel.priority')}</Label>
+                            <select
+                              value={controlForm.priority}
+                              onChange={(event) =>
+                                setControlForm((current) => ({
+                                  ...current,
+                                  priority: event.target.value as CompanyControlForm['priority'],
+                                }))
+                              }
+                              className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white focus:border-blue-500/50 focus:outline-none"
+                            >
+                              {(['low', 'normal', 'high', 'critical'] as const).map((value) => (
+                                <option key={value} value={value} className="bg-neutral-950 text-white">
+                                  {t(`super_admin.company_panel.priority_options.${value}`)}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+
+                        <div>
+                          <Label>{t('super_admin.company_panel.assigned_to')}</Label>
+                          <Input
+                            value={controlForm.assignedTo}
+                            onChange={(event) =>
+                              setControlForm((current) => ({
+                                ...current,
+                                assignedTo: event.target.value,
+                              }))
+                            }
+                            placeholder={t('super_admin.company_panel.assigned_placeholder')}
+                          />
+                        </div>
+
+                        <div>
+                          <Label>{t('super_admin.company_panel.next_action')}</Label>
+                          <Input
+                            value={controlForm.nextAction}
+                            onChange={(event) =>
+                              setControlForm((current) => ({
+                                ...current,
+                                nextAction: event.target.value,
+                              }))
+                            }
+                            placeholder={t('super_admin.company_panel.next_action_placeholder')}
+                          />
+                        </div>
+
+                        <div>
+                          <Label>{t('super_admin.company_panel.notes')}</Label>
+                          <textarea
+                            value={controlForm.notes}
+                            onChange={(event) =>
+                              setControlForm((current) => ({
+                                ...current,
+                                notes: event.target.value,
+                              }))
+                            }
+                            placeholder={t('super_admin.company_panel.notes_placeholder')}
+                            className="min-h-[120px] w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white placeholder:text-neutral-600 focus:border-blue-500/50 focus:outline-none"
+                          />
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <Button variant="secondary" className="border-white/10 bg-black/30" onClick={() => logBillingAction('billing_status_reviewed')}>
+                            {t('super_admin.company_panel.actions.review_billing')}
+                          </Button>
+                          <Button variant="secondary" className="border-white/10 bg-black/30" onClick={() => logBillingAction('churn_risk_marked')}>
+                            {t('super_admin.company_panel.actions.mark_churn')}
+                          </Button>
+                          <Button variant="secondary" className="border-white/10 bg-black/30" onClick={() => logBillingAction('followup_scheduled')}>
+                            {t('super_admin.company_panel.actions.schedule_followup')}
+                          </Button>
+                          <Button
+                            variant="secondary"
+                            className="border-white/10 bg-black/30"
+                            onClick={() => logBillingAction('billing_note_added')}
+                            disabled={!controlForm.notes.trim()}
+                          >
+                            {t('super_admin.company_panel.actions.log_note')}
+                          </Button>
+                        </div>
+
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-xs text-neutral-500">
+                            {controlFeedback || t('super_admin.company_panel.controls_note')}
+                          </p>
+                          <Button
+                            onClick={saveCompanyControl}
+                            disabled={savingControl}
+                            className="gap-2"
+                          >
+                            <Save className="h-4 w-4" />
+                            {savingControl
+                              ? t('super_admin.company_panel.saving')
+                              : t('super_admin.company_panel.save')}
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-8 text-center text-sm text-neutral-500">
+                    {t('super_admin.company_panel.empty')}
+                  </div>
+                )}
+              </Card>
+
+              <Card className="border-white/5 bg-neutral-900/40 p-5">
+                <div className="mb-5 flex items-center justify-between">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-600">{t('super_admin.alerts.label')}</p>
+                    <h2 className="mt-2 text-lg font-bold text-white">{t('super_admin.alerts.title')}</h2>
+                  </div>
+                  <AlertTriangle className="h-5 w-5 text-amber-300" />
+                </div>
+                <div className="space-y-3">
+                  {alerts.map((alert) => (
+                    <div
+                      key={alert.id}
+                      className={cn(
+                        'rounded-2xl border px-4 py-4',
+                        alert.tone === 'warning'
+                          ? 'border-amber-500/20 bg-amber-500/10'
+                          : alert.tone === 'success'
+                            ? 'border-emerald-500/20 bg-emerald-500/10'
+                            : 'border-blue-500/20 bg-blue-500/10'
+                      )}
+                    >
+                      <p className="text-sm font-bold text-white">{alert.title}</p>
+                      <p className="mt-1 text-xs leading-relaxed text-neutral-200/85">{alert.body}</p>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
@@ -584,10 +1407,15 @@ export function SuperAdmin() {
                   <Layers3 className="h-5 w-5 text-blue-300" />
                 </div>
                 <div className="space-y-3">
-                  {latestCompanies.map((company) => (
+                  {revenueLeaderboard.map((company) => (
                     <div key={company.id} className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
-                      <p className="text-sm font-bold text-white">{company.name}</p>
-                      <p className="mt-1 text-[11px] text-neutral-400">{company.ownerEmail}</p>
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-bold text-white">{company.name}</p>
+                          <p className="mt-1 text-[11px] text-neutral-400">{company.orders} {t('super_admin.latest.orders_count')}</p>
+                        </div>
+                        <p className="text-[11px] font-mono font-bold text-emerald-300">{formatCurrency(company.revenue)}</p>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -602,12 +1430,117 @@ export function SuperAdmin() {
                   <Users className="h-5 w-5 text-purple-300" />
                 </div>
                 <div className="space-y-3">
-                  {latestUsers.map((user) => (
+                  {activationWatchlist.length > 0 ? activationWatchlist.map((company) => (
+                    <div key={company.id} className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                      <p className="text-sm font-bold text-white">{company.name}</p>
+                      <p className="mt-1 text-[11px] text-neutral-400">
+                        {company.orders === 0
+                          ? t('super_admin.latest.no_orders_watch')
+                          : `${company.subscriptionStatus.toUpperCase()} | ${company.ownerEmail}`}
+                      </p>
+                    </div>
+                  )) : latestUsers.map((user) => (
                     <div key={user.id} className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
                       <p className="text-sm font-bold text-white">{user.displayName}</p>
                       <p className="mt-1 text-[11px] text-neutral-400">{user.email}</p>
                     </div>
                   ))}
+                </div>
+              </Card>
+
+              <Card className="border-white/5 bg-neutral-900/40 p-5">
+                <div className="mb-5 flex items-center justify-between">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-600">{t('super_admin.metrics.activation')}</p>
+                    <h2 className="mt-2 text-lg font-bold text-white">{t('super_admin.metrics.trial_ending_with_usage')}</h2>
+                  </div>
+                  <Sparkles className="h-5 w-5 text-emerald-300" />
+                </div>
+                <div className="space-y-3">
+                  {trialEndingWithUsageWatchlist.length > 0 ? trialEndingWithUsageWatchlist.map((company) => (
+                    <div key={company.id} className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                      <p className="text-sm font-bold text-white">{company.name}</p>
+                      <p className="mt-1 text-[11px] text-neutral-400">
+                        {formatCurrency(companyStats[company.id]?.monthlyRevenue ?? 0)} | {toDate(companyBillingStats[company.id]?.trialEndsAt || company.trialEndsAt)?.toLocaleDateString() || '-'}
+                      </p>
+                    </div>
+                  )) : (
+                    <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-6 text-center text-sm text-neutral-500">
+                      {t('super_admin.metrics.no_trial_watch')}
+                    </div>
+                  )}
+                </div>
+              </Card>
+
+              <Card className="border-white/5 bg-neutral-900/40 p-5">
+                <div className="mb-5 flex items-center justify-between">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-600">{t('super_admin.alerts.label')}</p>
+                    <h2 className="mt-2 text-lg font-bold text-white">{t('super_admin.metrics.past_due_high_value')}</h2>
+                  </div>
+                  <AlertTriangle className="h-5 w-5 text-red-300" />
+                </div>
+                <div className="space-y-3">
+                  {pastDueWatchlist.length > 0 ? pastDueWatchlist.map((company) => (
+                    <div key={company.id} className="rounded-2xl border border-red-500/10 bg-red-500/[0.06] px-4 py-3">
+                      <p className="text-sm font-bold text-white">{company.name}</p>
+                      <p className="mt-1 text-[11px] text-neutral-300">
+                        {formatCurrency(companyBillingStats[company.id]?.mrr ?? 0)} MRR | {company.ownerEmail}
+                      </p>
+                    </div>
+                  )) : (
+                    <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-6 text-center text-sm text-neutral-500">
+                      {t('super_admin.metrics.no_past_due_watch')}
+                    </div>
+                  )}
+                </div>
+              </Card>
+
+              <Card className="border-white/5 bg-neutral-900/40 p-5">
+                <div className="mb-5 flex items-center justify-between">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-600">{t('super_admin.metrics.activation')}</p>
+                    <h2 className="mt-2 text-lg font-bold text-white">{t('super_admin.metrics.active_without_usage')}</h2>
+                  </div>
+                  <Activity className="h-5 w-5 text-amber-300" />
+                </div>
+                <div className="space-y-3">
+                  {activeWithoutUsageWatchlist.length > 0 ? activeWithoutUsageWatchlist.map((company) => (
+                    <div key={company.id} className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                      <p className="text-sm font-bold text-white">{company.name}</p>
+                      <p className="mt-1 text-[11px] text-neutral-400">
+                        {formatCurrency(companyBillingStats[company.id]?.mrr ?? 0)} MRR | {company.users} {t('super_admin.tables.users')}
+                      </p>
+                    </div>
+                  )) : (
+                    <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-6 text-center text-sm text-neutral-500">
+                      {t('super_admin.metrics.no_active_without_usage')}
+                    </div>
+                  )}
+                </div>
+              </Card>
+
+              <Card className="border-white/5 bg-neutral-900/40 p-5">
+                <div className="mb-5 flex items-center justify-between">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-600">{t('super_admin.metrics.revenue')}</p>
+                    <h2 className="mt-2 text-lg font-bold text-white">{t('super_admin.metrics.high_revenue_low_adoption')}</h2>
+                  </div>
+                  <TrendingUp className="h-5 w-5 text-blue-300" />
+                </div>
+                <div className="space-y-3">
+                  {highRevenueLowAdoptionWatchlist.length > 0 ? highRevenueLowAdoptionWatchlist.map((company) => (
+                    <div key={company.id} className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                      <p className="text-sm font-bold text-white">{company.name}</p>
+                      <p className="mt-1 text-[11px] text-neutral-400">
+                        {formatCurrency(companyBillingStats[company.id]?.mrr ?? 0)} MRR | {(companyStats[company.id]?.ordersCount ?? company.orders)} {t('super_admin.latest.orders_count')}
+                      </p>
+                    </div>
+                  )) : (
+                    <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-6 text-center text-sm text-neutral-500">
+                      {t('super_admin.metrics.no_high_revenue_low_adoption')}
+                    </div>
+                  )}
                 </div>
               </Card>
             </div>

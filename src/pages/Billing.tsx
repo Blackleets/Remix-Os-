@@ -26,7 +26,7 @@ const PLANS = [
   {
     id: 'starter',
     name: PLAN_DATA.starter.name,
-    price: 0,
+    price: 19,
     description: 'Essential toolkit for emerging entities.',
     features: [
       'Up to 50 Customers',
@@ -60,7 +60,7 @@ const PLANS = [
   {
     id: 'business',
     name: PLAN_DATA.business.name,
-    price: 199,
+    price: 99,
     description: 'Maximum throughput for enterprise-scale ops.',
     features: [
       'Unlimited Customers',
@@ -83,21 +83,11 @@ export function Billing() {
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [billingError, setBillingError] = useState<string | null>(null);
-  
-  if (role !== 'owner' && role !== 'admin') {
-    return (
-      <div className="flex flex-col items-center justify-center py-20 text-center">
-        <Shield className="w-16 h-16 text-red-500/20 mb-6" />
-        <h2 className="text-2xl font-bold text-white mb-2">{t('billing.access_restricted')}</h2>
-        <p className="text-neutral-500 max-w-sm">{t('billing.access_desc')}</p>
-      </div>
-    );
-  }
-
   const [counts, setCounts] = useState({ customers: 0, products: 0, orders: 0, seats: 0 });
   const [searchParams, setSearchParams] = useSearchParams();
   const [stripeConfig, setStripeConfig] = useState<{ 
     stripeEnabled: boolean; 
+    currency?: string;
     publishableKey?: string;
     prices?: Record<string, { amount: number; id?: string }>;
   } | null>(null);
@@ -108,7 +98,7 @@ export function Billing() {
     {
       id: 'starter',
       name: PLAN_DATA.starter.name,
-      price: 0,
+      price: 19,
       description: t('billing.plans.starter.desc'),
       features: [
         t('billing.plans.starter.f1'),
@@ -142,7 +132,7 @@ export function Billing() {
     {
       id: 'business',
       name: PLAN_DATA.business.name,
-      price: 199,
+      price: 99,
       description: t('billing.plans.business.desc'),
       features: [
         t('billing.plans.business.f1'),
@@ -264,6 +254,25 @@ export function Billing() {
     return Math.min(Math.round((current / max) * 100), 100);
   };
 
+  const planCurrency = stripeConfig?.currency || PLAN_DATA[currentPlanId as keyof typeof PLAN_DATA]?.currency || company?.currency || 'USD';
+
+  const formatPlanPrice = (price: number) =>
+    new Intl.NumberFormat(undefined, {
+      style: 'currency',
+      currency: planCurrency,
+      maximumFractionDigits: 0,
+    }).format(price);
+
+  if (role !== 'owner' && role !== 'admin') {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-center">
+        <Shield className="w-16 h-16 text-red-500/20 mb-6" />
+        <h2 className="text-2xl font-bold text-white mb-2">{t('billing.access_restricted')}</h2>
+        <p className="text-neutral-500 max-w-sm">{t('billing.access_desc')}</p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-10">
       {billingError && (
@@ -324,7 +333,7 @@ export function Billing() {
               <div className="text-right space-y-3">
                 <div>
                     <p className="text-[10px] uppercase font-bold text-neutral-600 tracking-widest mb-1">{t('billing.fee')}</p>
-                    <p className="text-3xl font-mono font-bold text-white">${currentPlan.price}<span className="text-sm text-neutral-500">{t('billing.mo')}</span></p>
+                    <p className="text-3xl font-mono font-bold text-white">{formatPlanPrice(currentPlan.price)}<span className="text-sm text-neutral-500">{t('billing.mo')}</span></p>
                 </div>
                 {company?.stripeCustomerId && stripeConfig?.stripeEnabled && (
                     <Button 
@@ -391,7 +400,7 @@ export function Billing() {
                   </div>
                   <h3 className="font-display font-bold text-lg text-white mb-1 uppercase tracking-tight">{plan.name}</h3>
                   <div className="flex items-baseline gap-1 mb-4">
-                    <span className="text-2xl font-mono font-bold text-white">${plan.price}</span>
+                    <span className="text-2xl font-mono font-bold text-white">{formatPlanPrice(plan.price)}</span>
                     <span className="text-[10px] text-neutral-500 font-bold uppercase">{t('billing.mo')}</span>
                   </div>
                   <p className="text-xs text-neutral-500 italic leading-relaxed">

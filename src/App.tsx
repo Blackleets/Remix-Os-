@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { Suspense, lazy, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { Sidebar } from './components/Sidebar';
@@ -11,32 +11,47 @@ import { Customers } from './pages/Customers';
 import { Products } from './pages/Products';
 import { Inventory } from './pages/Inventory';
 import { Orders } from './pages/Orders';
-import { Insights } from './pages/Insights';
 import { Settings } from './pages/Settings';
-import { Billing } from './pages/Billing';
 import { Team } from './pages/Team';
-import { POS } from './pages/POS';
-import { SuperAdmin } from './pages/SuperAdmin';
 import { Copilot } from './components/Copilot';
 import { TrialBanner } from './components/TrialBanner';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { AnimatePresence, motion } from 'motion/react';
 import { usePlatformAdmin } from './hooks/usePlatformAdmin';
 
+const Billing = lazy(() => import('./pages/Billing').then((module) => ({ default: module.Billing })));
+const POS = lazy(() => import('./pages/POS').then((module) => ({ default: module.POS })));
+const Insights = lazy(() => import('./pages/Insights').then((module) => ({ default: module.Insights })));
+const SuperAdmin = lazy(() => import('./pages/SuperAdmin').then((module) => ({ default: module.SuperAdmin })));
+
+const RouteLoading = () => (
+  <div className="flex h-[60vh] items-center justify-center">
+    <div className="shell-panel min-w-[260px] px-6 py-10 text-center">
+      <p className="section-kicker mb-3">Module Loader</p>
+      <p className="text-base font-semibold text-white">Initializing premium surface...</p>
+      <p className="mt-2 text-sm text-neutral-500">Preparing the next operating module.</p>
+    </div>
+  </div>
+);
+
 const ProtectedRoute = ({ children, allowedRoles }: { children: React.ReactNode; allowedRoles?: string[] }) => {
   const { user, company, role, loading } = useAuth();
   const { pathname } = useLocation();
 
-  if (loading) return (
-    <div className="flex items-center justify-center h-screen bg-black font-medium text-neutral-500 text-sm tracking-widest uppercase">
-      Loading OS...
-    </div>
-  );
+  if (loading) {
+    return (
+      <div className="shell-background flex h-screen items-center justify-center">
+        <div className="shell-panel px-8 py-10 text-center">
+          <p className="section-kicker mb-3">Boot Sequence</p>
+          <p className="text-base font-semibold text-white">Loading Remix OS...</p>
+        </div>
+      </div>
+    );
+  }
   if (!user) return <Navigate to="/auth" />;
   if (!company && pathname !== '/onboarding') return <Navigate to="/onboarding" />;
   if (allowedRoles && role && !allowedRoles.includes(role)) return <Navigate to="/dashboard" />;
 
-  // Trial expiry gate: redirect to billing if trial has ended
   if (company && company.subscription?.status === 'trialing' && pathname !== '/billing') {
     const trialEndsAt = company.subscription.trialEndsAt;
     if (trialEndsAt) {
@@ -53,29 +68,32 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
   const { pathname } = useLocation();
 
   return (
-    <div className="flex bg-black min-h-screen text-white font-sans selection:bg-blue-500/30 overflow-x-hidden">
-      {/* Desktop Sidebar */}
-      <div className="hidden lg:block">
+    <div className="shell-background flex min-h-screen overflow-x-hidden text-white">
+      <div className="pointer-events-none absolute inset-0">
+        <div className="absolute left-[12%] top-[-12%] h-[340px] w-[340px] rounded-full bg-blue-500/10 blur-[120px]" />
+        <div className="absolute bottom-[8%] right-[-8%] h-[320px] w-[320px] rounded-full bg-emerald-400/5 blur-[130px]" />
+      </div>
+
+      <div className="relative z-10 hidden lg:block">
         <Sidebar onClose={() => setIsSidebarOpen(false)} />
       </div>
 
-      {/* Mobile Sidebar Overlay */}
       <AnimatePresence>
         {isSidebarOpen && (
           <>
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setIsSidebarOpen(false)}
-              className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[40] lg:hidden"
+              className="fixed inset-0 z-[40] bg-black/60 backdrop-blur-sm lg:hidden"
             />
-            <motion.div 
-              initial={{ x: -280 }}
+            <motion.div
+              initial={{ x: -300 }}
               animate={{ x: 0 }}
-              exit={{ x: -280 }}
-              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-              className="fixed inset-y-0 left-0 w-[280px] z-[50] lg:hidden"
+              exit={{ x: -300 }}
+              transition={{ type: 'spring', damping: 28, stiffness: 260 }}
+              className="fixed inset-y-0 left-0 z-[50] w-[300px] lg:hidden"
             >
               <Sidebar onClose={() => setIsSidebarOpen(false)} />
             </motion.div>
@@ -83,15 +101,11 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
         )}
       </AnimatePresence>
 
-      <div className="flex-1 flex flex-col min-h-screen relative">
-        {/* Abstract Background Elements */}
-        <div className="absolute top-0 right-0 w-[300px] lg:w-[500px] h-[300px] lg:h-[500px] bg-blue-600/5 rounded-full blur-[120px] -z-10 pointer-events-none" />
-        <div className="absolute bottom-0 left-0 w-[300px] lg:w-[500px] h-[300px] lg:h-[500px] bg-purple-600/5 rounded-full blur-[120px] -z-10 pointer-events-none" />
-
+      <div className="relative z-10 flex min-h-screen flex-1 flex-col">
         <TrialBanner />
         <Topbar onMenuClick={() => setIsSidebarOpen(true)} />
-        <main className="flex-1 p-4 lg:p-10">
-          <div className="max-w-7xl mx-auto">
+        <main className="flex-1 px-4 pb-6 pt-4 md:px-6 md:pb-8 md:pt-5 xl:px-8">
+          <div className="mx-auto max-w-[1540px]">
             {children}
           </div>
         </main>
@@ -101,14 +115,23 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
   );
 };
 
+const LazyRoute = ({ children }: { children: React.ReactNode }) => (
+  <Suspense fallback={<RouteLoading />}>
+    {children}
+  </Suspense>
+);
+
 const PlatformAdminRoute = ({ children }: { children: React.ReactNode }) => {
   const { user, loading } = useAuth();
   const { canAccessSuperAdmin, loadingPlatformAdmin } = usePlatformAdmin();
 
   if (loading || loadingPlatformAdmin) {
     return (
-      <div className="flex items-center justify-center h-screen bg-black font-medium text-neutral-500 text-sm tracking-widest uppercase">
-        Loading OS...
+      <div className="shell-background flex h-screen items-center justify-center">
+        <div className="shell-panel px-8 py-10 text-center">
+          <p className="section-kicker mb-3">Admin Layer</p>
+          <p className="text-base font-semibold text-white">Validating platform access...</p>
+        </div>
       </div>
     );
   }
@@ -134,23 +157,23 @@ export default function App() {
             <Route path="/products" element={<ProtectedRoute><AppLayout><Products /></AppLayout></ProtectedRoute>} />
             <Route path="/inventory" element={<ProtectedRoute><AppLayout><Inventory /></AppLayout></ProtectedRoute>} />
             <Route path="/orders" element={<ProtectedRoute><AppLayout><Orders /></AppLayout></ProtectedRoute>} />
-            <Route path="/pos" element={<ProtectedRoute><AppLayout><POS /></AppLayout></ProtectedRoute>} />
+            <Route path="/pos" element={<ProtectedRoute><AppLayout><LazyRoute><POS /></LazyRoute></AppLayout></ProtectedRoute>} />
             <Route
               path="/insights"
               element={
                 <ProtectedRoute allowedRoles={['owner', 'admin']}>
-                  <AppLayout><Insights /></AppLayout>
+                  <AppLayout><LazyRoute><Insights /></LazyRoute></AppLayout>
                 </ProtectedRoute>
               }
             />
             <Route path="/team" element={<ProtectedRoute><AppLayout><Team /></AppLayout></ProtectedRoute>} />
             <Route path="/settings" element={<ProtectedRoute><AppLayout><Settings /></AppLayout></ProtectedRoute>} />
-            <Route path="/billing" element={<ProtectedRoute><AppLayout><Billing /></AppLayout></ProtectedRoute>} />
+            <Route path="/billing" element={<ProtectedRoute><AppLayout><LazyRoute><Billing /></LazyRoute></AppLayout></ProtectedRoute>} />
             <Route
               path="/super-admin"
               element={
                 <PlatformAdminRoute>
-                  <AppLayout><SuperAdmin /></AppLayout>
+                  <AppLayout><LazyRoute><SuperAdmin /></LazyRoute></AppLayout>
                 </PlatformAdminRoute>
               }
             />
