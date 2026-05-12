@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Card, Button, Input, Label } from '../components/Common';
-import { Layers, Plus, Search, Receipt, CreditCard, ChevronRight, Trash2, AlertCircle, Download } from 'lucide-react';
+import { Card, Button, Input, Label, cn } from '../components/Common';
+import { Layers, Plus, Search, Receipt, CreditCard, ChevronRight, Trash2, AlertCircle, Download, Radar, Activity, Sparkles, Wallet } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useLocale } from '../hooks/useLocale';
 import { usePermissions } from '../hooks/usePermissions';
@@ -50,30 +50,32 @@ export function Orders() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'completed' | 'pending' | 'cancelled'>('all');
+  const [paymentFilter, setPaymentFilter] = useState<'all' | 'Card' | 'Cash' | 'Transfer'>('all');
+
   const { canEditOrders } = usePermissions();
 
   useEffect(() => {
     if (location.state?.action === 'create') {
       handleCreateNew();
       setError(null);
-      // Clear state so it doesn't open again on refresh
       navigate(location.pathname, { replace: true, state: {} });
     }
   }, [location.state]);
-  
-  const [form, setForm] = useState({ 
-    customerId: '', 
+
+  const [form, setForm] = useState({
+    customerId: '',
     paymentMethod: 'Card',
-    items: [] as OrderItem[]
+    items: [] as OrderItem[],
   });
 
   const getMonthlyOrdersCount = () => {
     const now = new Date();
     const start = startOfMonth(now);
     const end = endOfMonth(now);
-    
-    return orders.filter(o => {
+
+    return orders.filter((o) => {
       if (!o.createdAt) return false;
       const date = o.createdAt.toDate ? o.createdAt.toDate() : new Date(o.createdAt);
       return date >= start && date <= end;
@@ -91,8 +93,6 @@ export function Orders() {
         return;
       }
     } catch (e) {
-      // If usage check fails (network/permissions) fall back to local count to
-      // avoid blocking legitimate users.
       console.warn('Plan usage check failed, falling back to local count', e);
       if (isLimitReached(getMonthlyOrdersCount(), plan.limits.orders)) {
         setIsUpgradeModalOpen(true);
@@ -105,27 +105,24 @@ export function Orders() {
 
   useEffect(() => {
     if (!company) return;
-    
-    // real-time orders
+
     const qOrders = query(
-      collection(db, 'orders'), 
+      collection(db, 'orders'),
       where('companyId', '==', company.id),
       orderBy('createdAt', 'desc')
     );
     const unsubscribeOrders = onSnapshot(qOrders, (snap) => {
-      setOrders(snap.docs.map(d => ({ id: d.id, ...d.data() } as Order)));
+      setOrders(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Order)));
     });
 
-    // real-time customers
     const qCust = query(collection(db, 'customers'), where('companyId', '==', company.id));
     const unsubscribeCustomers = onSnapshot(qCust, (snap) => {
-      setCustomers(snap.docs.map(d => ({ id: d.id, name: d.data().name })));
+      setCustomers(snap.docs.map((d) => ({ id: d.id, name: d.data().name })));
     });
 
-    // real-time products
     const qProd = query(collection(db, 'products'), where('companyId', '==', company.id));
     const unsubscribeProducts = onSnapshot(qProd, (snap) => {
-      setProducts(snap.docs.map(d => ({ id: d.id, ...d.data() } as Product)));
+      setProducts(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Product)));
     });
 
     return () => {
@@ -135,118 +132,188 @@ export function Orders() {
     };
   }, [company]);
 
+  const filteredOrders = orders.filter((order) => {
+    const normalized = search.trim().toLowerCase();
+    const searchMatch =
+      normalized.length === 0 ||
+      order.customerName?.toLowerCase().includes(normalized) ||
+      order.id.toLowerCase().includes(normalized);
+    const statusMatch = statusFilter === 'all' || order.status === statusFilter;
+    const paymentMatch = paymentFilter === 'all' || order.paymentMethod === paymentFilter;
+    return searchMatch && statusMatch && paymentMatch;
+  });
+
   const addItem = () => {
-    setForm({
-      ...form,
-      items: [...form.items, { productId: '', productName: '', quantity: 1, price: 0 }]
+    setForm((prev) => ({
+      ...prev,
+      items: [...prev.items, { productId: '', productName: '', quantity: 1, price: 0 }],
+    }));
+  };
+
+  const updateItem = (index: number, patch: Partial<OrderItem>) => {
+    setForm((prev) => {
+      const items = [...prev.items];
+      const current = items[index];
+      const next = { ...current, ...patch };
+
+      if (patch.productId) {
+        const selected = products.find((p) => p.id === patch.productId);
+        next.productName = selected?.name || '';
+        next.price = selected?.price || 0;
+      }
+
+      items[index] = next;
+      return { ...prev, items };
     });
   };
 
   const removeItem = (index: number) => {
-    const newItems = [...form.items];
-    newItems.splice(index, 1);
-    setForm({ ...form, items: newItems });
-  };
-
-  const updateItem = (index: number, fields: Partial<OrderItem>) => {
-    const newItems = [...form.items];
-    const item = { ...newItems[index], ...fields };
-    
-    if (fields.productId) {
-      const p = products.find(prod => prod.id === fields.productId);
-      if (p) {
-        item.productName = p.name;
-        item.price = p.price;
-      }
-    }
-    
-    newItems[index] = item;
-    setForm({ ...form, items: newItems });
+    setForm((prev) => ({
+      ...prev,
+      items: prev.items.filter((_, i) => i !== index),
+    }));
   };
 
   const calculateTotal = () => {
-    return form.items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+    return form.items.reduce((sum, item) => sum + item.quantity * item.price, 0);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!company || !form.customerId || form.items.length === 0) {
-      setError(t('orders.errors.select_customer_item'));
-      return;
-    }
-
-    if (form.items.some(i => !i.productId)) {
-      setError(t('orders.errors.select_product'));
-      return;
-    }
-
-    setLoading(true);
+    if (!company) return;
     setError(null);
-
+    setLoading(true);
     try {
-      const customer = customers.find(c => c.id === form.customerId);
-      const total = calculateTotal();
-      await createSaleTransaction({
-        companyId: company.id,
-        customerId: form.customerId,
-        customerName: customer?.name || t('orders.guest'),
-        paymentMethod: form.paymentMethod,
-        items: form.items,
-        subtotal: total,
-        discount: 0,
-        tax: 0,
-        total,
-        channel: 'orders',
-        movementReason: 'Sale',
-        activityTitle: 'Order Confirmed',
-        messages: {
-          productNotFound: (name) => t('orders.errors.not_found', { name }),
-          insufficientStock: (name, count) => t('orders.errors.insufficient', { name, count }),
-        },
+      const customer = customers.find((c) => c.id === form.customerId);
+      if (!customer) throw new Error(t('orders.modal.select_customer'));
+      if (form.items.length === 0) throw new Error(t('orders.modal.empty_buffer'));
+
+      const preparedItems = form.items.map((item) => {
+        const selected = products.find((p) => p.id === item.productId);
+        if (!selected) throw new Error('A selected product no longer exists.');
+        return {
+          productId: selected.id,
+          productName: selected.name,
+          quantity: item.quantity,
+          price: selected.price,
+        };
       });
 
-      setIsModalOpen(false);
+      await createSaleTransaction({
+        companyId: company.id,
+        customerId: customer.id,
+        customerName: customer.name,
+        items: preparedItems,
+        paymentMethod: form.paymentMethod,
+        subtotal: calculateTotal(),
+        total: calculateTotal(),
+      });
+
       setForm({ customerId: '', paymentMethod: 'Card', items: [] });
+      setIsModalOpen(false);
     } catch (err: any) {
-      console.error(err);
-      setError(err.message || t('orders.errors.failed'));
+      setError(err?.message || 'Failed to create transaction.');
     } finally {
       setLoading(false);
     }
   };
 
-  return (
-    <div className="space-y-10">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
-        <div>
-          <h1 className="font-display text-4xl font-bold tracking-tight mb-2 text-white">{t('orders.title')}</h1>
-          <p className="text-neutral-500 text-sm">{t('orders.subtitle')}</p>
-        </div>
-        <div className="flex gap-3">
-          <Button 
-            variant="secondary" 
-            className="gap-2 px-6"
-            onClick={() => exportToCSV(orders.map(o => ({
-              ID: o.id,
-              Customer: o.customerName,
-              Total: o.total,
-              Status: o.status,
-              Payment: o.paymentMethod,
-              Date: o.createdAt && o.createdAt.toDate ? o.createdAt.toDate().toISOString() : o.createdAt
-            })), 'orders')}
-            disabled={orders.length === 0}
-          >
-            <Download className="w-4 h-4" /> {t('common.export')}
-          </Button>
-          {canEditOrders && (
-            <Button onClick={() => { handleCreateNew(); setError(null); }} className="gap-2 px-6 shadow-lg shadow-blue-600/20">
-              <Plus className="w-4 h-4" /> {t('orders.log_transaction')}
-            </Button>
-          )}
-        </div>
-      </div>
+  const completedCount = orders.filter((o) => o.status === 'completed').length;
+  const pendingCount = orders.filter((o) => o.status === 'pending').length;
+  const totalVolume = filteredOrders.reduce((sum, order) => sum + (order.total || 0), 0);
 
-      <UpgradeModal 
+  const getStatusClasses = (status: string) => {
+    switch (status) {
+      case 'completed':
+        return 'border-emerald-400/16 bg-emerald-500/8 text-emerald-200';
+      case 'pending':
+        return 'border-amber-400/16 bg-amber-500/8 text-amber-200';
+      case 'cancelled':
+        return 'border-red-400/16 bg-red-500/8 text-red-200';
+      default:
+        return 'border-white/10 bg-white/[0.04] text-neutral-300';
+    }
+  };
+
+  return (
+    <div className="space-y-6 md:space-y-8">
+      <section className="hero-gradient overflow-hidden rounded-[30px] border border-white/10 p-6 md:p-8">
+        <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
+          <div className="max-w-3xl">
+            <div className="mb-4 flex flex-wrap items-center gap-2">
+              <span className="operator-badge">
+                <span className="status-dot bg-blue-400 text-blue-400" />
+                Transaction Flow
+              </span>
+              <span className="telemetry-chip">
+                <Radar className="h-3 w-3 text-blue-300" />
+                Revenue Queue
+              </span>
+            </div>
+            <h1 className="section-title text-4xl md:text-5xl">{t('orders.title')}</h1>
+            <p className="mt-3 max-w-2xl text-sm leading-relaxed text-neutral-300 md:text-base">
+              Monitor commercial throughput, filter execution states and open new transaction flows without leaving the operating layer.
+            </p>
+          </div>
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <Button
+              variant="secondary"
+              className="h-12 gap-2 px-6"
+              onClick={() => exportToCSV(filteredOrders.map((o) => ({
+                ID: o.id,
+                Customer: o.customerName,
+                Total: o.total,
+                Status: o.status,
+                Payment: o.paymentMethod,
+                Date: o.createdAt && o.createdAt.toDate ? o.createdAt.toDate().toISOString() : o.createdAt,
+              })), 'orders')}
+              disabled={filteredOrders.length === 0}
+            >
+              <Download className="w-4 h-4" /> {t('common.export')}
+            </Button>
+            {canEditOrders && (
+              <Button onClick={() => { handleCreateNew(); setError(null); }} className="h-12 gap-2 px-6">
+                <Plus className="w-4 h-4" /> {t('orders.log_transaction')}
+              </Button>
+            )}
+          </div>
+        </div>
+
+        <div className="mt-6 grid gap-3 md:grid-cols-3">
+          <div className="data-tile">
+            <p className="section-kicker mb-2 !text-neutral-500">Completed Orders</p>
+            <div className="flex items-end justify-between gap-4">
+              <div>
+                <p className="text-3xl font-bold text-white">{completedCount}</p>
+                <p className="mt-1 text-sm text-neutral-400">Transactions already finalized in the current ledger.</p>
+              </div>
+              <Sparkles className="h-5 w-5 text-emerald-300" />
+            </div>
+          </div>
+          <div className="data-tile">
+            <p className="section-kicker mb-2 !text-neutral-500">Pending Flow</p>
+            <div className="flex items-end justify-between gap-4">
+              <div>
+                <p className="text-3xl font-bold text-white">{pendingCount}</p>
+                <p className="mt-1 text-sm text-neutral-400">Transactions awaiting final execution or cleanup.</p>
+              </div>
+              <Activity className="h-5 w-5 text-amber-300" />
+            </div>
+          </div>
+          <div className="data-tile">
+            <p className="section-kicker mb-2 !text-neutral-500">Filtered Volume</p>
+            <div className="flex items-end justify-between gap-4">
+              <div>
+                <p className="text-3xl font-bold text-white">${totalVolume.toFixed(0)}</p>
+                <p className="mt-1 text-sm text-neutral-400">Aggregate value for the current result set.</p>
+              </div>
+              <Wallet className="h-5 w-5 text-blue-300" />
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <UpgradeModal
         isOpen={isUpgradeModalOpen}
         onClose={() => setIsUpgradeModalOpen(false)}
         title={t('orders.upgrade.title') || 'Transaction Limit Reached'}
@@ -254,25 +321,54 @@ export function Orders() {
         limitName={t('orders.limit_name') || 'Monthly Orders'}
       />
 
-      <Card className="relative overflow-hidden group border-white/5 bg-neutral-900/40 p-0">
-        <div className="p-6 border-b border-white/[0.05] bg-white/[0.01] flex flex-col md:flex-row justify-between gap-4">
-          <div className="relative max-w-sm group w-full">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-600 group-focus-within:text-blue-500 transition-colors" />
-            <Input 
-              placeholder={t('orders.search_placeholder')} 
-              className="pl-10 h-11 bg-black/40 border-white/10" 
-            />
-          </div>
-          <div className="flex gap-2">
-            <Button variant="secondary" className="text-xs px-4 h-11 border border-white/10">{t('orders.filter')}</Button>
-            <Button variant="secondary" className="text-xs px-4 h-11 border border-white/10">{t('orders.export_dataset')}</Button>
+      <Card className="overflow-hidden p-0">
+        <div className="border-b border-white/[0.06] bg-white/[0.02] p-6">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+            <div>
+              <p className="section-kicker mb-2">Flow Filters</p>
+              <h2 className="section-title text-2xl">{t('orders.table.id')}</h2>
+              <p className="mt-2 text-sm text-neutral-400">Search by customer or order id, then narrow by execution state and payment rail.</p>
+            </div>
+            <div className="flex w-full flex-col gap-3 lg:flex-row lg:items-center lg:justify-end">
+              <div className="relative group w-full lg:max-w-sm">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-600 transition-colors group-focus-within:text-blue-500" />
+                <Input
+                  placeholder={t('orders.search_placeholder')}
+                  className="h-12 border-white/10 bg-black/30 pl-10"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+              </div>
+              <div className="flex gap-2">
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
+                  className="h-12 rounded-2xl border border-white/10 bg-black/30 px-4 text-xs font-bold uppercase tracking-[0.16em] text-white focus:outline-none"
+                >
+                  <option value="all" className="bg-neutral-900">{t('orders.filter')} / {t('common.all') || 'All'}</option>
+                  <option value="completed" className="bg-neutral-900">Completed</option>
+                  <option value="pending" className="bg-neutral-900">Pending</option>
+                  <option value="cancelled" className="bg-neutral-900">Cancelled</option>
+                </select>
+                <select
+                  value={paymentFilter}
+                  onChange={(e) => setPaymentFilter(e.target.value as typeof paymentFilter)}
+                  className="h-12 rounded-2xl border border-white/10 bg-black/30 px-4 text-xs font-bold uppercase tracking-[0.16em] text-white focus:outline-none"
+                >
+                  <option value="all" className="bg-neutral-900">{t('orders.table.modality')}</option>
+                  <option value="Card" className="bg-neutral-900">{t('common.card') || 'Card'}</option>
+                  <option value="Cash" className="bg-neutral-900">{t('common.cash') || 'Cash'}</option>
+                  <option value="Transfer" className="bg-neutral-900">{t('common.transfer') || 'Transfer'}</option>
+                </select>
+              </div>
+            </div>
           </div>
         </div>
 
-        <div className="hidden sm:block overflow-x-auto overflow-y-auto max-h-[700px]">
+        <div className="hidden max-h-[700px] overflow-x-auto overflow-y-auto sm:block">
           <table className="w-full border-collapse">
             <thead className="sticky top-0 z-10">
-              <tr className="bg-neutral-900/90 backdrop-blur-md">
+              <tr className="bg-[rgba(6,10,16,0.92)] backdrop-blur-xl">
                 <th className="table-header">{t('orders.table.id')}</th>
                 <th className="table-header">{t('orders.table.timestamp')}</th>
                 <th className="table-header">{t('orders.table.counterparty')}</th>
@@ -282,38 +378,38 @@ export function Orders() {
               </tr>
             </thead>
             <tbody>
-              {orders.map((order, i) => (
-                <motion.tr 
+              {filteredOrders.map((order, i) => (
+                <motion.tr
                   key={order.id}
                   initial={{ opacity: 0, y: 5 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: i * 0.03 }}
-                  className="group border-b border-white/[0.02] hover:bg-white/[0.02] transition-colors last:border-0 cursor-pointer"
+                  className="group cursor-pointer border-b border-white/[0.03] transition-colors hover:bg-white/[0.02]"
                 >
                   <td className="table-cell">
-                    <span className="font-mono text-[11px] text-neutral-500 uppercase tracking-tighter">
+                    <span className="font-mono text-[11px] uppercase tracking-tighter text-neutral-500">
                       NODE_#{order.id.slice(0, 8)}
                     </span>
                   </td>
                   <td className="table-cell">
-                    <span className="text-[11px] font-bold text-neutral-500 uppercase">
+                    <span className="text-[11px] font-bold uppercase text-neutral-500">
                       {order.createdAt?.toDate ? format(order.createdAt.toDate(), 'MMM dd, HH:mm') : t('orders.table.pending')}
                     </span>
                   </td>
-                  <td className="table-cell font-bold text-neutral-200">{order.customerName}</td>
-                  <td className="table-cell font-mono font-bold text-blue-400">
-                    <span className="text-neutral-600 mr-0.5">$</span>{order.total.toFixed(2)}
+                  <td className="table-cell font-bold text-neutral-100">{order.customerName}</td>
+                  <td className="table-cell font-mono font-bold text-blue-300">
+                    ${order.total.toFixed(2)}
                   </td>
                   <td className="table-cell">
-                    <span className="inline-flex items-center px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-[10px] font-bold text-emerald-500 uppercase tracking-widest">
+                    <span className={cn('inline-flex rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.16em]', getStatusClasses(order.status))}>
                       {order.status}
                     </span>
                   </td>
                   <td className="table-cell text-right">
-                    <div className="flex items-center justify-end gap-3 text-neutral-500 group-hover:text-blue-500 transition-colors">
+                    <div className="flex items-center justify-end gap-3 text-neutral-500 transition-colors group-hover:text-blue-300">
                       <CreditCard className="w-3.5 h-3.5" />
                       <span className="text-[10px] font-bold uppercase tracking-widest">{order.paymentMethod}</span>
-                      <ChevronRight className="w-4 h-4 ml-1 opacity-0 group-hover:opacity-100 transition-all translate-x-[-4px] group-hover:translate-x-0" />
+                      <ChevronRight className="ml-1 w-4 h-4 translate-x-[-4px] opacity-0 transition-all group-hover:translate-x-0 group-hover:opacity-100" />
                     </div>
                   </td>
                 </motion.tr>
@@ -322,33 +418,32 @@ export function Orders() {
           </table>
         </div>
 
-        {/* Mobile View */}
-        <div className="sm:hidden divide-y divide-white/[0.05]">
-          {orders.map((order, i) => (
-            <motion.div 
+        <div className="divide-y divide-white/[0.05] sm:hidden">
+          {filteredOrders.map((order, i) => (
+            <motion.div
               key={order.id}
               initial={{ opacity: 0, y: 5 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: i * 0.03 }}
-              className="p-4 space-y-3 active:bg-white/[0.02]"
-              onClick={() => {}} // Could navigate to details
+              className="space-y-3 p-4 active:bg-white/[0.02]"
+              onClick={() => navigate('/customers')}
             >
               <div className="flex items-center justify-between">
-                <span className="text-[10px] font-mono text-neutral-500 uppercase tracking-tighter">
+                <span className="font-mono text-[10px] uppercase tracking-tighter text-neutral-500">
                   NODE_#{order.id.slice(0, 8)}
                 </span>
-                <span className="text-[10px] font-bold text-neutral-600 uppercase">
+                <span className="text-[10px] font-bold uppercase text-neutral-600">
                   {order.createdAt?.toDate ? format(order.createdAt.toDate(), 'MMM dd, HH:mm') : t('orders.table.syncing')}
                 </span>
               </div>
               <div className="flex items-center justify-between">
                 <div>
                   <p className="font-bold text-neutral-200">{order.customerName}</p>
-                  <p className="text-[10px] text-neutral-500 uppercase tracking-widest mt-0.5">{order.paymentMethod}</p>
+                  <p className="mt-0.5 text-[10px] uppercase tracking-widest text-neutral-500">{order.paymentMethod}</p>
                 </div>
                 <div className="text-right">
-                  <p className="font-mono font-bold text-blue-400 text-base">${order.total.toFixed(2)}</p>
-                  <span className="inline-flex items-center px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-[9px] font-black text-emerald-500 uppercase tracking-[0.15em] mt-1">
+                  <p className="font-mono text-base font-bold text-blue-300">${order.total.toFixed(2)}</p>
+                  <span className={cn('mt-1 inline-flex rounded-full border px-2.5 py-1 text-[9px] font-black uppercase tracking-[0.15em]', getStatusClasses(order.status))}>
                     {order.status}
                   </span>
                 </div>
@@ -357,17 +452,17 @@ export function Orders() {
           ))}
         </div>
 
-        {orders.length === 0 && (
+        {filteredOrders.length === 0 && (
           <div className="py-24 text-center">
-             <div className="flex flex-col items-center gap-6 text-neutral-600 max-w-sm mx-auto p-6">
-              <div className="w-20 h-20 rounded-3xl border border-dashed border-white/10 flex items-center justify-center bg-white/[0.01]">
+            <div className="mx-auto flex max-w-md flex-col items-center gap-6 p-6 text-neutral-600">
+              <div className="flex h-20 w-20 items-center justify-center rounded-[28px] border border-dashed border-white/10 bg-white/[0.01]">
                 <Receipt className="w-10 h-10 opacity-20" />
               </div>
               <div className="space-y-2">
                 <p className="text-lg font-bold text-neutral-200">{t('orders.empty.title')}</p>
-                <p className="text-xs leading-relaxed text-neutral-500 px-4">{t('orders.empty.subtitle')}</p>
+                <p className="px-4 text-xs leading-relaxed text-neutral-500">{t('orders.empty.subtitle')}</p>
               </div>
-              <Button onClick={() => { handleCreateNew(); setError(null); }} className="gap-2 px-8 h-12 shadow-xl shadow-blue-600/20">
+              <Button onClick={() => { handleCreateNew(); setError(null); }} className="h-12 gap-2 px-8">
                 <Plus className="w-4 h-4" /> {t('orders.empty.button')}
               </Button>
             </div>
@@ -377,40 +472,40 @@ export function Orders() {
 
       <AnimatePresence>
         {isModalOpen && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/60 backdrop-blur-md">
-            <motion.div 
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-6 backdrop-blur-md">
+            <motion.div
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="bg-neutral-900 w-full max-w-2xl rounded-3xl border border-white/10 shadow-2xl overflow-hidden shadow-black flex flex-col max-h-[90vh]"
+              className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-white/10 bg-neutral-900 shadow-2xl shadow-black"
             >
-              <div className="p-8 border-b border-white/[0.05] flex justify-between items-center bg-white/[0.02]">
-                <h2 className="font-display text-xl font-bold text-white uppercase tracking-tight">{t('orders.modal.title')}</h2>
-                <button onClick={() => setIsModalOpen(false)} className="p-2 text-neutral-500 hover:text-white transition-colors rounded-full hover:bg-white/5">
+              <div className="flex items-center justify-between border-b border-white/[0.05] bg-white/[0.02] p-8">
+                <h2 className="font-display text-xl font-bold uppercase tracking-tight text-white">{t('orders.modal.title')}</h2>
+                <button onClick={() => setIsModalOpen(false)} className="rounded-full p-2 text-neutral-500 transition-colors hover:bg-white/5 hover:text-white">
                   <Plus className="w-6 h-6 rotate-45" />
                 </button>
               </div>
 
               <div className="flex-1 overflow-y-auto">
-                <form onSubmit={handleSubmit} className="p-8 space-y-10">
+                <form onSubmit={handleSubmit} className="space-y-10 p-8">
                   {error && (
-                    <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="p-4 bg-red-500/10 border border-red-500/20 rounded-xl flex gap-3 text-red-500">
-                      <AlertCircle className="w-5 h-5 flex-shrink-0" />
+                    <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="flex gap-3 rounded-xl border border-red-500/20 bg-red-500/10 p-4 text-red-500">
+                      <AlertCircle className="h-5 w-5 flex-shrink-0" />
                       <p className="text-sm font-bold">{error}</p>
                     </motion.div>
                   )}
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 sm:gap-8">
+                  <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 sm:gap-8">
                     <div className="space-y-2">
                       <Label>{t('orders.modal.customer')}</Label>
-                      <select required className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition-all appearance-none" value={form.customerId} onChange={e => setForm({...form, customerId: e.target.value})}>
+                      <select required className="w-full appearance-none rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none transition-all focus:ring-2 focus:ring-blue-500/30" value={form.customerId} onChange={(e) => setForm({ ...form, customerId: e.target.value })}>
                         <option value="" className="bg-neutral-900">{t('orders.modal.select_customer')}</option>
-                        {customers.map(c => <option key={c.id} value={c.id} className="bg-neutral-900">{c.name}</option>)}
+                        {customers.map((c) => <option key={c.id} value={c.id} className="bg-neutral-900">{c.name}</option>)}
                       </select>
                     </div>
                     <div className="space-y-2">
                       <Label>{t('orders.modal.payment_method')}</Label>
-                      <select className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition-all appearance-none" value={form.paymentMethod} onChange={e => setForm({...form, paymentMethod: e.target.value})}>
+                      <select className="w-full appearance-none rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none transition-all focus:ring-2 focus:ring-blue-500/30" value={form.paymentMethod} onChange={(e) => setForm({ ...form, paymentMethod: e.target.value })}>
                         <option className="bg-neutral-900">{t('common.card') || 'Card'}</option>
                         <option className="bg-neutral-900">{t('common.cash') || 'Cash'}</option>
                         <option className="bg-neutral-900">{t('common.transfer') || 'Transfer'}</option>
@@ -419,56 +514,56 @@ export function Orders() {
                   </div>
 
                   <div className="space-y-4">
-                    <div className="flex justify-between items-end border-b border-white/[0.05] pb-2">
-                      <Label className="text-[10px] uppercase tracking-[0.2em] text-neutral-500 font-bold">{t('orders.modal.components')}</Label>
-                      <Button type="button" variant="ghost" className="h-7 text-[10px] gap-1 hover:bg-white/5 uppercase tracking-widest px-3 border border-white/10" onClick={addItem}>
+                    <div className="flex items-end justify-between border-b border-white/[0.05] pb-2">
+                      <Label className="text-[10px] font-bold uppercase tracking-[0.2em] text-neutral-500">{t('orders.modal.components')}</Label>
+                      <Button type="button" variant="ghost" className="h-7 gap-1 border border-white/10 px-3 text-[10px] uppercase tracking-widest hover:bg-white/5" onClick={addItem}>
                         <Plus className="w-3 h-3" /> {t('orders.modal.add_item')}
                       </Button>
                     </div>
-                    
+
                     <div className="space-y-4">
                       {form.items.map((item, index) => (
-                        <div key={index} className="flex flex-col sm:flex-row gap-4 items-start sm:items-center bg-white/[0.02] border border-white/[0.05] p-4 rounded-2xl">
-                          <div className="flex-1 w-full">
-                            <select 
-                              required 
-                              className="w-full bg-transparent border-0 text-sm text-white focus:ring-0 outline-none appearance-none"
+                        <div key={index} className="flex flex-col items-start gap-4 rounded-2xl border border-white/[0.05] bg-white/[0.02] p-4 sm:flex-row sm:items-center">
+                          <div className="w-full flex-1">
+                            <select
+                              required
+                              className="w-full appearance-none border-0 bg-transparent text-sm text-white outline-none focus:ring-0"
                               value={item.productId}
-                              onChange={e => updateItem(index, { productId: e.target.value })}
+                              onChange={(e) => updateItem(index, { productId: e.target.value })}
                             >
                               <option value="" className="bg-neutral-900">{t('orders.modal.select_asset')}</option>
-                              {products.map(p => (
+                              {products.map((p) => (
                                 <option key={p.id} value={p.id} className="bg-neutral-900">
                                   {p.name} (${p.price.toFixed(2)})
                                 </option>
                               ))}
                             </select>
                           </div>
-                          <div className="flex items-center gap-4 w-full sm:w-auto mt-2 sm:mt-0">
+                          <div className="mt-2 flex w-full items-center gap-4 sm:mt-0 sm:w-auto">
                             <div className="flex-1 sm:w-24">
-                              <Input 
-                                type="number" 
-                                min="1" 
+                              <Input
+                                type="number"
+                                min="1"
                                 required
                                 className="h-10 bg-black/40 text-center"
                                 value={item.quantity}
-                                onChange={e => updateItem(index, { quantity: parseInt(e.target.value) || 1 })}
+                                onChange={(e) => updateItem(index, { quantity: parseInt(e.target.value) || 1 })}
                               />
                             </div>
-                            <Button 
-                              type="button" 
-                              variant="ghost" 
-                              className="w-10 h-10 p-0 text-neutral-600 hover:text-red-500 shrink-0"
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              className="h-10 w-10 shrink-0 p-0 text-neutral-600 hover:text-red-500"
                               onClick={() => removeItem(index)}
                             >
-                              <Trash2 className="w-4 h-4" />
+                              <Trash2 className="h-4 w-4" />
                             </Button>
                           </div>
                         </div>
                       ))}
                       {form.items.length === 0 && (
-                        <div className="py-12 text-center bg-white/[0.01] rounded-2xl border border-dashed border-white/10">
-                          <p className="text-[10px] uppercase font-bold tracking-widest text-neutral-700 italic">
+                        <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.01] py-12 text-center">
+                          <p className="text-[10px] font-bold uppercase tracking-widest italic text-neutral-700">
                             {t('orders.modal.empty_buffer')}
                           </p>
                         </div>
@@ -476,17 +571,17 @@ export function Orders() {
                     </div>
                   </div>
 
-                  <div className="pt-8 border-t border-white/[0.05] space-y-8">
-                    <div className="flex justify-between items-center px-2">
-                        <div>
-                            <p className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest mb-1">{t('orders.modal.total_valuation')}</p>
-                            <span className="text-neutral-500 text-xs italic">{t('orders.modal.taxes_included')}</span>
-                        </div>
-                      <span className="text-4xl font-mono font-bold text-white tracking-tighter">
-                        <span className="text-blue-500 mr-1">$</span>{calculateTotal().toFixed(2)}
+                  <div className="space-y-8 border-t border-white/[0.05] pt-8">
+                    <div className="flex items-center justify-between px-2">
+                      <div>
+                        <p className="mb-1 text-[10px] font-bold uppercase tracking-widest text-neutral-500">{t('orders.modal.total_valuation')}</p>
+                        <span className="text-xs italic text-neutral-500">{t('orders.modal.taxes_included')}</span>
+                      </div>
+                      <span className="font-mono text-4xl font-bold tracking-tighter text-white">
+                        ${calculateTotal().toFixed(2)}
                       </span>
                     </div>
-                    <Button type="submit" disabled={loading} className="w-full h-14 text-sm font-bold uppercase tracking-[0.2em] rounded-2xl shadow-xl shadow-blue-600/10">
+                    <Button type="submit" disabled={loading} className="h-14 w-full rounded-2xl text-sm font-bold uppercase tracking-[0.2em]">
                       {loading ? t('orders.modal.syncing') : t('orders.modal.commit')}
                     </Button>
                   </div>
@@ -499,4 +594,3 @@ export function Orders() {
     </div>
   );
 }
-

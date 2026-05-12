@@ -18,12 +18,13 @@ import {
   TrendingUp,
   Users,
 } from 'lucide-react';
-import { addDoc, collection, doc, getDocs, serverTimestamp, setDoc, writeBatch } from 'firebase/firestore';
+import { addDoc, collection, doc, serverTimestamp, setDoc } from 'firebase/firestore';
 import type { ComponentType } from 'react';
 import { Button, Card, cn, Input, Label } from '../components/Common';
-import { auth, db } from '../lib/firebase';
+import { db } from '../lib/firebase';
 import { useLocale } from '../hooks/useLocale';
 import { usePlatformAdmin } from '../hooks/usePlatformAdmin';
+import { fetchPlatformOverview, syncPlatformBilling, syncPlatformStats } from '../services/companyApi';
 
 interface CompanyDoc {
   id: string;
@@ -219,9 +220,9 @@ interface PlatformAuditLog {
 }
 
 const PLAN_MRR: Record<string, number> = {
-  starter: 29,
-  pro: 99,
-  business: 299,
+  starter: 19,
+  pro: 49,
+  business: 99,
 };
 
 function toDate(value: any) {
@@ -248,18 +249,6 @@ function isCurrentMonth(value: any) {
   if (!date) return false;
   const now = new Date();
   return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth();
-}
-
-async function authedPlatformFetch(url: string, body: Record<string, unknown>) {
-  const token = await auth.currentUser?.getIdToken();
-  return fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify(body),
-  });
 }
 
 function SuperMetricCard({
@@ -356,214 +345,20 @@ export function SuperAdmin() {
       setError(null);
 
       try {
-        const [
-          companiesSnap,
-          usersSnap,
-          membershipsSnap,
-          productsSnap,
-          customersSnap,
-          ordersSnap,
-          controlsSnap,
-          statsSnap,
-          billingStatsSnap,
-        ] = await Promise.all([
-          getDocs(collection(db, 'companies')),
-          getDocs(collection(db, 'users')),
-          getDocs(collection(db, 'memberships')),
-          getDocs(collection(db, 'products')),
-          getDocs(collection(db, 'customers')),
-          getDocs(collection(db, 'orders')),
-          getDocs(collection(db, 'platformCompanyControls')),
-          getDocs(collection(db, 'companyStats')),
-          getDocs(collection(db, 'companyBillingStats')),
-        ]);
-
+        const payload = await fetchPlatformOverview();
+        const companies = (payload.companiesTable || []) as CompanyRow[];
+        const users = (payload.usersTable || []) as UserRow[];
+        const latest = (payload.latestUsers || []) as UserRow[];
         if (!isMounted) return;
-
-        const companies = companiesSnap.docs.map((entry) => ({ id: entry.id, ...entry.data() } as CompanyDoc));
-        const users = usersSnap.docs.map((entry) => ({ id: entry.id, ...entry.data() } as UserDoc));
-        const memberships = membershipsSnap.docs.map((entry) => ({ id: entry.id, ...entry.data() } as MembershipDoc));
-        const products = productsSnap.docs.map((entry) => ({ id: entry.id, ...entry.data() } as ProductDoc));
-        const customers = customersSnap.docs.map((entry) => ({ id: entry.id, ...entry.data() } as CustomerDoc));
-        const orders = ordersSnap.docs.map((entry) => ({ id: entry.id, ...entry.data() } as OrderDoc));
-        const controls = Object.fromEntries(
-          controlsSnap.docs.map((entry) => [entry.id, { companyId: entry.id, ...entry.data() } as PlatformCompanyControlDoc])
-        );
-        const stats = Object.fromEntries(
-          statsSnap.docs.map((entry) => [entry.id, { companyId: entry.id, ...entry.data() } as CompanyStatsDoc])
-        );
-        const billingStats = Object.fromEntries(
-          billingStatsSnap.docs.map((entry) => [entry.id, { companyId: entry.id, ...entry.data() } as CompanyBillingStatsDoc])
-        );
-
-        const usersById = new Map(users.map((user) => [user.id, user]));
-        const companyNameById = new Map(companies.map((company) => [company.id, company.name || 'Unknown company']));
-        const membershipsByCompany = new Map<string, MembershipDoc[]>();
-        const productsByCompany = new Map<string, number>();
-        const customersByCompany = new Map<string, number>();
-        const ordersByCompany = new Map<string, OrderDoc[]>();
-
-        memberships.forEach((membership) => {
-          membershipsByCompany.set(
-            membership.companyId,
-            [...(membershipsByCompany.get(membership.companyId) || []), membership]
-          );
-        });
-
-        products.forEach((product) => {
-          productsByCompany.set(product.companyId, (productsByCompany.get(product.companyId) || 0) + 1);
-        });
-
-        customers.forEach((customer) => {
-          customersByCompany.set(customer.companyId, (customersByCompany.get(customer.companyId) || 0) + 1);
-        });
-
-        orders.forEach((order) => {
-          ordersByCompany.set(order.companyId, [...(ordersByCompany.get(order.companyId) || []), order]);
-        });
-
-        const now = new Date();
-        const activeCompanies = companies.filter((company) => company.subscription?.status === 'active').length;
-        const trialCompanies = companies.filter((company) => company.subscription?.status === 'trialing').length;
-        const expiredOrPastDueCompanies = companies.filter((company) => {
-          if (company.subscription?.status === 'past_due' || company.subscription?.status === 'canceled') return true;
-          if (company.subscription?.status === 'trialing') {
-            const trialEndsAt = toDate(company.subscription?.trialEndsAt);
-            return Boolean(trialEndsAt && trialEndsAt < now);
-          }
-          return false;
-        }).length;
-
-        const starterPlans = companies.filter((company) => (company.subscription?.planId || 'starter') === 'starter').length;
-        const proPlans = companies.filter((company) => company.subscription?.planId === 'pro').length;
-        const businessPlans = companies.filter((company) => company.subscription?.planId === 'business').length;
-        const estimatedMrr = companies.reduce((sum, company) => {
-          const status = company.subscription?.status || 'trialing';
-          if (!['active', 'past_due'].includes(status)) return sum;
-          const planId = company.subscription?.planId || 'starter';
-          return sum + (PLAN_MRR[planId] || 0);
-        }, 0);
-        const totalOrders = orders.length;
-        const totalSales = orders.reduce((sum, order) => sum + normalizeOrderTotal(order), 0);
-        const averageOrderValue = totalOrders > 0 ? totalSales / totalOrders : 0;
-        const monthlyPlatformSales = orders
-          .filter((order) => isCurrentMonth(order.createdAt))
-          .reduce((sum, order) => sum + normalizeOrderTotal(order), 0);
-        const estimatedArr = estimatedMrr * 12;
-
-        const companyRows: CompanyRow[] = companies.map((company) => {
-          const companyMemberships = membershipsByCompany.get(company.id) || [];
-          const companyOrders = ordersByCompany.get(company.id) || [];
-          const revenue = companyOrders.reduce((sum, order) => sum + normalizeOrderTotal(order), 0);
-          const ownerMembership = companyMemberships.find((membership) => membership.role === 'owner');
-          const ownerUser = ownerMembership ? usersById.get(ownerMembership.userId) : undefined;
-          return {
-            id: company.id,
-            name: company.name || 'Unnamed company',
-            industry: company.industry || 'Unknown industry',
-            ownerEmail: ownerUser?.email || usersById.get(company.ownerId || '')?.email || 'No owner email',
-            ownerId: company.ownerId,
-            plan: company.subscription?.planId || 'starter',
-            subscriptionStatus: company.subscription?.status || 'trialing',
-            stripeCustomerId: company.stripeCustomerId,
-            onboardingComplete: Boolean(company.onboardingState?.isComplete),
-            onboardingStep: company.onboardingState?.step || 1,
-            onboardingChecklist: {
-              profile: Boolean(company.onboardingState?.checklist?.profile),
-              product: Boolean(company.onboardingState?.checklist?.product),
-              customer: Boolean(company.onboardingState?.checklist?.customer),
-              order: Boolean(company.onboardingState?.checklist?.order),
-            },
-            trialEndsAt: company.subscription?.trialEndsAt,
-            currentPeriodEnd: company.subscription?.currentPeriodEnd,
-            users: companyMemberships.length,
-            products: productsByCompany.get(company.id) || 0,
-            customers: customersByCompany.get(company.id) || 0,
-            orders: companyOrders.length,
-            revenue,
-            createdAt: company.createdAt,
-          };
-        });
-
-        const userRows: UserRow[] = users.map((user) => {
-          const membership = memberships.find((entry) => entry.userId === user.id);
-          return {
-            id: user.id,
-            email: user.email || 'No email',
-            displayName: user.displayName || 'Unnamed user',
-            companyName: membership ? companyNameById.get(membership.companyId) || 'Unknown company' : 'No company',
-            role: membership?.role || 'unassigned',
-            createdAt: user.createdAt,
-          };
-        });
-
-        const companiesWithoutOrders = companyRows.filter((company) => company.orders === 0).length;
-        const ownerlessCompanies = companyRows.filter((company) => company.ownerEmail === 'No owner email').length;
-        const statsCoverage = companies.length > 0 ? Math.round((Object.keys(stats).length / companies.length) * 100) : 0;
-        const billingCoverage = companies.length > 0 ? Math.round((Object.keys(billingStats).length / companies.length) * 100) : 0;
-        const activeNoConversionCompanies = companyRows.filter(
-          (company) => company.subscriptionStatus === 'active' && company.orders === 0
-        ).length;
-        const pastDueWatchCount = companyRows.filter((company) => company.subscriptionStatus === 'past_due').length;
-        const realMrr = Object.values(billingStats).reduce((sum, stat) => sum + (stat.mrr || 0), 0);
-        const realArr = Object.values(billingStats).reduce((sum, stat) => sum + (stat.arr || 0), 0);
-        const activeSubscriptions = Object.values(billingStats).filter((stat) => stat.subscriptionStatus === 'active').length;
-        const trialingSubscriptions = Object.values(billingStats).filter((stat) => stat.subscriptionStatus === 'trialing').length;
-        const pastDueSubscriptions = Object.values(billingStats).filter((stat) => stat.subscriptionStatus === 'past_due' || stat.pastDue).length;
-        const canceledSubscriptions = Object.values(billingStats).filter((stat) => stat.subscriptionStatus === 'canceled').length;
-        const cancelAtPeriodEndCount = Object.values(billingStats).filter((stat) => stat.cancelAtPeriodEnd).length;
-        const largestMrr = Object.values(billingStats).reduce((max, stat) => Math.max(max, stat.mrr || 0), 0);
-        const topRevenueShare = realMrr > 0 ? Math.round((largestMrr / realMrr) * 100) : 0;
-        const trialExpiringSoon = companies.filter((company) => {
-          if (company.subscription?.status !== 'trialing') return false;
-          const trialEndsAt = toDate(company.subscription?.trialEndsAt);
-          if (!trialEndsAt || trialEndsAt < now) return false;
-          const diff = trialEndsAt.getTime() - now.getTime();
-          const days = diff / (1000 * 60 * 60 * 24);
-          return days <= 7;
-        }).length;
-
-        setMetrics({
-          totalCompanies: companies.length,
-          totalUsers: users.length,
-          totalProducts: products.length,
-          totalCustomers: customers.length,
-          activeCompanies,
-          trialCompanies,
-          expiredOrPastDueCompanies,
-          starterPlans,
-          proPlans,
-          businessPlans,
-          estimatedMrr,
-          totalOrders,
-          totalSales,
-          averageOrderValue,
-          companiesWithoutOrders,
-          trialExpiringSoon,
-          ownerlessCompanies,
-          estimatedArr,
-          monthlyPlatformSales,
-          statsCoverage,
-          activeNoConversionCompanies,
-          pastDueWatchCount,
-          realMrr,
-          realArr,
-          activeSubscriptions,
-          trialingSubscriptions,
-          pastDueSubscriptions,
-          canceledSubscriptions,
-          cancelAtPeriodEndCount,
-          billingCoverage,
-          topRevenueShare,
-        });
-        setCompaniesTable(compareByCreatedAtDesc(companyRows));
-        setUsersTable(compareByCreatedAtDesc(userRows));
-        setLatestUsers(compareByCreatedAtDesc(userRows).slice(0, 6));
-        setCompanyControls(controls);
-        setCompanyStats(stats);
-        setCompanyBillingStats(billingStats);
-        if (!selectedCompanyId && companyRows.length > 0) {
-          setSelectedCompanyId(compareByCreatedAtDesc(companyRows)[0].id);
+        setMetrics(payload.metrics);
+        setCompaniesTable(compareByCreatedAtDesc(companies));
+        setUsersTable(compareByCreatedAtDesc(users));
+        setLatestUsers(latest);
+        setCompanyControls(payload.companyControls || {});
+        setCompanyStats(payload.companyStats || {});
+        setCompanyBillingStats(payload.companyBillingStats || {});
+        if (!selectedCompanyId && companies.length > 0) {
+          setSelectedCompanyId(compareByCreatedAtDesc(companies)[0].id);
         }
       } catch (loadError) {
         console.error('Failed to load super admin data:', loadError);
@@ -893,78 +688,7 @@ export function SuperAdmin() {
     setSyncingStats(true);
     setError(null);
     try {
-      const [membershipsSnap, productsSnap, customersSnap, ordersSnap] = await Promise.all([
-        getDocs(collection(db, 'memberships')),
-        getDocs(collection(db, 'products')),
-        getDocs(collection(db, 'customers')),
-        getDocs(collection(db, 'orders')),
-      ]);
-
-      const memberships = membershipsSnap.docs.map((entry) => ({ id: entry.id, ...entry.data() } as MembershipDoc));
-      const products = productsSnap.docs.map((entry) => ({ id: entry.id, ...entry.data() } as ProductDoc));
-      const customers = customersSnap.docs.map((entry) => ({ id: entry.id, ...entry.data() } as CustomerDoc));
-      const orders = ordersSnap.docs.map((entry) => ({ id: entry.id, ...entry.data() } as OrderDoc));
-
-      const productsByCompany = new Map<string, number>();
-      const customersByCompany = new Map<string, number>();
-      const membershipsByCompany = new Map<string, number>();
-      const ordersByCompany = new Map<string, OrderDoc[]>();
-
-      memberships.forEach((membership) => {
-        membershipsByCompany.set(membership.companyId, (membershipsByCompany.get(membership.companyId) || 0) + 1);
-      });
-      products.forEach((product) => {
-        productsByCompany.set(product.companyId, (productsByCompany.get(product.companyId) || 0) + 1);
-      });
-      customers.forEach((customer) => {
-        customersByCompany.set(customer.companyId, (customersByCompany.get(customer.companyId) || 0) + 1);
-      });
-      orders.forEach((order) => {
-        ordersByCompany.set(order.companyId, [...(ordersByCompany.get(order.companyId) || []), order]);
-      });
-
-      const batch = writeBatch(db);
-      const nextStats: Record<string, CompanyStatsDoc> = {};
-
-      companiesTable.forEach((company) => {
-        const companyOrders = ordersByCompany.get(company.id) || [];
-        const sortedOrders = [...companyOrders].sort((a, b) => {
-          const aTime = toDate(a.createdAt)?.getTime() || 0;
-          const bTime = toDate(b.createdAt)?.getTime() || 0;
-          return aTime - bTime;
-        });
-        const payload: CompanyStatsDoc = {
-          companyId: company.id,
-          ordersCount: companyOrders.length,
-          customersCount: customersByCompany.get(company.id) || 0,
-          productsCount: productsByCompany.get(company.id) || 0,
-          lifetimeRevenue: companyOrders.reduce((sum, order) => sum + normalizeOrderTotal(order), 0),
-          monthlyRevenue: companyOrders
-            .filter((order) => isCurrentMonth(order.createdAt))
-            .reduce((sum, order) => sum + normalizeOrderTotal(order), 0),
-          firstOrderAt: sortedOrders[0]?.createdAt || null,
-          lastOrderAt: sortedOrders[sortedOrders.length - 1]?.createdAt || null,
-          activeUsers: membershipsByCompany.get(company.id) || 0,
-          updatedAt: serverTimestamp(),
-        };
-        nextStats[company.id] = payload;
-        batch.set(doc(db, 'companyStats', company.id), payload, { merge: true });
-      });
-
-      batch.set(
-        doc(collection(db, 'platformAuditLogs')),
-        {
-          type: 'company_stats_synced',
-          actorUid: platformAdmin.uid,
-          payload: {
-            companies: companiesTable.length,
-          },
-          createdAt: serverTimestamp(),
-        } as PlatformAuditLog
-      );
-
-      await batch.commit();
-      setCompanyStats((current) => ({ ...current, ...nextStats }));
+      await syncPlatformStats();
       setRefreshKey((current) => current + 1);
       setControlFeedback(t('super_admin.metrics.sync_success'));
     } catch (syncError) {
@@ -979,13 +703,7 @@ export function SuperAdmin() {
     setSyncingBilling(true);
     setError(null);
     try {
-      const response = await authedPlatformFetch('/api/platform/billing/sync', {
-        companyId: selectedCompany?.id || null,
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(payload.error || 'Failed to sync billing stats');
-      }
+      const payload = await syncPlatformBilling(selectedCompany?.id || null);
       setRefreshKey((current) => current + 1);
       setControlFeedback(t('super_admin.metrics.billing_sync_success', { count: payload.syncedCompanies || 0 }));
     } catch (syncError) {

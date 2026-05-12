@@ -1,19 +1,31 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
-  BrainCircuit, X, Send, Zap, TrendingUp, Package, Users,
-  Activity, AlertCircle, Sparkles, ChevronRight, MessageSquare,
-  RefreshCcw, FileText, CheckCircle2
+  BrainCircuit,
+  X,
+  Send,
+  Zap,
+  TrendingUp,
+  Package,
+  Users,
+  Activity,
+  Sparkles,
+  ChevronRight,
+  MessageSquare,
+  RefreshCcw,
+  CheckCircle2,
+  Radar,
+  ShieldCheck,
+  Clock3,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { db } from '../lib/firebase';
-import { collection, query, where, getDocs, limit, orderBy } from 'firebase/firestore';
 import { chatCopilot, getProactiveThoughts } from '../services/gemini';
 import { cn } from './Common';
 import { useLocation, useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import { useLocale } from '../hooks/useLocale';
 import { format } from 'date-fns';
+import { fetchCompanyOverview } from '../services/companyApi';
 
 interface Message {
   id: string;
@@ -44,9 +56,31 @@ interface LiveMetrics {
   customers: number;
 }
 
+function getInsightTone(priority?: string) {
+  if (priority === 'high') {
+    return {
+      chip: 'Critical watch',
+      accent: 'border-red-400/16 bg-red-500/8 text-red-200',
+      iconWrap: 'border-red-400/16 bg-red-500/10 text-red-300',
+    };
+  }
+  if (priority === 'medium') {
+    return {
+      chip: 'Active watch',
+      accent: 'border-amber-400/16 bg-amber-500/8 text-amber-200',
+      iconWrap: 'border-amber-400/16 bg-amber-500/10 text-amber-300',
+    };
+  }
+  return {
+    chip: 'Signal',
+    accent: 'border-blue-400/16 bg-blue-500/8 text-blue-200',
+    iconWrap: 'border-blue-400/16 bg-blue-500/10 text-blue-300',
+  };
+}
+
 export function Copilot() {
-  const { company, user } = useAuth();
-  const { t, language, formatCurrency } = useLocale();
+  const { company, role } = useAuth();
+  const { language, formatCurrency } = useLocale();
   const navigate = useNavigate();
   const location = useLocation();
   const isPOSRoute = location.pathname === '/pos';
@@ -62,18 +96,18 @@ export function Copilot() {
   const [toast, setToast] = useState<string | null>(null);
   const [operatorHistory, setOperatorHistory] = useState<{ type: string; action: string; timestamp: Date }[]>([]);
   const [actionProcessing, setActionProcessing] = useState<string | null>(null);
+  const [lastScanAt, setLastScanAt] = useState<Date | null>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const streamingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const toastRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Keyboard shortcuts
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault();
-        setIsOpen(prev => {
+        setIsOpen((prev) => {
           if (!prev) setUnreadInsights(0);
           return !prev;
         });
@@ -84,7 +118,6 @@ export function Copilot() {
     return () => window.removeEventListener('keydown', handler);
   }, []);
 
-  // open-copilot custom event (from Dashboard)
   useEffect(() => {
     const handler = () => {
       setIsOpen(true);
@@ -95,28 +128,24 @@ export function Copilot() {
     return () => window.removeEventListener('open-copilot', handler);
   }, []);
 
-  // Auto-focus input
   useEffect(() => {
     if (isOpen && activeTab === 'chat') {
       setTimeout(() => inputRef.current?.focus(), 250);
     }
   }, [isOpen, activeTab]);
 
-  // Scroll to bottom on new messages
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages]);
+  }, [messages, activeTab]);
 
-  // Show toast
   const showToast = useCallback((text: string) => {
     setToast(text);
     if (toastRef.current) clearTimeout(toastRef.current);
     toastRef.current = setTimeout(() => setToast(null), 5000);
   }, []);
 
-  // Load persisted chat
   useEffect(() => {
     if (!company) return;
     try {
@@ -129,23 +158,23 @@ export function Copilot() {
           streaming: false,
         })));
       }
-    } catch (_) {}
+    } catch (_) {
+      // ignore malformed local data
+    }
   }, [company?.id]);
 
-  // Save chat on change (debounced, skip streaming)
   useEffect(() => {
     if (!company || messages.length === 0) return;
     const timer = setTimeout(() => {
       const toSave = messages
-        .filter(m => !m.streaming)
+        .filter((m) => !m.streaming)
         .slice(-60)
-        .map(m => ({ ...m, timestamp: m.timestamp.toISOString() }));
+        .map((m) => ({ ...m, timestamp: m.timestamp.toISOString() }));
       localStorage.setItem(`copilot_messages_${company.id}`, JSON.stringify(toSave));
     }, 600);
     return () => clearTimeout(timer);
   }, [messages, company?.id]);
 
-  // Simulated streaming (word-by-word reveal)
   const simulateStreaming = useCallback((msgId: string, fullText: string, onDone?: () => void) => {
     const words = fullText.split(' ');
     let i = 0;
@@ -154,10 +183,8 @@ export function Copilot() {
       i++;
       const partial = words.slice(0, i).join(' ');
       const done = i >= words.length;
-      setMessages(prev =>
-        prev.map(m =>
-          m.id === msgId ? { ...m, text: partial, streaming: !done } : m
-        )
+      setMessages((prev) =>
+        prev.map((m) => (m.id === msgId ? { ...m, text: partial, streaming: !done } : m))
       );
       if (done) {
         if (streamingRef.current) clearInterval(streamingRef.current);
@@ -166,85 +193,23 @@ export function Copilot() {
     }, 22);
   }, []);
 
-  // Background monitoring
   useEffect(() => {
     if (!company) return;
 
     const runMonitoring = async () => {
       try {
-        let productsSnap: any = { docs: [], size: 0 };
-        let ordersSnap: any = { docs: [], size: 0 };
-        let customersSnap: any = { docs: [], size: 0 };
-        let remindersSnap: any = { docs: [], size: 0 };
-
-        try { productsSnap = await getDocs(query(collection(db, 'products'), where('companyId', '==', company.id))); } catch (e) { console.warn('Monitoring: Products', e); }
-        try { ordersSnap = await getDocs(query(collection(db, 'orders'), where('companyId', '==', company.id), orderBy('createdAt', 'desc'), limit(30))); } catch (e) { console.warn('Monitoring: Orders', e); }
-        try { customersSnap = await getDocs(query(collection(db, 'customers'), where('companyId', '==', company.id))); } catch (e) { console.warn('Monitoring: Customers', e); }
-        try { remindersSnap = await getDocs(query(collection(db, 'reminders'), where('companyId', '==', company.id), where('status', '==', 'pending'))); } catch (e) { console.warn('Monitoring: Reminders', e); }
-
-        const now = new Date();
-        const last7Days = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-        const prev7Days = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
-
-        const recentOrders = ordersSnap.docs.filter((d: any) => d.data().createdAt?.toDate() > last7Days);
-        const prevOrders = ordersSnap.docs.filter((d: any) => d.data().createdAt?.toDate() <= last7Days && d.data().createdAt?.toDate() > prev7Days);
-        const totalRevenue = ordersSnap.docs.reduce((acc: number, doc: any) => acc + (doc.data().totalAmount || 0), 0);
-
-        const lowStockProducts = productsSnap.docs
-          .map((d: any) => ({ id: d.id, name: d.data().name, stock: d.data().stockLevel }))
-          .filter((p: any) => p.stock <= 10);
+        const overview = await fetchCompanyOverview(company.id);
 
         setMetrics({
-          revenue: totalRevenue,
-          ordersThisWeek: recentOrders.length,
-          lowStockCount: lowStockProducts.length,
-          customers: customersSnap.size,
+          revenue: Number(overview.recentRevenue30d ?? overview.recentRevenue ?? 0),
+          ordersThisWeek: overview.salesVelocity?.currentPeriodOrders || 0,
+          lowStockCount: overview.lowStockCount || 0,
+          customers: overview.customersCount || 0,
         });
-
-        // Build product + customer aggregates for proactive AI
-        const productOrders: Record<string, { name: string; quantity: number; revenue: number }> = {};
-        ordersSnap.docs.forEach((doc: any) => {
-          const data = doc.data();
-          (data.items || []).forEach((item: any) => {
-            if (!productOrders[item.productId]) {
-              productOrders[item.productId] = { name: item.productName || 'Unknown', quantity: 0, revenue: 0 };
-            }
-            productOrders[item.productId].quantity += item.quantity || 0;
-            productOrders[item.productId].revenue += (item.price || 0) * (item.quantity || 0);
-          });
-        });
-        const topProducts = Object.values(productOrders).sort((a, b) => b.quantity - a.quantity).slice(0, 5);
-
-        const customerOrders: Record<string, { name: string; count: number; total: number }> = {};
-        ordersSnap.docs.forEach((doc: any) => {
-          const data = doc.data();
-          if (!customerOrders[data.customerId]) {
-            customerOrders[data.customerId] = { name: data.customerName || 'Unknown', count: 0, total: 0 };
-          }
-          customerOrders[data.customerId].count++;
-          customerOrders[data.customerId].total += data.totalAmount || 0;
-        });
-        const topCustomers = Object.values(customerOrders).sort((a, b) => b.total - a.total).slice(0, 3);
-
-        const thoughtContext = {
-          companyId: company.id,
-          companyName: company.name,
-          customersCount: customersSnap.size,
-          productsCount: productsSnap.size,
-          recentRevenue: totalRevenue.toFixed(2),
-          salesVelocity: {
-            currentPeriodOrders: recentOrders.length,
-            previousPeriodOrders: prevOrders.length,
-            trend: recentOrders.length >= prevOrders.length ? 'up' : 'down',
-          },
-          lowStockCount: lowStockProducts.length,
-          inventoryStatus: lowStockProducts.slice(0, 3),
-          topProducts,
-          topCustomers,
-        };
+        setLastScanAt(new Date());
 
         try {
-          const thoughts = await getProactiveThoughts(thoughtContext, language);
+          const thoughts = await getProactiveThoughts(overview, language);
           if (thoughts && thoughts.length > 0) {
             const insight = thoughts[0];
             const newInsight: Insight = {
@@ -253,12 +218,12 @@ export function Copilot() {
               priority: insight.priority,
               timestamp: new Date(),
             };
-            setInsights(prev => {
-              const alreadyExists = prev.some(i => i.text === newInsight.text);
+            setInsights((prev) => {
+              const alreadyExists = prev.some((i) => i.text === newInsight.text);
               if (alreadyExists) return prev;
               return [newInsight, ...prev].slice(0, 20);
             });
-            setUnreadInsights(prev => prev + 1);
+            setUnreadInsights((prev) => prev + 1);
             if (!isOpen) showToast(insight.text);
           }
         } catch (e) {
@@ -285,83 +250,20 @@ export function Copilot() {
       text: textToSend,
       timestamp: new Date(),
     };
-    setMessages(prev => [...prev, userMsg]);
+    setMessages((prev) => [...prev, userMsg]);
     setIsTyping(true);
 
     try {
-      let productsSnap: any = { docs: [], size: 0 };
-      let ordersSnap: any = { docs: [], size: 0 };
-      let customersSnap: any = { docs: [], size: 0 };
-      let remindersSnap: any = { docs: [], size: 0 };
-      let messagesSnap: any = { docs: [], size: 0 };
-
-      try { productsSnap = await getDocs(query(collection(db, 'products'), where('companyId', '==', company.id))); } catch (e) { console.warn('ChatCtx: Products', e); }
-      try { ordersSnap = await getDocs(query(collection(db, 'orders'), where('companyId', '==', company.id), orderBy('createdAt', 'desc'), limit(30))); } catch (e) { console.warn('ChatCtx: Orders', e); }
-      try { customersSnap = await getDocs(query(collection(db, 'customers'), where('companyId', '==', company.id))); } catch (e) { console.warn('ChatCtx: Customers', e); }
-      try { remindersSnap = await getDocs(query(collection(db, 'reminders'), where('companyId', '==', company.id), where('status', '==', 'pending'), limit(10))); } catch (e) { console.warn('ChatCtx: Reminders', e); }
-      try { messagesSnap = await getDocs(query(collection(db, 'customerMessages'), where('companyId', '==', company.id), orderBy('createdAt', 'desc'), limit(10))); } catch (e) { console.warn('ChatCtx: Messages', e); }
-
-      const now = new Date();
-      const last7Days = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-      const prev7Days = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
-      const recentOrders = ordersSnap.docs.filter((d: any) => d.data().createdAt?.toDate() > last7Days);
-      const prevOrders = ordersSnap.docs.filter((d: any) => d.data().createdAt?.toDate() <= last7Days && d.data().createdAt?.toDate() > prev7Days);
-      const totalRevenue = ordersSnap.docs.reduce((acc: number, doc: any) => acc + (doc.data().totalAmount || 0), 0);
-      const lowStockProducts = productsSnap.docs
-        .map((d: any) => ({ id: d.id, name: d.data().name, stock: d.data().stockLevel }))
-        .filter((p: any) => p.stock <= 10)
-        .slice(0, 5);
-
-      const customerOrders: Record<string, { count: number; total: number; name: string }> = {};
-      ordersSnap.docs.forEach((doc: any) => {
-        const data = doc.data();
-        if (!customerOrders[data.customerId]) {
-          customerOrders[data.customerId] = { count: 0, total: 0, name: data.customerName || 'Unknown' };
-        }
-        customerOrders[data.customerId].count++;
-        customerOrders[data.customerId].total += data.totalAmount || 0;
-      });
-      const topCustomers = Object.values(customerOrders).sort((a, b) => b.total - a.total).slice(0, 3);
-
+      const overview = await fetchCompanyOverview(company.id);
       const context = {
-        companyId: company.id,
-        companyName: company.name,
-        industry: company.industry,
-        plan: (company as any).planLevel || 'starter',
-        userRole: (user as any).role || 'staff',
-        onboardingCompleted: (company as any).setupCompleted || false,
-        customersCount: customersSnap.size,
-        productsCount: productsSnap.size,
-        recentRevenue: totalRevenue.toFixed(2),
-        lowStockCount: lowStockProducts.length,
-        salesVelocity: {
-          currentPeriodOrders: recentOrders.length,
-          previousPeriodOrders: prevOrders.length,
-          trend: recentOrders.length >= prevOrders.length ? 'up' : 'down',
-        },
-        inventoryStatus: lowStockProducts,
-        topCustomers,
-        pendingReminders: remindersSnap.docs.map((d: any) => ({
-          customer: d.data().customerName,
-          type: d.data().type,
-          due: d.data().dueDate,
-          notes: d.data().notes,
-        })),
-        recentCommunications: messagesSnap.docs.map((d: any) => ({
-          customer: d.data().customerName || 'Unknown',
-          status: d.data().status,
-          content: (d.data().content || '').slice(0, 30) + '...',
-        })),
+        ...overview,
+        userRole: role || 'staff',
         operatorHistory: operatorHistory.slice(0, 3),
-        summary: {
-          products: productsSnap.docs.slice(0, 8).map((d: any) => ({ name: d.data().name, stock: d.data().stockLevel })),
-          recentOrders: ordersSnap.docs.slice(0, 8).map((d: any) => ({ id: d.id.slice(0, 8), amount: d.data().totalAmount, customer: d.data().customerName })),
-        },
       };
 
       const history = messages
-        .filter(m => !m.streaming)
-        .map(m => ({ role: m.role, parts: [{ text: m.text }] }));
+        .filter((m) => !m.streaming)
+        .map((m) => ({ role: m.role, parts: [{ text: m.text }] }));
 
       const aiResponse = await chatCopilot(textToSend, history, context, language);
 
@@ -386,7 +288,7 @@ export function Copilot() {
       }
 
       const botMsgId = `m-${Date.now()}`;
-      setMessages(prev => [...prev, {
+      setMessages((prev) => [...prev, {
         id: botMsgId,
         role: 'model',
         text: '',
@@ -399,7 +301,7 @@ export function Copilot() {
 
       simulateStreaming(botMsgId, cleanText);
 
-      setOperatorHistory(prev => [{
+      setOperatorHistory((prev) => [{
         type: commandMatch ? 'COMMAND' : 'QUERY',
         action: textToSend,
         timestamp: new Date(),
@@ -407,7 +309,7 @@ export function Copilot() {
     } catch (error) {
       console.error('Chat error:', error);
       setIsTyping(false);
-      setMessages(prev => [...prev, {
+      setMessages((prev) => [...prev, {
         id: `err-${Date.now()}`,
         role: 'model',
         text: 'I could not connect to the business data service. Please try again.',
@@ -421,26 +323,26 @@ export function Copilot() {
     setActionProcessing(msgId);
 
     try {
-      await new Promise(r => setTimeout(r, 700));
+      await new Promise((r) => setTimeout(r, 700));
 
       if (command.isReviewOnly || ['DRAFT_REPORT', 'REVIEW_ONLY', 'DRAFT_ORDER'].includes(command.type)) {
-        setMessages(prev => prev.map(m => m.id === msgId ? { ...m, commandStatus: 'executed' } : m));
+        setMessages((prev) => prev.map((m) => (m.id === msgId ? { ...m, commandStatus: 'executed' } : m)));
         return;
       }
 
       if (command.type === 'NAVIGATE') {
         const targetPath = command.params.trim().toLowerCase().split('?')[0];
         const validRoutes = ['/dashboard', '/customers', '/products', '/inventory', '/orders', '/pos', '/insights', '/team', '/settings', '/billing', '/super-admin'];
-        const isValid = validRoutes.some(r => targetPath === r || targetPath.startsWith(r + '/'));
+        const isValid = validRoutes.some((r) => targetPath === r || targetPath.startsWith(`${r}/`));
         if (!isValid) throw new Error(`Restricted target: ${targetPath}`);
         navigate(command.params.trim());
         setIsOpen(false);
       }
 
-      setMessages(prev => prev.map(m => m.id === msgId ? { ...m, commandStatus: 'executed' } : m));
+      setMessages((prev) => prev.map((m) => (m.id === msgId ? { ...m, commandStatus: 'executed' } : m)));
     } catch (err: any) {
       console.error('Action execution failed:', err);
-      setMessages(prev => prev.map(m => m.id === msgId ? { ...m, commandStatus: 'dismissed' } : m));
+      setMessages((prev) => prev.map((m) => (m.id === msgId ? { ...m, commandStatus: 'dismissed' } : m)));
     } finally {
       setActionProcessing(null);
     }
@@ -451,60 +353,81 @@ export function Copilot() {
     setUnreadInsights(0);
   };
 
+  const quickPrompts = [
+    { label: 'Executive brief', prompt: 'Give me a concise executive operating brief for today.', icon: Activity },
+    { label: 'Revenue pulse', prompt: 'Summarize revenue performance and trend signals.', icon: TrendingUp },
+    { label: 'Restock watch', prompt: 'Show me low stock exposure and restock priorities.', icon: Package },
+    { label: 'Customer motion', prompt: 'Which customers need attention right now?', icon: Users },
+  ];
+
+  const intelActions = [
+    { label: 'Generate weekly operator report', prompt: 'Draft a weekly operator report with revenue, risk and next actions.', icon: TrendingUp },
+    { label: 'Review inventory pressure', prompt: 'Inspect low stock products and build a restock watchlist.', icon: Package },
+    { label: 'Find retention opportunities', prompt: 'Review customer activity and surface retention opportunities.', icon: Users },
+  ];
+
+  const activeCommandCount = useMemo(
+    () => messages.filter((m) => m.command && m.commandStatus === 'pending').length,
+    [messages]
+  );
+
   return (
     <>
-      {/* Toast notification */}
       <AnimatePresence>
         {toast && !isOpen && (
           <motion.div
-            initial={{ opacity: 0, y: 20, scale: 0.95 }}
+            initial={{ opacity: 0, y: 20, scale: 0.96 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 10, scale: 0.95 }}
+            exit={{ opacity: 0, y: 10, scale: 0.96 }}
             className={cn(
-              'fixed bottom-24 z-[60] max-w-[300px] bg-neutral-900 border border-white/10 rounded-2xl p-4 shadow-2xl cursor-pointer',
+              'fixed bottom-24 z-[60] max-w-[340px] rounded-[24px] border border-blue-400/14 bg-[rgba(8,12,18,0.94)] p-4 shadow-[0_18px_56px_rgba(0,0,0,0.44)] backdrop-blur-2xl cursor-pointer',
               isPOSRoute ? 'left-6 right-6 sm:right-auto' : 'right-6'
             )}
             onClick={openPanel}
           >
-            <div className="flex gap-3 items-start">
-              <div className="w-7 h-7 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center shrink-0 mt-0.5">
-                <BrainCircuit className="w-3.5 h-3.5 text-blue-400" />
+            <div className="flex gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-blue-400/14 bg-blue-500/10">
+                <BrainCircuit className="h-4.5 w-4.5 text-blue-300" />
               </div>
               <div>
-                <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-1">AI Insight</p>
-                <p className="text-xs text-neutral-300 leading-relaxed line-clamp-3">{toast}</p>
+                <p className="section-kicker mb-2">Operator Intel</p>
+                <p className="text-sm leading-relaxed text-neutral-200">{toast}</p>
               </div>
             </div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Floating trigger button */}
       <div className={cn('fixed bottom-6 z-[60]', isPOSRoute ? 'left-6' : 'right-6')}>
         <motion.button
           onClick={() => {
-            if (isOpen) {
-              setIsOpen(false);
-            } else {
-              openPanel();
-            }
+            if (isOpen) setIsOpen(false);
+            else openPanel();
           }}
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
+          whileHover={{ scale: 1.035 }}
+          whileTap={{ scale: 0.97 }}
           className={cn(
-            'relative w-14 h-14 rounded-2xl flex items-center justify-center shadow-2xl transition-all duration-300 border',
+            'group relative flex h-16 w-16 items-center justify-center overflow-hidden rounded-[22px] border transition-all duration-300',
             isOpen
-              ? 'bg-neutral-800 border-white/10'
-              : 'bg-blue-600 border-blue-400/30 shadow-blue-600/20'
+              ? 'border-white/12 bg-[rgba(14,18,24,0.96)] shadow-[0_18px_48px_rgba(0,0,0,0.42)]'
+              : 'border-blue-400/18 bg-[linear-gradient(180deg,rgba(89,133,255,0.96),rgba(43,88,211,0.96))] shadow-[0_22px_56px_rgba(43,88,211,0.36)]'
           )}
         >
+          {!isOpen && (
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.22),transparent_48%)] opacity-90" />
+          )}
           {isOpen ? (
-            <X className="w-5 h-5 text-white" />
+            <X className="relative h-5 w-5 text-white" />
           ) : (
             <>
-              <BrainCircuit className="w-6 h-6 text-white" />
+              <BrainCircuit className="relative h-6 w-6 text-white" />
+              <motion.div
+                animate={{ opacity: [0.45, 1, 0.45] }}
+                transition={{ duration: 2.4, repeat: Infinity }}
+                className="absolute inset-[8px] rounded-[18px] border border-white/12"
+              />
               {unreadInsights > 0 && (
-                <span className="absolute -top-1.5 -right-1.5 min-w-[20px] h-5 bg-blue-400 rounded-full text-[10px] font-black text-white flex items-center justify-center px-1 border-2 border-neutral-950">
+                <span className="absolute -right-1 -top-1 flex min-w-[22px] items-center justify-center rounded-full border-2 border-[#05070b] bg-emerald-400 px-1.5 py-0.5 text-[10px] font-black text-[#03110a]">
                   {unreadInsights > 9 ? '9+' : unreadInsights}
                 </span>
               )}
@@ -513,7 +436,6 @@ export function Copilot() {
         </motion.button>
       </div>
 
-      {/* Backdrop */}
       <AnimatePresence>
         {isOpen && (
           <motion.div
@@ -521,13 +443,12 @@ export function Copilot() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[45]"
+            className="fixed inset-0 z-[45] bg-black/50 backdrop-blur-sm"
             onClick={() => setIsOpen(false)}
           />
         )}
       </AnimatePresence>
 
-      {/* Panel */}
       <AnimatePresence>
         {isOpen && (
           <motion.div
@@ -536,175 +457,174 @@ export function Copilot() {
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
             transition={{ type: 'spring', damping: 28, stiffness: 260 }}
-            className="fixed top-0 right-0 h-full w-full sm:w-[440px] bg-neutral-950 border-l border-white/5 z-[50] flex flex-col shadow-[−20px_0_60px_rgba(0,0,0,0.6)]"
+            className="fixed right-0 top-0 z-[50] flex h-full w-full flex-col border-l border-white/8 bg-[rgba(5,8,12,0.98)] shadow-[0_0_70px_rgba(0,0,0,0.48)] backdrop-blur-2xl sm:w-[470px]"
           >
-            {/* ── Header ── */}
-            <div className="flex-shrink-0 px-5 pt-5 pb-4 border-b border-white/[0.04]">
-              <div className="flex items-center justify-between mb-5">
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center shadow-lg shadow-blue-600/25">
-                    <BrainCircuit className="w-4.5 h-4.5 text-white" />
+            <div className="border-b border-white/6 px-5 pb-4 pt-5">
+              <div className="mb-5 flex items-start justify-between gap-4">
+                <div className="flex items-start gap-3">
+                  <div className="relative flex h-11 w-11 items-center justify-center rounded-2xl border border-blue-400/14 bg-blue-500/12">
+                    <BrainCircuit className="h-5 w-5 text-blue-200" />
+                    <div className="absolute inset-[7px] rounded-[14px] border border-white/10" />
                   </div>
                   <div>
-                    <p className="font-display font-bold text-white tracking-tight leading-tight">
-                      {company?.name || 'AI Copilot'}
-                    </p>
-                    <div className="flex items-center gap-1.5 mt-0.5">
-                      <motion.span
-                        animate={{ opacity: [0.5, 1, 0.5] }}
-                        transition={{ duration: 2, repeat: Infinity }}
-                        className="w-1.5 h-1.5 rounded-full bg-emerald-500"
-                      />
-                      <span className="text-[10px] text-neutral-500 font-bold uppercase tracking-widest">
-                        Live · ⌘K
+                    <p className="section-kicker mb-1">Operator Console</p>
+                    <p className="font-display text-xl font-bold tracking-tight text-white">{company?.name || 'Remix OS'} Copilot</p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <span className="telemetry-chip !px-2.5 !py-1">
+                        <span className="status-dot bg-emerald-400 text-emerald-400" />
+                        Live watch
+                      </span>
+                      <span className="telemetry-chip !px-2.5 !py-1">
+                        <ShieldCheck className="h-3 w-3 text-blue-300" />
+                        Operator mode
                       </span>
                     </div>
                   </div>
                 </div>
                 <button
                   onClick={() => setIsOpen(false)}
-                  className="w-8 h-8 rounded-xl bg-white/[0.04] border border-white/[0.06] flex items-center justify-center hover:bg-white/[0.08] transition-all"
+                  className="rounded-2xl border border-white/8 bg-white/[0.03] p-2.5 text-neutral-500 transition-colors hover:text-white"
                 >
-                  <X className="w-4 h-4 text-neutral-400" />
+                  <X className="h-4 w-4" />
                 </button>
               </div>
 
-              {/* Live metrics strip */}
               {metrics && (
-                <div className="grid grid-cols-3 gap-2 mb-4">
+                <div className="mb-4 grid grid-cols-3 gap-2">
                   {[
                     {
                       label: 'Revenue',
-                      value: formatCurrency ? formatCurrency(metrics.revenue) : `$${metrics.revenue.toLocaleString('en', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`,
+                      value: formatCurrency(metrics.revenue),
                       icon: TrendingUp,
-                      accent: 'text-emerald-400',
+                      accent: 'text-emerald-300',
                     },
                     {
                       label: 'Orders / 7d',
                       value: String(metrics.ordersThisWeek),
                       icon: Activity,
-                      accent: 'text-blue-400',
+                      accent: 'text-blue-300',
                     },
                     {
-                      label: 'Low Stock',
+                      label: 'Low stock',
                       value: String(metrics.lowStockCount),
                       icon: Package,
-                      accent: metrics.lowStockCount > 0 ? 'text-red-400' : 'text-neutral-500',
+                      accent: metrics.lowStockCount > 0 ? 'text-red-300' : 'text-neutral-400',
                     },
-                  ].map(m => (
-                    <div key={m.label} className="bg-white/[0.02] border border-white/[0.05] rounded-xl p-2.5">
-                      <m.icon className={cn('w-3.5 h-3.5 mb-1.5', m.accent)} />
-                      <p className="text-sm font-bold text-white font-mono leading-tight">{m.value}</p>
-                      <p className="text-[9px] text-neutral-600 font-bold uppercase tracking-widest mt-0.5">{m.label}</p>
+                  ].map((item) => (
+                    <div key={item.label} className="data-tile !rounded-[22px] !p-3">
+                      <item.icon className={cn('mb-2 h-4 w-4', item.accent)} />
+                      <p className="truncate font-mono text-sm font-bold text-white">{item.value}</p>
+                      <p className="mt-1 text-[9px] font-black uppercase tracking-[0.18em] text-neutral-500">{item.label}</p>
                     </div>
                   ))}
                 </div>
               )}
 
-              {/* Tabs */}
-              <div className="flex p-0.5 bg-white/[0.03] rounded-xl border border-white/[0.05]">
+              <div className="mb-4 flex flex-wrap items-center gap-2">
+                <span className="telemetry-chip !px-2.5 !py-1">
+                  <Radar className="h-3 w-3 text-blue-300" />
+                  {lastScanAt ? `Last scan ${format(lastScanAt, 'HH:mm')}` : 'Monitoring'}
+                </span>
+                <span className="telemetry-chip !px-2.5 !py-1">
+                  <Clock3 className="h-3 w-3 text-neutral-300" />
+                  Refresh / 2m
+                </span>
+                {activeCommandCount > 0 && (
+                  <span className="telemetry-chip !px-2.5 !py-1">
+                    <Zap className="h-3 w-3 text-amber-300" />
+                    {activeCommandCount} action ready
+                  </span>
+                )}
+              </div>
+
+              <div className="flex rounded-2xl border border-white/8 bg-white/[0.03] p-1">
                 {[
-                  { id: 'chat', label: 'Chat', icon: MessageSquare },
-                  {
-                    id: 'intel',
-                    label: `Intel${unreadInsights > 0 ? ` · ${unreadInsights}` : ''}`,
-                    icon: Zap,
-                    dot: unreadInsights > 0,
-                  },
-                ].map(tab => (
+                  { id: 'chat', label: 'Operator Chat', icon: MessageSquare },
+                  { id: 'intel', label: `Live Intel${unreadInsights > 0 ? ` · ${unreadInsights}` : ''}`, icon: Zap },
+                ].map((tab) => (
                   <button
                     key={tab.id}
                     onClick={() => {
-                      setActiveTab(tab.id as any);
+                      setActiveTab(tab.id as 'chat' | 'intel');
                       if (tab.id === 'intel') setUnreadInsights(0);
                     }}
                     className={cn(
-                      'flex-1 flex items-center justify-center gap-2 py-2 rounded-[10px] text-[11px] font-bold uppercase tracking-widest transition-all',
-                      activeTab === tab.id
-                        ? 'bg-white/[0.08] text-white'
-                        : 'text-neutral-500 hover:text-neutral-300'
+                      'flex flex-1 items-center justify-center gap-2 rounded-[14px] py-2.5 text-[11px] font-black uppercase tracking-[0.18em] transition-all',
+                      activeTab === tab.id ? 'bg-white/[0.08] text-white' : 'text-neutral-500 hover:text-neutral-300'
                     )}
                   >
-                    <tab.icon className="w-3.5 h-3.5" />
+                    <tab.icon className="h-3.5 w-3.5" />
                     {tab.label}
-                    {(tab as any).dot && (
-                      <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
-                    )}
                   </button>
                 ))}
               </div>
             </div>
 
-            {/* ── Content ── */}
-            <div className="flex-1 overflow-hidden flex flex-col min-h-0">
-
-              {/* CHAT TAB */}
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
               {activeTab === 'chat' && (
                 <>
-                  <div ref={scrollRef} className="flex-1 overflow-y-auto p-5 space-y-4">
-
-                    {/* Empty state */}
+                  <div ref={scrollRef} className="custom-scrollbar flex-1 space-y-4 overflow-y-auto p-5">
                     {messages.length === 0 && (
-                      <div className="flex flex-col items-center justify-center h-full text-center py-8 space-y-6">
-                        <div className="w-16 h-16 rounded-[2rem] bg-gradient-to-b from-white/[0.05] to-transparent border border-white/[0.05] flex items-center justify-center">
-                          <Sparkles className="w-8 h-8 text-neutral-600" />
-                        </div>
-                        <div className="space-y-2 px-4">
-                          <h4 className="text-white font-bold tracking-tight">Business Intelligence</h4>
-                          <p className="text-neutral-500 text-sm leading-relaxed">
-                            Ask me about your products, customers, inventory, or sales performance.
+                      <div className="flex h-full flex-col items-center justify-center text-center">
+                        <div className="surface-elevated max-w-sm p-6">
+                          <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-[24px] border border-blue-400/14 bg-blue-500/10">
+                            <Sparkles className="h-7 w-7 text-blue-300" />
+                          </div>
+                          <p className="section-kicker mb-2">Operator Chat</p>
+                          <h4 className="mb-3 text-lg font-semibold text-white">Ask for a real operating brief</h4>
+                          <p className="mb-6 text-sm leading-relaxed text-neutral-400">
+                            I can summarize revenue flow, product pressure, customer motion and recommended actions from live workspace data.
                           </p>
-                        </div>
-                        <div className="w-full space-y-2">
-                          <p className="text-[10px] font-black text-neutral-600 uppercase tracking-widest mb-3">Quick queries</p>
-                          {[
-                            { label: 'Daily summary', prompt: 'Give me a daily operational summary', icon: Activity },
-                            { label: 'Best sellers', prompt: 'What are my best-selling products?', icon: TrendingUp },
-                            { label: 'Low stock', prompt: 'Show me low stock products', icon: Package },
-                            { label: 'Top customers', prompt: 'Who are my top customers?', icon: Users },
-                          ].map(q => (
-                            <button
-                              key={q.label}
-                              onClick={() => handleSendMessage(q.prompt)}
-                              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-white/[0.03] border border-white/[0.05] text-left hover:bg-white/[0.06] hover:border-blue-500/20 transition-all group"
-                            >
-                              <q.icon className="w-4 h-4 text-neutral-600 group-hover:text-blue-400 transition-colors shrink-0" />
-                              <span className="text-sm text-neutral-400 group-hover:text-white transition-colors font-medium">{q.label}</span>
-                              <ChevronRight className="w-3.5 h-3.5 text-neutral-700 ml-auto group-hover:text-blue-400 transition-colors" />
-                            </button>
-                          ))}
+
+                          <div className="space-y-2 text-left">
+                            {quickPrompts.map((prompt) => (
+                              <button
+                                key={prompt.label}
+                                onClick={() => handleSendMessage(prompt.prompt)}
+                                className="surface-elevated flex w-full items-center gap-3 p-3 transition-all hover:border-blue-400/16 hover:bg-white/[0.035]"
+                              >
+                                <div className="flex h-9 w-9 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03]">
+                                  <prompt.icon className="h-4 w-4 text-neutral-300" />
+                                </div>
+                                <span className="flex-1 text-sm font-medium text-neutral-300">{prompt.label}</span>
+                                <ChevronRight className="h-4 w-4 text-neutral-600" />
+                              </button>
+                            ))}
+                          </div>
                         </div>
                       </div>
                     )}
 
-                    {/* Messages */}
-                    {messages.map(m => (
+                    {messages.map((m) => (
                       <div key={m.id} className={cn('flex', m.role === 'user' ? 'justify-end' : 'justify-start')}>
                         <div className={cn(
-                          'max-w-[88%] rounded-2xl text-[13px] leading-relaxed',
+                          'max-w-[90%] rounded-[24px] text-[13px] leading-relaxed shadow-[0_12px_34px_rgba(0,0,0,0.24)]',
                           m.role === 'user'
-                            ? 'bg-blue-600 text-white px-4 py-3 rounded-br-md font-medium'
-                            : 'bg-white/[0.03] border border-white/[0.07] text-neutral-300 px-4 py-3 rounded-bl-md'
+                            ? 'border border-blue-300/18 bg-[linear-gradient(180deg,rgba(91,136,255,0.96),rgba(49,92,214,0.96))] px-4 py-3 text-white'
+                            : 'border border-white/8 bg-white/[0.03] px-4 py-3 text-neutral-300'
                         )}>
                           {m.role === 'user' ? (
-                            m.text
+                            <div>
+                              <p>{m.text}</p>
+                              <p className="mt-2 font-mono text-[10px] uppercase tracking-[0.18em] text-white/60">
+                                Operator input · {format(m.timestamp, 'HH:mm')}
+                              </p>
+                            </div>
                           ) : (
                             <div>
+                              <div className="mb-3 flex items-center gap-2">
+                                <span className="operator-badge !px-2.5 !py-1">AI Operator</span>
+                                <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-neutral-600">{format(m.timestamp, 'HH:mm')}</span>
+                              </div>
+
                               <ReactMarkdown
                                 components={{
-                                  p: ({ children }) => {
-                                    const text = typeof children === 'string' ? children : '';
-                                    if (text && text === text.toUpperCase() && text.length > 5 && text.length < 40) {
-                                      return <h5 className="text-[10px] font-black text-blue-400/80 tracking-[0.2em] mb-2 mt-4 first:mt-0 uppercase">{children}</h5>;
-                                    }
-                                    if (text && text.includes('ACTION_REQUIRED:')) return null;
-                                    return <p className="mb-2.5 last:mb-0 text-neutral-300 leading-relaxed">{children}</p>;
-                                  },
+                                  p: ({ children }) => <p className="mb-2.5 last:mb-0 text-neutral-300 leading-relaxed">{children}</p>,
                                   strong: ({ children }) => <strong className="font-bold text-white">{children}</strong>,
-                                  ul: ({ children }) => <ul className="space-y-1.5 mb-3 last:mb-0">{children}</ul>,
+                                  ul: ({ children }) => <ul className="mb-3 space-y-1.5 last:mb-0">{children}</ul>,
                                   li: ({ children }) => (
-                                    <li className="flex gap-2 items-start text-[13px] text-neutral-400">
-                                      <span className="w-1.5 h-1.5 rounded-full bg-blue-500/40 mt-1.5 shrink-0" />
+                                    <li className="flex items-start gap-2 text-[13px] text-neutral-400">
+                                      <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-blue-400/60" />
                                       <span>{children}</span>
                                     </li>
                                   ),
@@ -713,60 +633,63 @@ export function Copilot() {
                                 {m.text}
                               </ReactMarkdown>
 
-                              {/* Streaming cursor */}
                               {m.streaming && (
-                                <span className="inline-block w-2 h-3.5 bg-blue-400 ml-0.5 animate-pulse rounded-sm align-text-bottom" />
+                                <span className="inline-block h-3.5 w-2 rounded-sm bg-blue-300 align-text-bottom animate-pulse" />
                               )}
 
-                              {/* ACTION_REQUIRED inline buttons */}
                               {!m.streaming && m.text.includes('ACTION_REQUIRED:') && (
-                                <div className="mt-3 pt-3 border-t border-white/5 flex flex-wrap gap-2">
-                                  {m.text.split('\n').map((line, li) => {
-                                    if (!line.includes('ACTION_REQUIRED:')) return null;
-                                    const action = line.split('ACTION_REQUIRED:')[1].trim();
-                                    const mapping: Record<string, { label: string; path: string }> = {
-                                      VIEW_INVENTORY: { label: 'Inventory', path: '/inventory' },
-                                      VIEW_ORDERS: { label: 'Orders', path: '/orders' },
-                                      VIEW_CUSTOMERS: { label: 'Customers', path: '/customers' },
-                                      VIEW_INSIGHTS: { label: 'Insights', path: '/insights' },
-                                    };
-                                    const cfg = mapping[action];
-                                    if (!cfg) return null;
-                                    return (
-                                      <button
-                                        key={li}
-                                        onClick={() => { setIsOpen(false); navigate(cfg.path); }}
-                                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600/10 border border-blue-500/20 text-[10px] font-black uppercase tracking-widest text-blue-400 hover:bg-blue-600 hover:text-white transition-all"
-                                      >
-                                        {cfg.label}
-                                      </button>
-                                    );
-                                  })}
+                                <div className="mt-4 border-t border-white/6 pt-4">
+                                  <p className="mb-2 text-[10px] font-black uppercase tracking-[0.22em] text-neutral-500">Suggested route</p>
+                                  <div className="flex flex-wrap gap-2">
+                                    {m.text.split('\n').map((line, li) => {
+                                      if (!line.includes('ACTION_REQUIRED:')) return null;
+                                      const action = line.split('ACTION_REQUIRED:')[1].trim();
+                                      const mapping: Record<string, { label: string; path: string }> = {
+                                        VIEW_INVENTORY: { label: 'Inventory', path: '/inventory' },
+                                        VIEW_ORDERS: { label: 'Orders', path: '/orders' },
+                                        VIEW_CUSTOMERS: { label: 'Customers', path: '/customers' },
+                                        VIEW_INSIGHTS: { label: 'Insights', path: '/insights' },
+                                      };
+                                      const cfg = mapping[action];
+                                      if (!cfg) return null;
+                                      return (
+                                        <button
+                                          key={li}
+                                          onClick={() => {
+                                            setIsOpen(false);
+                                            navigate(cfg.path);
+                                          }}
+                                          className="rounded-xl border border-blue-400/16 bg-blue-500/10 px-3 py-2 text-[10px] font-black uppercase tracking-[0.18em] text-blue-200 transition-colors hover:bg-blue-500/20"
+                                        >
+                                          {cfg.label}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
                                 </div>
                               )}
 
-                              {/* Inline command card */}
                               {!m.streaming && m.command && m.commandStatus === 'pending' && (
-                                <div className="mt-3 pt-3 border-t border-white/5">
-                                  <div className="bg-blue-600/10 border border-blue-500/20 rounded-xl p-3">
-                                    <div className="flex items-center gap-2 mb-2">
-                                      <Zap className="w-3.5 h-3.5 text-blue-400" />
-                                      <span className="text-[10px] font-black text-blue-400 uppercase tracking-widest">
-                                        {m.command.isReviewOnly ? 'Review Ready' : 'Action Ready'} · {m.command.type.replace('_', ' ')}
+                                <div className="mt-4 border-t border-white/6 pt-4">
+                                  <div className="surface-elevated p-4">
+                                    <div className="mb-3 flex items-center gap-2">
+                                      <Zap className="h-4 w-4 text-blue-300" />
+                                      <span className="text-[10px] font-black uppercase tracking-[0.22em] text-blue-200">
+                                        {m.command.isReviewOnly ? 'Review ready' : 'Action ready'} · {m.command.type.replace('_', ' ')}
                                       </span>
                                     </div>
                                     <div className="flex gap-2">
                                       <button
                                         onClick={() => handleExecuteAction(m.id, m.command)}
                                         disabled={actionProcessing === m.id}
-                                        className="flex-1 py-2 rounded-lg bg-blue-600 text-white text-[11px] font-black uppercase tracking-widest hover:bg-blue-500 transition-all disabled:opacity-50 flex items-center justify-center gap-1.5"
+                                        className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-blue-300/18 bg-[linear-gradient(180deg,rgba(91,136,255,0.96),rgba(49,92,214,0.96))] py-2 text-[11px] font-black uppercase tracking-[0.18em] text-white disabled:opacity-50"
                                       >
-                                        {actionProcessing === m.id ? <RefreshCcw className="w-3 h-3 animate-spin" /> : <CheckCircle2 className="w-3 h-3" />}
+                                        {actionProcessing === m.id ? <RefreshCcw className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
                                         {m.command.isReviewOnly ? 'Acknowledge' : 'Execute'}
                                       </button>
                                       <button
-                                        onClick={() => setMessages(prev => prev.map(msg => msg.id === m.id ? { ...msg, commandStatus: 'dismissed' } : msg))}
-                                        className="px-4 py-2 rounded-lg bg-white/5 text-neutral-400 text-[11px] font-black uppercase tracking-widest hover:bg-white/10 transition-all"
+                                        onClick={() => setMessages((prev) => prev.map((msg) => msg.id === m.id ? { ...msg, commandStatus: 'dismissed' } : msg))}
+                                        className="rounded-xl border border-white/8 bg-white/[0.03] px-4 py-2 text-[11px] font-black uppercase tracking-[0.18em] text-neutral-400 transition-colors hover:text-white"
                                       >
                                         Dismiss
                                       </button>
@@ -774,10 +697,11 @@ export function Copilot() {
                                   </div>
                                 </div>
                               )}
+
                               {!m.streaming && m.command && m.commandStatus === 'executed' && (
-                                <div className="mt-2 flex items-center gap-1.5 text-emerald-400">
-                                  <CheckCircle2 className="w-3.5 h-3.5" />
-                                  <span className="text-[10px] font-bold uppercase tracking-widest">Executed</span>
+                                <div className="mt-3 flex items-center gap-2 text-emerald-300">
+                                  <CheckCircle2 className="h-3.5 w-3.5" />
+                                  <span className="text-[10px] font-black uppercase tracking-[0.2em]">Action acknowledged</span>
                                 </div>
                               )}
                             </div>
@@ -786,38 +710,40 @@ export function Copilot() {
                       </div>
                     ))}
 
-                    {/* Typing indicator (only when no streaming message exists) */}
-                    {isTyping && !messages.some(m => m.streaming) && (
+                    {isTyping && !messages.some((m) => m.streaming) && (
                       <div className="flex justify-start">
-                        <div className="bg-white/[0.03] border border-white/[0.07] px-4 py-3 rounded-2xl rounded-bl-md">
+                        <div className="rounded-[22px] border border-white/8 bg-white/[0.03] px-4 py-3">
                           <div className="flex gap-1.5">
-                            <span className="w-1.5 h-1.5 bg-blue-400/50 rounded-full animate-bounce" />
-                            <span className="w-1.5 h-1.5 bg-blue-400/50 rounded-full animate-bounce [animation-delay:0.15s]" />
-                            <span className="w-1.5 h-1.5 bg-blue-400/50 rounded-full animate-bounce [animation-delay:0.3s]" />
+                            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-blue-300/60" />
+                            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-blue-300/60 [animation-delay:0.15s]" />
+                            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-blue-300/60 [animation-delay:0.3s]" />
                           </div>
                         </div>
                       </div>
                     )}
                   </div>
 
-                  {/* Input bar */}
-                  <div className="flex-shrink-0 p-4 border-t border-white/[0.04] bg-neutral-950">
+                  <div className="border-t border-white/6 bg-[rgba(5,8,12,0.98)] p-4">
+                    <div className="mb-3 flex flex-wrap items-center gap-2">
+                      <span className="telemetry-chip !px-2.5 !py-1">Role · {role || 'staff'}</span>
+                      <span className="telemetry-chip !px-2.5 !py-1">Mode · chat</span>
+                    </div>
                     <div className="flex gap-2">
                       <input
                         ref={inputRef}
                         type="text"
                         value={inputText}
-                        onChange={e => setInputText(e.target.value)}
-                        onKeyDown={e => e.key === 'Enter' && !isTyping && handleSendMessage()}
-                        placeholder="Ask anything about your business..."
-                        className="flex-1 bg-white/[0.04] border border-white/[0.07] rounded-xl px-4 py-3 text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:ring-1 focus:ring-blue-500/40 transition-all"
+                        onChange={(e) => setInputText(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && !isTyping && handleSendMessage()}
+                        placeholder="Ask for a briefing, watchlist, summary or next action..."
+                        className="flex-1 rounded-2xl border border-white/10 bg-white/[0.035] px-4 py-3 text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:ring-2 focus:ring-blue-400/25 focus:border-blue-400/30"
                       />
                       <button
                         onClick={() => handleSendMessage()}
                         disabled={!inputText.trim() || isTyping}
-                        className="w-11 h-11 bg-blue-600 rounded-xl flex items-center justify-center hover:bg-blue-500 active:scale-95 transition-all disabled:opacity-30 disabled:scale-100 shadow-lg shadow-blue-600/20"
+                        className="flex h-12 w-12 items-center justify-center rounded-2xl border border-blue-300/18 bg-[linear-gradient(180deg,rgba(91,136,255,0.96),rgba(49,92,214,0.96))] text-white shadow-[0_16px_34px_rgba(43,88,211,0.28)] transition-all hover:brightness-105 disabled:opacity-30"
                       >
-                        <Send className="w-4 h-4 text-white" />
+                        <Send className="h-4 w-4" />
                       </button>
                     </div>
                     {messages.length > 0 && (
@@ -826,91 +752,98 @@ export function Copilot() {
                           setMessages([]);
                           if (company) localStorage.removeItem(`copilot_messages_${company.id}`);
                         }}
-                        className="mt-2 text-[10px] text-neutral-700 hover:text-neutral-500 font-bold uppercase tracking-widest transition-colors w-full text-center"
+                        className="mt-3 w-full text-center text-[10px] font-black uppercase tracking-[0.2em] text-neutral-600 transition-colors hover:text-neutral-400"
                       >
-                        Clear conversation
+                        Clear operator session
                       </button>
                     )}
                   </div>
                 </>
               )}
 
-              {/* INTEL TAB */}
               {activeTab === 'intel' && (
-                <div ref={scrollRef} className="flex-1 overflow-y-auto p-5 space-y-3">
+                <div ref={scrollRef} className="custom-scrollbar flex-1 overflow-y-auto p-5">
                   {insights.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center h-full text-center py-16 space-y-4">
-                      <div className="w-12 h-12 rounded-2xl border border-dashed border-white/10 flex items-center justify-center">
-                        <Zap className="w-5 h-5 text-neutral-700" />
-                      </div>
-                      <div className="space-y-1">
-                        <p className="text-sm font-bold text-neutral-500">No insights yet</p>
-                        <p className="text-xs text-neutral-700">AI generates insights every 2 minutes from your live data.</p>
+                    <div className="flex h-full flex-col items-center justify-center text-center">
+                      <div className="surface-elevated max-w-sm p-6">
+                        <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-[22px] border border-white/10 bg-white/[0.03]">
+                          <Zap className="h-5 w-5 text-neutral-500" />
+                        </div>
+                        <p className="section-kicker mb-2">Live Intel</p>
+                        <p className="text-base font-semibold text-white">No operator insights yet</p>
+                        <p className="mt-2 text-sm leading-relaxed text-neutral-400">
+                          Copilot scans the operating graph every two minutes and posts notable signals here.
+                        </p>
                       </div>
                     </div>
                   ) : (
-                    <>
-                      <p className="text-[10px] font-black text-neutral-700 uppercase tracking-widest px-1">
-                        {insights.length} AI observation{insights.length !== 1 ? 's' : ''}
-                      </p>
-                      {insights.map(ins => (
-                        <motion.div
-                          key={ins.id}
-                          initial={{ opacity: 0, y: 8 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.05] hover:border-white/10 transition-all group"
-                        >
-                          <div className="flex gap-3">
-                            <div className="w-7 h-7 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center shrink-0 mt-0.5">
-                              <BrainCircuit className="w-3.5 h-3.5 text-blue-400" />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm text-neutral-200 leading-relaxed">{ins.text}</p>
-                              <div className="flex items-center justify-between mt-2.5">
-                                <span className="text-[10px] font-mono text-neutral-700">
-                                  {format(ins.timestamp, 'HH:mm')} · AI Copilot
-                                </span>
-                                {ins.priority === 'high' && (
-                                  <span className="text-[9px] font-black uppercase tracking-widest text-red-400 border border-red-500/20 bg-red-500/5 px-2 py-0.5 rounded-full">
-                                    High Priority
-                                  </span>
-                                )}
-                              </div>
-                              <button
-                                onClick={() => {
-                                  setActiveTab('chat');
-                                  handleSendMessage(`Tell me more about this insight: "${ins.text.slice(0, 100)}"`);
-                                }}
-                                className="mt-2.5 flex items-center gap-1.5 text-[10px] font-bold text-blue-400 hover:text-blue-300 transition-colors uppercase tracking-widest"
-                              >
-                                <MessageSquare className="w-3 h-3" />
-                                Ask follow-up
-                              </button>
-                            </div>
-                          </div>
-                        </motion.div>
-                      ))}
-
-                      {/* Suggested actions based on insights */}
-                      <div className="pt-4 border-t border-white/[0.04] space-y-2">
-                        <p className="text-[10px] font-black text-neutral-700 uppercase tracking-widest px-1 mb-3">Suggested Actions</p>
-                        {[
-                          { label: 'Performance report', prompt: 'Draft a weekly performance summary and revenue report.', icon: TrendingUp },
-                          { label: 'Inventory check', prompt: 'Check inventory for low stock items and prepare a restock plan.', icon: Package },
-                          { label: 'Customer review', prompt: 'Review recent customer activity and identify loyalty opportunities.', icon: Users },
-                        ].map(a => (
-                          <button
-                            key={a.label}
-                            onClick={() => { setActiveTab('chat'); handleSendMessage(a.prompt); }}
-                            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-white/[0.02] border border-white/[0.04] text-left hover:bg-white/[0.05] hover:border-blue-500/20 transition-all group"
-                          >
-                            <a.icon className="w-4 h-4 text-neutral-600 group-hover:text-blue-400 transition-colors shrink-0" />
-                            <span className="text-sm text-neutral-500 group-hover:text-white transition-colors font-medium flex-1">{a.label}</span>
-                            <ChevronRight className="w-3.5 h-3.5 text-neutral-700 group-hover:text-blue-400 transition-colors" />
-                          </button>
-                        ))}
+                    <div className="space-y-3">
+                      <div className="mb-4 flex items-center justify-between">
+                        <p className="section-kicker">Signal Queue</p>
+                        <span className="telemetry-chip !px-2.5 !py-1">{insights.length} observations</span>
                       </div>
-                    </>
+
+                      {insights.map((ins) => {
+                        const tone = getInsightTone(ins.priority);
+                        return (
+                          <motion.div
+                            key={ins.id}
+                            initial={{ opacity: 0, y: 8 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className="surface-elevated p-4"
+                          >
+                            <div className="mb-3 flex items-center justify-between gap-3">
+                              <span className={cn('rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.2em]', tone.accent)}>
+                                {tone.chip}
+                              </span>
+                              <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-neutral-600">
+                                {format(ins.timestamp, 'HH:mm')} · AI
+                              </span>
+                            </div>
+                            <div className="flex gap-3">
+                              <div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border', tone.iconWrap)}>
+                                <BrainCircuit className="h-4 w-4" />
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <p className="text-sm leading-relaxed text-neutral-200">{ins.text}</p>
+                                <button
+                                  onClick={() => {
+                                    setActiveTab('chat');
+                                    handleSendMessage(`Tell me more about this operator insight: "${ins.text.slice(0, 100)}"`);
+                                  }}
+                                  className="mt-3 inline-flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-blue-200 transition-colors hover:text-blue-100"
+                                >
+                                  <MessageSquare className="h-3 w-3" />
+                                  Open in chat
+                                </button>
+                              </div>
+                            </div>
+                          </motion.div>
+                        );
+                      })}
+
+                      <div className="mt-6 border-t border-white/6 pt-5">
+                        <p className="mb-3 section-kicker">Operator Playbooks</p>
+                        <div className="space-y-2">
+                          {intelActions.map((action) => (
+                            <button
+                              key={action.label}
+                              onClick={() => {
+                                setActiveTab('chat');
+                                handleSendMessage(action.prompt);
+                              }}
+                              className="surface-elevated flex w-full items-center gap-3 p-3 text-left transition-all hover:border-blue-400/16 hover:bg-white/[0.035]"
+                            >
+                              <div className="flex h-9 w-9 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03]">
+                                <action.icon className="h-4 w-4 text-neutral-300" />
+                              </div>
+                              <span className="flex-1 text-sm font-medium text-neutral-300">{action.label}</span>
+                              <ChevronRight className="h-4 w-4 text-neutral-600" />
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
                   )}
                 </div>
               )}

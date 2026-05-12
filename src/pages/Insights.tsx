@@ -3,13 +3,13 @@ import { Card, Button } from '../components/Common';
 import { RefreshCcw, TrendingUp, AlertTriangle, CheckCircle, Info, ArrowRight, Activity, Zap, Fingerprint, Globe, Database, Terminal, Cpu, Gauge } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../lib/firebase';
-import { collection, query, where, getDocs, limit, orderBy, addDoc, serverTimestamp } from 'firebase/firestore';
+import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
 import { generateBusinessInsights } from '../services/gemini';
 import { motion, AnimatePresence } from 'motion/react';
-import { subDays, startOfDay } from 'date-fns';
 import { useNavigate } from 'react-router-dom';
 import { cn } from '../components/Common';
 import { useLocale } from '../hooks/useLocale';
+import { fetchCompanyOverview } from '../services/companyApi';
 
 interface Insight {
   title: string;
@@ -56,78 +56,23 @@ export function Insights() {
         createdAt: serverTimestamp()
       });
 
-      const now = new Date();
-      const thirtyDaysAgo = subDays(startOfDay(now), 30);
-      const sixtyDaysAgo = subDays(thirtyDaysAgo, 30);
-
-      // 1. Fetch Customers
-      const custSnap = await getDocs(query(collection(db, 'customers'), where('companyId', '==', company.id)));
-      
-      // 2. Fetch Products
-      const prodSnap = await getDocs(query(collection(db, 'products'), where('companyId', '==', company.id)));
-      const products = prodSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-
-      // 3. Fetch Recent Orders
-      const orderSnap = await getDocs(query(
-        collection(db, 'orders'), 
-        where('companyId', '==', company.id),
-        where('status', '==', 'completed')
-      ));
-      const orders = orderSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-
-      // 4. Data Aggregation
-      const recentRevenue = orders
-        .filter((o: any) => o.createdAt?.toDate() >= thirtyDaysAgo)
-        .reduce((sum, o: any) => sum + (o.total || 0), 0);
-      
-      const prevRevenue = orders
-        .filter((o: any) => o.createdAt?.toDate() >= sixtyDaysAgo && o.createdAt?.toDate() < thirtyDaysAgo)
-        .reduce((sum, o: any) => sum + (o.total || 0), 0);
-
-      const growth = prevRevenue === 0 ? 100 : ((recentRevenue - prevRevenue) / prevRevenue) * 100;
-
-      // Product performance
-      const productSales = orders.flatMap((o: any) => o.items || []).reduce((acc: any, item: any) => {
-        acc[item.productId] = (acc[item.productId] || 0) + item.quantity;
-        return acc;
-      }, {});
-
-      const topProducts = products
-        .map((p: any) => ({ name: p.name, sales: productSales[p.id] || 0 }))
-        .sort((a, b) => b.sales - a.sales)
-        .slice(0, 5);
-
-      const lowStockItems = products
-        .filter((p: any) => p.stockLevel < 10)
-        .map((p: any) => ({ name: p.name, stock: p.stockLevel }));
-
-      // Customer performance
-      const customerSpend = orders.reduce((acc: any, o: any) => {
-        acc[o.customerId] = (acc[o.customerId] || 0) + (o.total || 0);
-        return acc;
-      }, {});
-
-      const topCustomers = custSnap.docs
-        .map(d => ({ name: d.data().name, spend: customerSpend[d.id] || 0 }))
-        .sort((a, b) => b.spend - a.spend)
-        .slice(0, 5);
+      const overview = await fetchCompanyOverview(company.id);
 
       const businessData = {
         companyId: company.id,
-        companyName: company.name,
-        industry: company.industry,
-        onboardingCompleted: (company as any).setupCompleted || false,
-        customersCount: custSnap.size,
-        productsCount: prodSnap.size,
-        recentRevenue,
-        growth: growth.toFixed(1),
-        topProducts,
-        lowStockItems,
-        topCustomers,
-        planLevel: planId // Pass plan level to Gemini
+        companyName: overview.companyName || company.name,
+        industry: overview.industry || company.industry,
+        onboardingCompleted: overview.onboardingCompleted,
+        customersCount: overview.customersCount,
+        productsCount: overview.productsCount,
+        recentRevenue: overview.recentRevenue30d ?? overview.recentRevenue,
+        growth: Number(overview.growth || 0).toFixed(1),
+        topProducts: overview.topProducts || [],
+        lowStockItems: overview.lowStockItems || [],
+        topCustomers: overview.topCustomers || [],
+        planLevel: overview.planId || planId,
       };
 
-      // 5. Call AI
       const result = await generateBusinessInsights(businessData, language);
       
       if (!result || !Array.isArray(result)) {
