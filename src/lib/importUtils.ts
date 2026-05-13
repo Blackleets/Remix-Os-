@@ -15,6 +15,8 @@ export interface ImportPreviewRow<T> {
   normalized?: T;
   issues: string[];
   duplicateKeys: string[];
+  duplicateInFileKeys: string[];
+  duplicateExistingKeys: string[];
 }
 
 export interface ImportPreview<T> {
@@ -22,8 +24,11 @@ export interface ImportPreview<T> {
   fileName: string;
   totalRows: number;
   validRows: number;
+  invalidRows: number;
   errorRows: number;
   duplicateRows: number;
+  duplicateInFileRows: number;
+  duplicateExistingRows: number;
   rows: Array<ImportPreviewRow<T>>;
 }
 
@@ -50,6 +55,7 @@ export interface CustomerImportRow {
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PRODUCT_STATUSES = new Set(['active', 'draft', 'archived']);
 const CUSTOMER_SEGMENTS = new Set(['whale', 'vip', 'regular', 'new', 'at_risk']);
+const CUSTOMER_STATUSES = new Set(['active', 'inactive', 'lead', 'prospect', 'archived']);
 
 function normalizeCellValue(value: unknown) {
   if (value === null || value === undefined) return '';
@@ -58,6 +64,21 @@ function normalizeCellValue(value: unknown) {
 
 function normalizeHeader(header: string) {
   return header.trim();
+}
+
+function normalizeComparisonKey(value: unknown) {
+  return normalizeCellValue(value).toLowerCase();
+}
+
+export function normalizePhone(value: unknown) {
+  const raw = normalizeCellValue(value);
+  if (!raw) return '';
+
+  const hasLeadingPlus = raw.startsWith('+');
+  const digits = raw.replace(/[^\d]/g, '');
+  if (!digits) return '';
+
+  return `${hasLeadingPlus ? '+' : ''}${digits}`;
 }
 
 function splitCsvLine(line: string) {
@@ -171,28 +192,42 @@ export async function readImportFile(file: File): Promise<ParsedImportFile> {
   throw new Error('Formato no soportado. Usa CSV o JSON.');
 }
 
-function parseRequiredNumber(value: string, fieldLabel: string, issues: string[]) {
+function parseRequiredNonNegativeNumber(value: string, fieldLabel: string, issues: string[]) {
   const normalized = value.replace(',', '.').trim();
   if (!normalized) {
     issues.push(`${fieldLabel} es obligatorio.`);
     return null;
   }
+
   const parsed = Number(normalized);
   if (!Number.isFinite(parsed)) {
     issues.push(`${fieldLabel} debe ser numérico.`);
     return null;
   }
+
+  if (parsed < 0) {
+    issues.push(`${fieldLabel} debe ser mayor o igual a 0.`);
+    return null;
+  }
+
   return parsed;
 }
 
-function parseOptionalNumber(value: string, fieldLabel: string, issues: string[]) {
+function parseOptionalNonNegativeNumber(value: string, fieldLabel: string, issues: string[]) {
   const normalized = value.replace(',', '.').trim();
   if (!normalized) return undefined;
+
   const parsed = Number(normalized);
   if (!Number.isFinite(parsed)) {
     issues.push(`${fieldLabel} debe ser numérico.`);
     return undefined;
   }
+
+  if (parsed < 0) {
+    issues.push(`${fieldLabel} debe ser mayor o igual a 0.`);
+    return undefined;
+  }
+
   return parsed;
 }
 
@@ -216,10 +251,44 @@ function normalizeCustomerSegment(value: string, issues: string[]) {
   return normalized as CustomerImportRow['segment'];
 }
 
+function normalizeCustomerStatus(value: string, issues: string[]) {
+  if (!value) return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (!CUSTOMER_STATUSES.has(normalized)) {
+    issues.push(`status debe ser ${Array.from(CUSTOMER_STATUSES).join(', ')}.`);
+    return undefined;
+  }
+  return normalized;
+}
+
 function ensureRowLimit<T>(rows: T[]) {
   if (rows.length > MAX_IMPORT_ROWS) {
     throw new Error(`La importación supera el límite inicial de ${MAX_IMPORT_ROWS} filas.`);
   }
+}
+
+function finalizePreview<T>(
+  parsed: ParsedImportFile,
+  rows: Array<ImportPreviewRow<T>>,
+  validRows: number,
+  invalidRows: number,
+  duplicateInFileRows: number,
+  duplicateExistingRows: number
+): ImportPreview<T> {
+  const duplicateRows = rows.filter((row) => row.duplicateKeys.length > 0).length;
+
+  return {
+    format: parsed.format,
+    fileName: '',
+    totalRows: parsed.rows.length,
+    validRows,
+    invalidRows,
+    errorRows: invalidRows,
+    duplicateRows,
+    duplicateInFileRows,
+    duplicateExistingRows,
+    rows,
+  };
 }
 
 export function buildProductImportPreview(
@@ -230,28 +299,31 @@ export function buildProductImportPreview(
 
   const seenSkus = new Set<string>();
   let validRows = 0;
-  let duplicateRows = 0;
+  let invalidRows = 0;
+  let duplicateInFileRows = 0;
+  let duplicateExistingRows = 0;
 
   const rows = parsed.rows.map((raw, index) => {
     const issues: string[] = [];
-    const duplicateKeys: string[] = [];
+    const duplicateInFileKeys: string[] = [];
+    const duplicateExistingKeys: string[] = [];
     const name = normalizeCellValue(raw.name);
     const sku = normalizeCellValue(raw.sku);
-    const price = parseRequiredNumber(normalizeCellValue(raw.price), 'price', issues);
-    const stockLevel = parseRequiredNumber(normalizeCellValue(raw.stockLevel), 'stockLevel', issues);
-    const cost = parseOptionalNumber(normalizeCellValue(raw.cost), 'cost', issues);
+    const price = parseRequiredNonNegativeNumber(normalizeCellValue(raw.price), 'price', issues);
+    const stockLevel = parseRequiredNonNegativeNumber(normalizeCellValue(raw.stockLevel), 'stockLevel', issues);
+    const cost = parseOptionalNonNegativeNumber(normalizeCellValue(raw.cost), 'cost', issues);
     const status = normalizeProductStatus(normalizeCellValue(raw.status), issues);
 
     if (!name) issues.push('name es obligatorio.');
     if (!sku) issues.push('sku es obligatorio.');
 
-    const skuKey = sku.toLowerCase();
+    const skuKey = normalizeComparisonKey(sku);
     if (skuKey) {
       if (seenSkus.has(skuKey)) {
-        duplicateKeys.push(`SKU repetido en el archivo: ${sku}`);
+        duplicateInFileKeys.push(`SKU repetido en el archivo: ${sku}`);
       }
       if (existingSkus.has(skuKey)) {
-        duplicateKeys.push(`SKU ya existe en la empresa: ${sku}`);
+        duplicateExistingKeys.push(`SKU ya existe en la empresa: ${sku}`);
       }
       seenSkus.add(skuKey);
     }
@@ -269,7 +341,11 @@ export function buildProductImportPreview(
         }
       : undefined;
 
-    if (duplicateKeys.length > 0) duplicateRows += 1;
+    const duplicateKeys = [...duplicateInFileKeys, ...duplicateExistingKeys];
+
+    if (issues.length > 0) invalidRows += 1;
+    if (duplicateInFileKeys.length > 0) duplicateInFileRows += 1;
+    if (duplicateExistingKeys.length > 0) duplicateExistingRows += 1;
     if (normalized && duplicateKeys.length === 0) validRows += 1;
 
     return {
@@ -278,18 +354,12 @@ export function buildProductImportPreview(
       normalized,
       issues,
       duplicateKeys,
+      duplicateInFileKeys,
+      duplicateExistingKeys,
     };
   });
 
-  return {
-    format: parsed.format,
-    fileName: '',
-    totalRows: parsed.rows.length,
-    validRows,
-    errorRows: rows.filter((row) => row.issues.length > 0).length,
-    duplicateRows,
-    rows,
-  };
+  return finalizePreview(parsed, rows, validRows, invalidRows, duplicateInFileRows, duplicateExistingRows);
 }
 
 export function buildCustomerImportPreview(
@@ -302,30 +372,37 @@ export function buildCustomerImportPreview(
   const seenEmails = new Set<string>();
   const seenPhones = new Set<string>();
   let validRows = 0;
-  let duplicateRows = 0;
+  let invalidRows = 0;
+  let duplicateInFileRows = 0;
+  let duplicateExistingRows = 0;
 
   const rows = parsed.rows.map((raw, index) => {
     const issues: string[] = [];
-    const duplicateKeys: string[] = [];
+    const duplicateInFileKeys: string[] = [];
+    const duplicateExistingKeys: string[] = [];
     const name = normalizeCellValue(raw.name);
-    const email = normalizeCellValue(raw.email).toLowerCase();
-    const phone = normalizeCellValue(raw.phone);
+    const email = normalizeComparisonKey(raw.email ?? '');
+    const phone = normalizePhone(raw.phone ?? '');
     const segment = normalizeCustomerSegment(normalizeCellValue(raw.segment), issues);
+    const status = normalizeCustomerStatus(normalizeCellValue(raw.status), issues);
 
     if (!name) issues.push('name es obligatorio.');
+    if (!email && !phone) {
+      issues.push('Debes incluir email o phone para importar clientes.');
+    }
     if (email && !EMAIL_REGEX.test(email)) {
       issues.push('email no tiene un formato válido.');
     }
 
     if (email) {
-      if (seenEmails.has(email)) duplicateKeys.push(`Email repetido en el archivo: ${email}`);
-      if (existingEmails.has(email)) duplicateKeys.push(`Email ya existe en la empresa: ${email}`);
+      if (seenEmails.has(email)) duplicateInFileKeys.push(`Email repetido en el archivo: ${email}`);
+      if (existingEmails.has(email)) duplicateExistingKeys.push(`Email ya existe en la empresa: ${email}`);
       seenEmails.add(email);
     }
 
     if (phone) {
-      if (seenPhones.has(phone)) duplicateKeys.push(`Teléfono repetido en el archivo: ${phone}`);
-      if (existingPhones.has(phone)) duplicateKeys.push(`Teléfono ya existe en la empresa: ${phone}`);
+      if (seenPhones.has(phone)) duplicateInFileKeys.push(`Teléfono repetido en el archivo: ${phone}`);
+      if (existingPhones.has(phone)) duplicateExistingKeys.push(`Teléfono ya existe en la empresa: ${phone}`);
       seenPhones.add(phone);
     }
 
@@ -335,12 +412,16 @@ export function buildCustomerImportPreview(
           email,
           phone,
           ...(segment ? { segment } : {}),
-          ...(normalizeCellValue(raw.status) ? { status: normalizeCellValue(raw.status) } : {}),
+          ...(status ? { status } : {}),
           ...(normalizeCellValue(raw.notes) ? { notes: normalizeCellValue(raw.notes) } : {}),
         }
       : undefined;
 
-    if (duplicateKeys.length > 0) duplicateRows += 1;
+    const duplicateKeys = [...duplicateInFileKeys, ...duplicateExistingKeys];
+
+    if (issues.length > 0) invalidRows += 1;
+    if (duplicateInFileKeys.length > 0) duplicateInFileRows += 1;
+    if (duplicateExistingKeys.length > 0) duplicateExistingRows += 1;
     if (normalized && duplicateKeys.length === 0) validRows += 1;
 
     return {
@@ -349,18 +430,12 @@ export function buildCustomerImportPreview(
       normalized,
       issues,
       duplicateKeys,
+      duplicateInFileKeys,
+      duplicateExistingKeys,
     };
   });
 
-  return {
-    format: parsed.format,
-    fileName: '',
-    totalRows: parsed.rows.length,
-    validRows,
-    errorRows: rows.filter((row) => row.issues.length > 0).length,
-    duplicateRows,
-    rows,
-  };
+  return finalizePreview(parsed, rows, validRows, invalidRows, duplicateInFileRows, duplicateExistingRows);
 }
 
 export function withImportFileName<T>(preview: ImportPreview<T>, fileName: string): ImportPreview<T> {

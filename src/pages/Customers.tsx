@@ -49,7 +49,15 @@ import { PLANS, isLimitReached, getCompanyUsage } from '../lib/plans';
 import { exportToCSV } from '../lib/exportUtils';
 import { format } from 'date-fns';
 import { ImageUpload } from '../components/ImageUpload';
-import { CustomerImportRow, ImportPreview, buildCustomerImportPreview, chunkArray, downloadCsvTemplate, readImportFile, withImportFileName } from '../lib/importUtils';
+import { CustomerImportRow, ImportPreview, buildCustomerImportPreview, chunkArray, downloadCsvTemplate, normalizePhone, readImportFile, withImportFileName } from '../lib/importUtils';
+
+interface ImportResultSummary {
+  created: number;
+  invalid: number;
+  duplicates_in_file: number;
+  duplicates_existing: number;
+  total_processed: number;
+}
 
 interface Customer {
   id: string;
@@ -114,7 +122,7 @@ export function Customers() {
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [importPreview, setImportPreview] = useState<ImportPreview<CustomerImportRow> | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
-  const [importResult, setImportResult] = useState<{ created: number; skipped: number; errors: number } | null>(null);
+  const [importResult, setImportResult] = useState<ImportResultSummary | null>(null);
   const [importing, setImporting] = useState(false);
   const [detailCustomer, setDetailCustomer] = useState<Customer | null>(null);
   const [reminders, setReminders] = useState<Reminder[]>([]);
@@ -351,7 +359,7 @@ export function Customers() {
       const preview = buildCustomerImportPreview(
         parsed,
         new Set(customers.map((customer) => customer.email?.trim().toLowerCase()).filter(Boolean)),
-        new Set(customers.map((customer) => customer.phone?.trim()).filter(Boolean))
+        new Set(customers.map((customer) => normalizePhone(customer.phone)).filter(Boolean))
       );
       setImportPreview(withImportFileName(preview, file.name));
       setImportError(null);
@@ -422,8 +430,10 @@ export function Customers() {
 
       setImportResult({
         created: validRows.length,
-        skipped: importPreview.totalRows - validRows.length,
-        errors: importPreview.rows.filter((row) => row.issues.length > 0).length,
+        invalid: importPreview.invalidRows,
+        duplicates_in_file: importPreview.duplicateInFileRows,
+        duplicates_existing: importPreview.duplicateExistingRows,
+        total_processed: importPreview.totalRows,
       });
       setImportError(null);
       setImportPreview(null);
@@ -615,21 +625,23 @@ export function Customers() {
 
           {importResult && (
             <p className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
-              Importación completada. Creados: {importResult.created}. Saltados: {importResult.skipped}. Errores: {importResult.errors}.
+              Importación completada. Procesadas: {importResult.total_processed}. Creados: {importResult.created}. Inválidos: {importResult.invalid}. Duplicados en archivo: {importResult.duplicates_in_file}. Duplicados existentes: {importResult.duplicates_existing}.
             </p>
           )}
 
           {importPreview && (
             <div className="space-y-5">
-              <div className="grid gap-3 md:grid-cols-4">
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
                 <div className="data-tile"><p className="section-kicker mb-2 !text-neutral-500">Archivo</p><p className="text-sm font-semibold text-white">{importPreview.fileName}</p></div>
                 <div className="data-tile"><p className="section-kicker mb-2 !text-neutral-500">Filas</p><p className="text-3xl font-bold text-white">{importPreview.totalRows}</p></div>
                 <div className="data-tile"><p className="section-kicker mb-2 !text-neutral-500">Válidas</p><p className="text-3xl font-bold text-emerald-300">{importPreview.validRows}</p></div>
-                <div className="data-tile"><p className="section-kicker mb-2 !text-neutral-500">Errores / duplicados</p><p className="text-3xl font-bold text-amber-300">{importPreview.errorRows + importPreview.duplicateRows}</p></div>
+                <div className="data-tile"><p className="section-kicker mb-2 !text-neutral-500">Inválidas</p><p className="text-3xl font-bold text-red-300">{importPreview.invalidRows}</p></div>
+                <div className="data-tile"><p className="section-kicker mb-2 !text-neutral-500">Dup. archivo</p><p className="text-3xl font-bold text-amber-300">{importPreview.duplicateInFileRows}</p></div>
+                <div className="data-tile"><p className="section-kicker mb-2 !text-neutral-500">Dup. existentes</p><p className="text-3xl font-bold text-orange-300">{importPreview.duplicateExistingRows}</p></div>
               </div>
 
               <div className="space-y-3">
-                {importPreview.rows.filter((row) => row.issues.length > 0 || row.duplicateKeys.length > 0).slice(0, 8).map((row) => (
+                {importPreview.rows.filter((row) => row.issues.length > 0 || row.duplicateKeys.length > 0).slice(0, 20).map((row) => (
                   <div key={`${row.index}-${row.raw.email || row.raw.phone || row.raw.name}`} className="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
                     <p className="text-xs font-black uppercase tracking-[0.2em] text-white">Fila {row.index}</p>
                     <p className="mt-2 text-sm text-neutral-300">{row.raw.name || 'Sin nombre'} · {row.raw.email || row.raw.phone || 'Sin identificador'}</p>
