@@ -7,7 +7,7 @@ export function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
   const { user, userProfile } = useAuth();
   const { t } = useTranslation();
 
-  const displayName = userProfile?.displayName || user?.displayName || 'Unknown Entity';
+  const displayName = userProfile?.displayName || user?.displayName || 'Entidad desconocida';
   const photoURL = userProfile?.photoURL || user?.photoURL;
   const email = userProfile?.email || user?.email;
 
@@ -23,8 +23,8 @@ export function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
           </button>
 
           <div className="hidden min-w-0 sm:block">
-            <p className="section-kicker mb-1 !tracking-[0.22em] text-neutral-400">Command Layer</p>
-            <p className="truncate text-sm font-semibold text-white">AI-guided operations console</p>
+            <p className="section-kicker mb-1 !tracking-[0.22em] text-neutral-400">Consola operativa</p>
+            <p className="truncate text-sm font-semibold text-white">Coordinación operativa asistida por IA</p>
           </div>
 
           <div className="relative hidden max-w-xl flex-1 sm:block">
@@ -43,18 +43,18 @@ export function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
 
         <div className="flex items-center gap-2 md:gap-4">
           <div className="hidden items-center gap-2 rounded-2xl border border-emerald-400/10 bg-emerald-400/5 px-3 py-2 md:flex">
-            <span className="status-dot bg-emerald-400 text-emerald-400" />
+            <span className="status-dot pulse-live bg-emerald-400 text-emerald-400" />
             <div className="leading-tight">
-              <p className="text-[10px] font-black uppercase tracking-[0.22em] text-emerald-300">Live Sync</p>
-              <p className="font-mono text-[10px] text-neutral-500">Operator watch active</p>
+              <p className="text-[10px] font-black uppercase tracking-[0.22em] text-emerald-300">Sincronización en vivo</p>
+              <p className="font-mono text-[10px] text-neutral-500">Vigilancia IA activa</p>
             </div>
           </div>
 
           <div className="hidden items-center gap-2 rounded-2xl border border-blue-400/10 bg-blue-400/5 px-3 py-2 lg:flex">
             <Sparkles className="h-4 w-4 text-blue-300" />
             <div className="leading-tight">
-              <p className="text-[10px] font-black uppercase tracking-[0.22em] text-blue-200">AI Layer</p>
-              <p className="font-mono text-[10px] text-neutral-500">Copilot ready</p>
+              <p className="text-[10px] font-black uppercase tracking-[0.22em] text-blue-200">Capa IA</p>
+              <p className="font-mono text-[10px] text-neutral-500">Operador listo</p>
             </div>
           </div>
 

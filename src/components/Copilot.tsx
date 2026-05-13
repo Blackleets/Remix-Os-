@@ -59,20 +59,20 @@ interface LiveMetrics {
 function getInsightTone(priority?: string) {
   if (priority === 'high') {
     return {
-      chip: 'Critical watch',
+      chip: 'Vigilancia crítica',
       accent: 'border-red-400/16 bg-red-500/8 text-red-200',
       iconWrap: 'border-red-400/16 bg-red-500/10 text-red-300',
     };
   }
   if (priority === 'medium') {
     return {
-      chip: 'Active watch',
+      chip: 'Vigilancia activa',
       accent: 'border-amber-400/16 bg-amber-500/8 text-amber-200',
       iconWrap: 'border-amber-400/16 bg-amber-500/10 text-amber-300',
     };
   }
   return {
-    chip: 'Signal',
+    chip: 'Señal',
     accent: 'border-blue-400/16 bg-blue-500/8 text-blue-200',
     iconWrap: 'border-blue-400/16 bg-blue-500/10 text-blue-300',
   };
@@ -312,7 +312,7 @@ export function Copilot() {
       setMessages((prev) => [...prev, {
         id: `err-${Date.now()}`,
         role: 'model',
-        text: 'I could not connect to the business data service. Please try again.',
+        text: 'No pude conectarme al servicio de datos del negocio. Inténtalo de nuevo.',
         timestamp: new Date(),
       }]);
     }
@@ -354,16 +354,16 @@ export function Copilot() {
   };
 
   const quickPrompts = [
-    { label: 'Executive brief', prompt: 'Give me a concise executive operating brief for today.', icon: Activity },
-    { label: 'Revenue pulse', prompt: 'Summarize revenue performance and trend signals.', icon: TrendingUp },
-    { label: 'Restock watch', prompt: 'Show me low stock exposure and restock priorities.', icon: Package },
-    { label: 'Customer motion', prompt: 'Which customers need attention right now?', icon: Users },
+    { label: 'Informe ejecutivo', prompt: 'Dame un informe operativo ejecutivo y conciso para hoy.', icon: Activity },
+    { label: 'Pulso de ingresos', prompt: 'Resume el rendimiento de ingresos y las señales de tendencia.', icon: TrendingUp },
+    { label: 'Vigilancia de stock', prompt: 'Muéstrame la exposición por bajo stock y las prioridades de reposición.', icon: Package },
+    { label: 'Movimiento de clientes', prompt: '¿Qué clientes necesitan atención ahora mismo?', icon: Users },
   ];
 
   const intelActions = [
-    { label: 'Generate weekly operator report', prompt: 'Draft a weekly operator report with revenue, risk and next actions.', icon: TrendingUp },
-    { label: 'Review inventory pressure', prompt: 'Inspect low stock products and build a restock watchlist.', icon: Package },
-    { label: 'Find retention opportunities', prompt: 'Review customer activity and surface retention opportunities.', icon: Users },
+    { label: 'Generar informe semanal', prompt: 'Redacta un informe operativo semanal con ingresos, riesgos y siguientes acciones.', icon: TrendingUp },
+    { label: 'Revisar presión de inventario', prompt: 'Inspecciona productos con bajo stock y crea una lista de reposición priorizada.', icon: Package },
+    { label: 'Detectar oportunidades de retención', prompt: 'Revisa la actividad de clientes y detecta oportunidades de retención.', icon: Users },
   ];
 
   const activeCommandCount = useMemo(
@@ -390,7 +390,7 @@ export function Copilot() {
                 <BrainCircuit className="h-4.5 w-4.5 text-blue-300" />
               </div>
               <div>
-                <p className="section-kicker mb-2">Operator Intel</p>
+                <p className="section-kicker mb-2">Vigilancia IA</p>
                 <p className="text-sm leading-relaxed text-neutral-200">{toast}</p>
               </div>
             </div>
@@ -410,21 +410,26 @@ export function Copilot() {
             'group relative flex h-16 w-16 items-center justify-center overflow-hidden rounded-[22px] border transition-all duration-300',
             isOpen
               ? 'border-white/12 bg-[rgba(14,18,24,0.96)] shadow-[0_18px_48px_rgba(0,0,0,0.42)]'
-              : 'border-blue-400/18 bg-[linear-gradient(180deg,rgba(89,133,255,0.96),rgba(43,88,211,0.96))] shadow-[0_22px_56px_rgba(43,88,211,0.36)]'
+              : 'border-blue-400/18 bg-[linear-gradient(180deg,rgba(89,133,255,0.96),rgba(43,88,211,0.96))] shadow-[0_22px_56px_rgba(43,88,211,0.36)] before:absolute before:inset-0 before:bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.24),transparent_45%)] before:opacity-90'
           )}
         >
-          {!isOpen && (
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.22),transparent_48%)] opacity-90" />
-          )}
           {isOpen ? (
             <X className="relative h-5 w-5 text-white" />
           ) : (
             <>
               <BrainCircuit className="relative h-6 w-6 text-white" />
+              <span className="absolute bottom-1.5 rounded-full border border-white/14 bg-black/20 px-1.5 py-0.5 font-mono text-[8px] font-bold uppercase tracking-[0.18em] text-blue-100">
+                IA
+              </span>
               <motion.div
                 animate={{ opacity: [0.45, 1, 0.45] }}
                 transition={{ duration: 2.4, repeat: Infinity }}
                 className="absolute inset-[8px] rounded-[18px] border border-white/12"
+              />
+              <motion.div
+                animate={{ opacity: [0.2, 0.6, 0.2], scale: [0.96, 1.02, 0.96] }}
+                transition={{ duration: 3.2, repeat: Infinity }}
+                className="absolute inset-[5px] rounded-[20px] border border-blue-200/20"
               />
               {unreadInsights > 0 && (
                 <span className="absolute -right-1 -top-1 flex min-w-[22px] items-center justify-center rounded-full border-2 border-[#05070b] bg-emerald-400 px-1.5 py-0.5 text-[10px] font-black text-[#03110a]">
@@ -467,16 +472,16 @@ export function Copilot() {
                     <div className="absolute inset-[7px] rounded-[14px] border border-white/10" />
                   </div>
                   <div>
-                    <p className="section-kicker mb-1">Operator Console</p>
+                    <p className="section-kicker mb-1">Consola operativa</p>
                     <p className="font-display text-xl font-bold tracking-tight text-white">{company?.name || 'Remix OS'} Copilot</p>
                     <div className="mt-2 flex flex-wrap gap-2">
                       <span className="telemetry-chip !px-2.5 !py-1">
-                        <span className="status-dot bg-emerald-400 text-emerald-400" />
-                        Live watch
+                        <span className="status-dot pulse-live bg-emerald-400 text-emerald-400" />
+                        Vigilancia IA
                       </span>
                       <span className="telemetry-chip !px-2.5 !py-1">
                         <ShieldCheck className="h-3 w-3 text-blue-300" />
-                        Operator mode
+                        Modo operador
                       </span>
                     </div>
                   </div>
@@ -493,19 +498,19 @@ export function Copilot() {
                 <div className="mb-4 grid grid-cols-3 gap-2">
                   {[
                     {
-                      label: 'Revenue',
+                      label: 'Ingresos',
                       value: formatCurrency(metrics.revenue),
                       icon: TrendingUp,
                       accent: 'text-emerald-300',
                     },
                     {
-                      label: 'Orders / 7d',
+                      label: 'Pedidos / 7d',
                       value: String(metrics.ordersThisWeek),
                       icon: Activity,
                       accent: 'text-blue-300',
                     },
                     {
-                      label: 'Low stock',
+                      label: 'Bajo stock',
                       value: String(metrics.lowStockCount),
                       icon: Package,
                       accent: metrics.lowStockCount > 0 ? 'text-red-300' : 'text-neutral-400',
@@ -523,24 +528,24 @@ export function Copilot() {
               <div className="mb-4 flex flex-wrap items-center gap-2">
                 <span className="telemetry-chip !px-2.5 !py-1">
                   <Radar className="h-3 w-3 text-blue-300" />
-                  {lastScanAt ? `Last scan ${format(lastScanAt, 'HH:mm')}` : 'Monitoring'}
+                  {lastScanAt ? `Ultimo escaneo ${format(lastScanAt, 'HH:mm')}` : 'Monitoreando'}
                 </span>
                 <span className="telemetry-chip !px-2.5 !py-1">
                   <Clock3 className="h-3 w-3 text-neutral-300" />
-                  Refresh / 2m
+                  Refresco / 2m
                 </span>
                 {activeCommandCount > 0 && (
                   <span className="telemetry-chip !px-2.5 !py-1">
                     <Zap className="h-3 w-3 text-amber-300" />
-                    {activeCommandCount} action ready
+                    {activeCommandCount} accion lista
                   </span>
                 )}
               </div>
 
               <div className="flex rounded-2xl border border-white/8 bg-white/[0.03] p-1">
                 {[
-                  { id: 'chat', label: 'Operator Chat', icon: MessageSquare },
-                  { id: 'intel', label: `Live Intel${unreadInsights > 0 ? ` · ${unreadInsights}` : ''}`, icon: Zap },
+                  { id: 'chat', label: 'Operador IA', icon: MessageSquare },
+                  { id: 'intel', label: `Vigilancia IA${unreadInsights > 0 ? ` · ${unreadInsights}` : ''}`, icon: Zap },
                 ].map((tab) => (
                   <button
                     key={tab.id}
@@ -570,10 +575,10 @@ export function Copilot() {
                           <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-[24px] border border-blue-400/14 bg-blue-500/10">
                             <Sparkles className="h-7 w-7 text-blue-300" />
                           </div>
-                          <p className="section-kicker mb-2">Operator Chat</p>
-                          <h4 className="mb-3 text-lg font-semibold text-white">Ask for a real operating brief</h4>
+                          <p className="section-kicker mb-2">Operador IA</p>
+                          <h4 className="mb-3 text-lg font-semibold text-white">Pide un informe operativo real</h4>
                           <p className="mb-6 text-sm leading-relaxed text-neutral-400">
-                            I can summarize revenue flow, product pressure, customer motion and recommended actions from live workspace data.
+                            Puedo resumir flujo de ingresos, presión de producto, movimiento de clientes y acciones recomendadas a partir de datos reales del espacio de trabajo.
                           </p>
 
                           <div className="space-y-2 text-left">
@@ -607,13 +612,13 @@ export function Copilot() {
                             <div>
                               <p>{m.text}</p>
                               <p className="mt-2 font-mono text-[10px] uppercase tracking-[0.18em] text-white/60">
-                                Operator input · {format(m.timestamp, 'HH:mm')}
+                                Entrada operativa · {format(m.timestamp, 'HH:mm')}
                               </p>
                             </div>
                           ) : (
                             <div>
                               <div className="mb-3 flex items-center gap-2">
-                                <span className="operator-badge !px-2.5 !py-1">AI Operator</span>
+                                <span className="operator-badge !px-2.5 !py-1">Operador IA</span>
                                 <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-neutral-600">{format(m.timestamp, 'HH:mm')}</span>
                               </div>
 
@@ -639,16 +644,16 @@ export function Copilot() {
 
                               {!m.streaming && m.text.includes('ACTION_REQUIRED:') && (
                                 <div className="mt-4 border-t border-white/6 pt-4">
-                                  <p className="mb-2 text-[10px] font-black uppercase tracking-[0.22em] text-neutral-500">Suggested route</p>
+                                  <p className="mb-2 text-[10px] font-black uppercase tracking-[0.22em] text-neutral-500">Ruta sugerida</p>
                                   <div className="flex flex-wrap gap-2">
                                     {m.text.split('\n').map((line, li) => {
                                       if (!line.includes('ACTION_REQUIRED:')) return null;
                                       const action = line.split('ACTION_REQUIRED:')[1].trim();
                                       const mapping: Record<string, { label: string; path: string }> = {
-                                        VIEW_INVENTORY: { label: 'Inventory', path: '/inventory' },
-                                        VIEW_ORDERS: { label: 'Orders', path: '/orders' },
-                                        VIEW_CUSTOMERS: { label: 'Customers', path: '/customers' },
-                                        VIEW_INSIGHTS: { label: 'Insights', path: '/insights' },
+                                        VIEW_INVENTORY: { label: 'Inventario', path: '/inventory' },
+                                        VIEW_ORDERS: { label: 'Pedidos', path: '/orders' },
+                                        VIEW_CUSTOMERS: { label: 'Clientes', path: '/customers' },
+                                        VIEW_INSIGHTS: { label: 'Análisis IA', path: '/insights' },
                                       };
                                       const cfg = mapping[action];
                                       if (!cfg) return null;
@@ -675,7 +680,7 @@ export function Copilot() {
                                     <div className="mb-3 flex items-center gap-2">
                                       <Zap className="h-4 w-4 text-blue-300" />
                                       <span className="text-[10px] font-black uppercase tracking-[0.22em] text-blue-200">
-                                        {m.command.isReviewOnly ? 'Review ready' : 'Action ready'} · {m.command.type.replace('_', ' ')}
+                                        {m.command.isReviewOnly ? 'Revisión lista' : 'Acción lista'} · {m.command.type.replace('_', ' ')}
                                       </span>
                                     </div>
                                     <div className="flex gap-2">
@@ -685,13 +690,13 @@ export function Copilot() {
                                         className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-blue-300/18 bg-[linear-gradient(180deg,rgba(91,136,255,0.96),rgba(49,92,214,0.96))] py-2 text-[11px] font-black uppercase tracking-[0.18em] text-white disabled:opacity-50"
                                       >
                                         {actionProcessing === m.id ? <RefreshCcw className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
-                                        {m.command.isReviewOnly ? 'Acknowledge' : 'Execute'}
+                                        {m.command.isReviewOnly ? 'Confirmar' : 'Ejecutar'}
                                       </button>
                                       <button
                                         onClick={() => setMessages((prev) => prev.map((msg) => msg.id === m.id ? { ...msg, commandStatus: 'dismissed' } : msg))}
                                         className="rounded-xl border border-white/8 bg-white/[0.03] px-4 py-2 text-[11px] font-black uppercase tracking-[0.18em] text-neutral-400 transition-colors hover:text-white"
                                       >
-                                        Dismiss
+                                        Omitir
                                       </button>
                                     </div>
                                   </div>
@@ -701,7 +706,7 @@ export function Copilot() {
                               {!m.streaming && m.command && m.commandStatus === 'executed' && (
                                 <div className="mt-3 flex items-center gap-2 text-emerald-300">
                                   <CheckCircle2 className="h-3.5 w-3.5" />
-                                  <span className="text-[10px] font-black uppercase tracking-[0.2em]">Action acknowledged</span>
+                                  <span className="text-[10px] font-black uppercase tracking-[0.2em]">Acción confirmada</span>
                                 </div>
                               )}
                             </div>
@@ -725,8 +730,8 @@ export function Copilot() {
 
                   <div className="border-t border-white/6 bg-[rgba(5,8,12,0.98)] p-4">
                     <div className="mb-3 flex flex-wrap items-center gap-2">
-                      <span className="telemetry-chip !px-2.5 !py-1">Role · {role || 'staff'}</span>
-                      <span className="telemetry-chip !px-2.5 !py-1">Mode · chat</span>
+                      <span className="telemetry-chip !px-2.5 !py-1">Rol · {role || 'staff'}</span>
+                      <span className="telemetry-chip !px-2.5 !py-1">Modo · chat</span>
                     </div>
                     <div className="flex gap-2">
                       <input
@@ -735,7 +740,7 @@ export function Copilot() {
                         value={inputText}
                         onChange={(e) => setInputText(e.target.value)}
                         onKeyDown={(e) => e.key === 'Enter' && !isTyping && handleSendMessage()}
-                        placeholder="Ask for a briefing, watchlist, summary or next action..."
+                        placeholder="Pide un informe, una vigilancia, un resumen o la siguiente acción..."
                         className="flex-1 rounded-2xl border border-white/10 bg-white/[0.035] px-4 py-3 text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:ring-2 focus:ring-blue-400/25 focus:border-blue-400/30"
                       />
                       <button
@@ -754,7 +759,7 @@ export function Copilot() {
                         }}
                         className="mt-3 w-full text-center text-[10px] font-black uppercase tracking-[0.2em] text-neutral-600 transition-colors hover:text-neutral-400"
                       >
-                        Clear operator session
+                        Limpiar sesión del operador
                       </button>
                     )}
                   </div>
@@ -769,18 +774,18 @@ export function Copilot() {
                         <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-[22px] border border-white/10 bg-white/[0.03]">
                           <Zap className="h-5 w-5 text-neutral-500" />
                         </div>
-                        <p className="section-kicker mb-2">Live Intel</p>
-                        <p className="text-base font-semibold text-white">No operator insights yet</p>
+                        <p className="section-kicker mb-2">Vigilancia IA</p>
+                        <p className="text-base font-semibold text-white">Aún no hay señales del operador</p>
                         <p className="mt-2 text-sm leading-relaxed text-neutral-400">
-                          Copilot scans the operating graph every two minutes and posts notable signals here.
+                          Copilot escanea el grafo operativo cada dos minutos y publica aquí las señales relevantes.
                         </p>
                       </div>
                     </div>
                   ) : (
                     <div className="space-y-3">
                       <div className="mb-4 flex items-center justify-between">
-                        <p className="section-kicker">Signal Queue</p>
-                        <span className="telemetry-chip !px-2.5 !py-1">{insights.length} observations</span>
+                        <p className="section-kicker">Cola de señales</p>
+                        <span className="telemetry-chip !px-2.5 !py-1">{insights.length} observaciones</span>
                       </div>
 
                       {insights.map((ins) => {
@@ -797,7 +802,7 @@ export function Copilot() {
                                 {tone.chip}
                               </span>
                               <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-neutral-600">
-                                {format(ins.timestamp, 'HH:mm')} · AI
+                                {format(ins.timestamp, 'HH:mm')} · IA
                               </span>
                             </div>
                             <div className="flex gap-3">
@@ -809,12 +814,12 @@ export function Copilot() {
                                 <button
                                   onClick={() => {
                                     setActiveTab('chat');
-                                    handleSendMessage(`Tell me more about this operator insight: "${ins.text.slice(0, 100)}"`);
+                                    handleSendMessage(`Cuéntame más sobre esta señal operativa: "${ins.text.slice(0, 100)}"`);
                                   }}
                                   className="mt-3 inline-flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-blue-200 transition-colors hover:text-blue-100"
                                 >
                                   <MessageSquare className="h-3 w-3" />
-                                  Open in chat
+                                  Abrir en chat
                                 </button>
                               </div>
                             </div>
@@ -823,7 +828,7 @@ export function Copilot() {
                       })}
 
                       <div className="mt-6 border-t border-white/6 pt-5">
-                        <p className="mb-3 section-kicker">Operator Playbooks</p>
+                        <p className="mb-3 section-kicker">Playbooks del operador</p>
                         <div className="space-y-2">
                           {intelActions.map((action) => (
                             <button

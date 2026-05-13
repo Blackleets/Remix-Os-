@@ -143,6 +143,17 @@
   color: #93c5fd;
 }
 
+.pulse-live {
+  animation: pulse-live 2.8s ease-in-out infinite;
+}
+
+.timeline-stamp {
+  @apply inline-flex items-center gap-2 rounded-full border px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.18em];
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.025);
+  color: rgba(163, 174, 192, 0.78);
+}
+
 .data-tile {
   @apply relative overflow-hidden rounded-[24px] border border-white/[0.08] p-5;
   background:
@@ -238,4 +249,15 @@
 
 .ai-message-content li {
   @apply flex items-start gap-2;
+}
+
+@keyframes pulse-live {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.18);
+    opacity: 0.95;
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(74, 222, 128, 0);
+    opacity: 1;
+  }
 }

@@ -42,7 +42,7 @@ interface ActivityItem {
 type ActivityTone = 'signal' | 'client' | 'inventory' | 'ops';
 
 function formatChangeValue(value: string) {
-  return value === '—' || value === '' ? 'Stable' : value;
+  return value === '—' || value === '' ? 'Estable' : value;
 }
 
 export function Dashboard() {
@@ -175,23 +175,23 @@ export function Dashboard() {
     return activities.map((item) => {
       const type = item.type;
       let tone: ActivityTone = 'ops';
-      let chip = 'Operational';
+      let chip = 'Operación';
       let icon = <History className="h-4 w-4 text-neutral-300" />;
       let accent = 'from-white/10 to-transparent border-white/12';
 
       if (type === 'order') {
         tone = 'signal';
-        chip = 'Revenue Signal';
+        chip = 'Señal comercial';
         icon = <Receipt className="h-4 w-4 text-blue-300" />;
         accent = 'from-blue-500/14 to-transparent border-blue-400/14';
       } else if (type === 'customer') {
         tone = 'client';
-        chip = 'Client Motion';
+        chip = 'Movimiento cliente';
         icon = <UserPlus className="h-4 w-4 text-emerald-300" />;
         accent = 'from-emerald-500/14 to-transparent border-emerald-400/14';
       } else if (type === 'product') {
         tone = 'inventory';
-        chip = 'Inventory Pulse';
+        chip = 'Pulso inventario';
         icon = <Database className="h-4 w-4 text-amber-300" />;
         accent = 'from-amber-500/14 to-transparent border-amber-400/14';
       }
@@ -202,15 +202,15 @@ export function Dashboard() {
 
   const operatingBrief = useMemo(() => {
     if (!stats.orders && !stats.customers && !stats.products) {
-      return 'Remix OS is standing by. Complete the activation sequence to unlock live operational intelligence.';
+      return 'Remix OS está en espera. Completa la secuencia de activación para desbloquear inteligencia operativa en vivo.';
     }
     if (stats.orders > 0 && stats.revenue > 0) {
-      return `Live revenue is tracking at ${formatCurrency(stats.revenue)} with ${stats.orders} executed transactions in the current operating window.`;
+      return `Los ingresos en vivo se sitúan en ${formatCurrency(stats.revenue)} con ${stats.orders} transacciones ejecutadas en la ventana operativa actual.`;
     }
     if (stats.products > 0 || stats.customers > 0) {
-      return `The commercial graph is online with ${stats.products} product nodes and ${stats.customers} customer records. System is ready for active sell-through.`;
+      return `El grafo comercial está en línea con ${stats.products} nodos de producto y ${stats.customers} registros de clientes. El sistema está listo para operar.`;
     }
-    return 'Operational data is syncing across the workspace.';
+    return 'Los datos operativos se están sincronizando en todo el espacio de trabajo.';
   }, [formatCurrency, stats]);
 
   const handleExportPDF = async () => {
@@ -224,17 +224,17 @@ export function Dashboard() {
 
       const modules = [
         {
-          title: 'Core Metrics',
+          title: 'Métricas centrales',
           data: [
-            { Metric: 'Total Revenue', Value: formatCurrency(stats.revenue) },
-            { Metric: 'Active Customers', Value: stats.customers.toString() },
-            { Metric: 'Asset Types', Value: stats.products.toString() },
-            { Metric: 'Total Transactions', Value: stats.orders.toString() },
+            { Metric: 'Ingresos totales', Value: formatCurrency(stats.revenue) },
+            { Metric: 'Clientes activos', Value: stats.customers.toString() },
+            { Metric: 'Tipos de activo', Value: stats.products.toString() },
+            { Metric: 'Transacciones totales', Value: stats.orders.toString() },
           ],
           columns: ['Metric', 'Value'],
         },
         {
-          title: 'Recent Transactions',
+          title: 'Transacciones recientes',
           data: recentOrdersSnap.docs.map((d) => ({
             ID: d.id.slice(-6).toUpperCase(),
             Customer: d.data().customerName,
@@ -245,7 +245,7 @@ export function Dashboard() {
           columns: ['ID', 'Customer', 'Total', 'Status', 'Date'],
         },
         {
-          title: 'Inventory Alert',
+          title: 'Alerta de inventario',
           data: productsSnap.docs.map((d) => ({
             Name: d.data().name,
             SKU: d.data().sku,
@@ -273,10 +273,10 @@ export function Dashboard() {
     const diffHours = Math.floor(diffMins / 60);
     const diffDays = Math.floor(diffHours / 24);
 
-    if (diffMins < 1) return 'Now';
-    if (diffMins < 60) return `${diffMins}m ago`;
-    if (diffHours < 24) return `${diffHours}h ago`;
-    return `${diffDays}d ago`;
+    if (diffMins < 1) return 'Ahora';
+    if (diffMins < 60) return `Hace ${diffMins} min`;
+    if (diffHours < 24) return `Hace ${diffHours} h`;
+    return `Hace ${diffDays} d`;
   };
 
   if (loading) {
@@ -288,7 +288,7 @@ export function Dashboard() {
             transition={{ duration: 2.4, repeat: Infinity, ease: 'linear' }}
             className="mx-auto mb-5 h-12 w-12 rounded-full border-2 border-white/10 border-t-blue-400"
           />
-          <p className="section-kicker mb-2">Operating Center</p>
+          <p className="section-kicker mb-2">Centro operativo</p>
           <p className="text-base font-semibold text-white">{t('common.loading')}</p>
           <p className="mt-1 text-sm text-neutral-500">{t('common.syncing')}</p>
         </div>
@@ -301,7 +301,7 @@ export function Dashboard() {
       label: t('dashboard.revenue'),
       value: formatCurrency(stats.revenue),
       change: formatChangeValue(stats.revenueChange),
-      signal: stats.revenueChange.startsWith('+') || stats.revenueChange === 'NEW' ? 'Expansion' : 'Steady',
+      signal: stats.revenueChange.startsWith('+') || stats.revenueChange === 'NEW' ? 'Expansión' : 'Estable',
       icon: TrendingUp,
       accent: 'text-blue-300',
       ring: 'border-blue-400/14 from-blue-500/14 to-transparent',
@@ -309,8 +309,8 @@ export function Dashboard() {
     {
       label: t('dashboard.customers'),
       value: stats.customers.toString(),
-      change: stats.customers > 0 ? 'Online' : 'Standby',
-      signal: 'Relationship Graph',
+      change: stats.customers > 0 ? 'Activo' : 'En espera',
+      signal: 'Grafo relacional',
       icon: Contact,
       accent: 'text-violet-300',
       ring: 'border-violet-400/14 from-violet-500/14 to-transparent',
@@ -318,8 +318,8 @@ export function Dashboard() {
     {
       label: t('dashboard.inventory'),
       value: stats.products.toString(),
-      change: stats.products > 0 ? 'Indexed' : 'Pending',
-      signal: 'Asset Fabric',
+      change: stats.products > 0 ? 'Indexado' : 'Pendiente',
+      signal: 'Tejido de activos',
       icon: Shapes,
       accent: 'text-emerald-300',
       ring: 'border-emerald-400/14 from-emerald-500/14 to-transparent',
@@ -327,8 +327,8 @@ export function Dashboard() {
     {
       label: t('dashboard.orders'),
       value: stats.orders.toString(),
-      change: stats.orders > 0 ? 'Active' : 'Idle',
-      signal: 'Transaction Flow',
+      change: stats.orders > 0 ? 'Activo' : 'Inactivo',
+      signal: 'Flujo transaccional',
       icon: Layers,
       accent: 'text-amber-300',
       ring: 'border-amber-400/14 from-amber-500/14 to-transparent',
@@ -338,19 +338,19 @@ export function Dashboard() {
   const systemModules = [
     {
       label: t('dashboard.ops_status.inventory'),
-      status: stats.products > 0 ? 'Indexed' : 'Pending',
+      status: stats.products > 0 ? 'Indexado' : 'Pendiente',
       icon: Shapes,
       good: stats.products > 0,
     },
     {
       label: t('dashboard.ops_status.orders'),
-      status: stats.orders > 0 ? 'Streaming' : 'Idle',
+      status: stats.orders > 0 ? 'En flujo' : 'Inactivo',
       icon: Receipt,
       good: stats.orders > 0,
     },
     {
       label: t('dashboard.ops_status.customers'),
-      status: stats.customers > 0 ? 'Synced' : 'Pending',
+      status: stats.customers > 0 ? 'Sincronizado' : 'Pendiente',
       icon: Contact,
       good: stats.customers > 0,
     },
@@ -368,17 +368,17 @@ export function Dashboard() {
           <div className="relative">
             <div className="mb-4 flex flex-wrap items-center gap-2">
               <span className="operator-badge">
-                <span className="status-dot bg-emerald-400 text-emerald-400" />
-                Live Company State
+                <span className="status-dot pulse-live bg-emerald-400 text-emerald-400" />
+                Estado operativo en vivo
               </span>
               <span className="telemetry-chip">
                 <Fingerprint className="h-3.5 w-3.5 text-blue-300" />
-                AI Operating Core
+                Núcleo operativo IA
               </span>
             </div>
 
-            <h1 className="section-title glow-text max-w-3xl text-4xl leading-none md:text-5xl xl:text-6xl">
-              {company?.name || 'Remix OS'} is now running as a live operating center.
+            <h1 className="section-title glow-text max-w-3xl text-3xl leading-none md:text-4xl xl:text-5xl">
+              {company?.name || 'Remix OS'} opera ahora como un centro operativo vivo.
             </h1>
             <p className="mt-4 max-w-2xl text-base leading-relaxed text-neutral-300 md:text-lg">
               {operatingBrief}
@@ -398,7 +398,7 @@ export function Dashboard() {
                 onClick={() => window.dispatchEvent(new CustomEvent('open-copilot'))}
               >
                 <Cpu className="h-4 w-4" />
-                Open Operator Console
+                Abrir operador IA
               </Button>
               <Button
                 variant="ghost"
@@ -414,12 +414,12 @@ export function Dashboard() {
 
           <div className="grid gap-4 sm:grid-cols-3 xl:grid-cols-1">
             <div className="data-tile">
-              <p className="section-kicker mb-2 !text-neutral-400">System Integrity</p>
+              <p className="section-kicker mb-2 !text-neutral-400">Integridad del sistema</p>
               <div className="flex items-end justify-between gap-4">
                 <div>
                   <p className="text-3xl font-bold text-white">{allSystemsReady ? '98%' : '71%'}</p>
                   <p className="mt-1 text-sm text-neutral-400">
-                    {allSystemsReady ? 'All primary modules are responding nominally.' : 'Activation is in progress across commercial modules.'}
+                    {allSystemsReady ? 'Los módulos principales responden con normalidad.' : 'La activación sigue en curso en los módulos comerciales.'}
                   </p>
                 </div>
                 <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-blue-400/14 bg-blue-500/10">
@@ -429,24 +429,24 @@ export function Dashboard() {
             </div>
 
             <div className="data-tile">
-              <p className="section-kicker mb-2 !text-neutral-400">Commercial Pulse</p>
+              <p className="section-kicker mb-2 !text-neutral-400">Pulso comercial</p>
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-sm text-neutral-300">
-                  <span>Revenue delta</span>
+                  <span>Delta de ingresos</span>
                   <span className="font-mono text-blue-300">{formatChangeValue(stats.revenueChange)}</span>
                 </div>
                 <div className="flex items-center justify-between text-sm text-neutral-300">
-                  <span>Transactions</span>
+                  <span>Transacciones</span>
                   <span className="font-mono text-white">{stats.orders}</span>
                 </div>
               </div>
             </div>
 
             <div className="data-tile">
-              <p className="section-kicker mb-2 !text-neutral-400">AI Watch</p>
+              <p className="section-kicker mb-2 !text-neutral-400">Vigilancia IA</p>
               <div className="flex items-start justify-between gap-4">
                 <p className="text-sm leading-relaxed text-neutral-300">
-                  Copilot is observing revenue, activity flow and operational risk in real time.
+                  Copilot observa ingresos, flujo operativo y riesgo comercial en tiempo real.
                 </p>
                 <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-emerald-400/14 bg-emerald-500/8">
                   <Zap className="h-4.5 w-4.5 text-emerald-300" />
@@ -462,7 +462,7 @@ export function Dashboard() {
           <Card className="overflow-hidden border-blue-400/14 bg-[linear-gradient(180deg,rgba(32,67,138,0.18),rgba(12,16,24,0.96))]">
             <div className="grid gap-6 lg:grid-cols-[0.8fr_1.2fr]">
               <div>
-                <p className="section-kicker mb-3">System Activation Sequence</p>
+                <p className="section-kicker mb-3">Secuencia de activación</p>
                 <h2 className="section-title text-2xl md:text-3xl">{t('dashboard.setup.title')}</h2>
                 <p className="mt-3 section-subtitle">{t('dashboard.setup.description')}</p>
               </div>
@@ -544,7 +544,7 @@ export function Dashboard() {
                     </div>
                     <p className="text-3xl font-bold tracking-tight text-white">{stat.value}</p>
                     <div className="mt-4 flex items-center justify-between text-xs">
-                      <span className="font-mono uppercase tracking-[0.18em] text-neutral-500">Signal</span>
+                      <span className="font-mono uppercase tracking-[0.18em] text-neutral-500">Señal</span>
                       <span className="font-mono text-blue-200">{stat.change}</span>
                     </div>
                   </div>
@@ -557,7 +557,7 @@ export function Dashboard() {
             <Card className="overflow-hidden">
               <div className="mb-6 flex items-center justify-between gap-4">
                 <div>
-                  <p className="section-kicker mb-2">Financial Telemetry</p>
+                  <p className="section-kicker mb-2">Telemetría financiera</p>
                   <h3 className="section-title text-2xl">{t('dashboard.financial_intelligence')}</h3>
                   <p className="section-subtitle mt-2">{t('dashboard.revenue_optimization')}</p>
                 </div>
@@ -569,9 +569,9 @@ export function Dashboard() {
               <div className="mb-5 flex flex-wrap gap-2">
                 <span className="telemetry-chip">
                   <span className="status-dot bg-blue-400 text-blue-400" />
-                  Revenue stream
+                  Flujo de ingresos
                 </span>
-                <span className="telemetry-chip">7-day signal</span>
+                <span className="telemetry-chip">Señal 7 días</span>
               </div>
 
               <div className="h-[290px] rounded-[24px] border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.01))] p-3">
@@ -609,8 +609,8 @@ export function Dashboard() {
                 ) : (
                   <div className="flex h-full flex-col items-center justify-center rounded-[20px] border border-dashed border-white/8 bg-white/[0.02] text-center">
                     <Activity className="mb-4 h-8 w-8 text-neutral-700" />
-                    <p className="text-sm font-semibold text-neutral-400">No revenue signal yet</p>
-                    <p className="mt-1 text-xs text-neutral-600">Your financial telemetry will appear once completed orders start flowing.</p>
+                    <p className="text-sm font-semibold text-neutral-400">Aún no hay señal de ingresos</p>
+                    <p className="mt-1 text-xs text-neutral-600">La telemetría financiera aparecerá cuando empiecen a fluir pedidos completados.</p>
                   </div>
                 )}
               </div>
@@ -619,9 +619,9 @@ export function Dashboard() {
             <Card className="overflow-hidden">
               <div className="mb-6 flex items-center justify-between gap-4">
                 <div>
-                  <p className="section-kicker mb-2">Intelligent Activity Feed</p>
+                  <p className="section-kicker mb-2">Flujo operativo</p>
                   <h3 className="section-title text-2xl">{t('dashboard.system_log')}</h3>
-                  <p className="section-subtitle mt-2">Live events prioritized by operating relevance.</p>
+                  <p className="section-subtitle mt-2">Eventos en vivo priorizados por relevancia operativa.</p>
                 </div>
                 <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-amber-400/14 bg-amber-500/10">
                   <History className="h-5 w-5 text-amber-300" />
@@ -632,8 +632,8 @@ export function Dashboard() {
                 {activityMeta.length === 0 ? (
                   <div className="flex min-h-[260px] flex-col items-center justify-center rounded-[24px] border border-dashed border-white/8 bg-white/[0.02] text-center">
                     <History className="mb-4 h-8 w-8 text-neutral-700" />
-                    <p className="text-sm font-semibold text-neutral-400">Activity stream is standing by</p>
-                    <p className="mt-1 max-w-xs text-xs text-neutral-600">Operational events will appear here as orders, customers, inventory and system actions begin to flow.</p>
+                    <p className="text-sm font-semibold text-neutral-400">El flujo operativo está en espera</p>
+                    <p className="mt-1 max-w-xs text-xs text-neutral-600">Aquí aparecerán pedidos, clientes, inventario y acciones del sistema a medida que el negocio entre en movimiento.</p>
                   </div>
                 ) : (
                   activityMeta.map((item, index) => (
@@ -652,7 +652,7 @@ export function Dashboard() {
                         <div className="min-w-0 flex-1">
                           <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
                             <span className="telemetry-chip !px-2.5 !py-1 !text-[9px]">{item.chip}</span>
-                            <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-neutral-600">
+                            <span className="timeline-stamp">
                               {getRelativeTime(item.createdAt)}
                             </span>
                           </div>
@@ -675,7 +675,7 @@ export function Dashboard() {
                 <Cpu className="h-5 w-5 text-blue-200" />
               </div>
               <div>
-                <p className="section-kicker">AI Briefing</p>
+                <p className="section-kicker">Informe operativo</p>
                 <h3 className="section-title text-xl">{t('dashboard.business_briefing')}</h3>
               </div>
             </div>
@@ -684,7 +684,7 @@ export function Dashboard() {
               <div className="surface-elevated p-4">
                 <div className="mb-2 flex items-center justify-between">
                   <span className="text-[10px] font-black uppercase tracking-[0.22em] text-neutral-500">{t('dashboard.system_status')}</span>
-                  <span className="operator-badge !px-2.5 !py-1">Secure</span>
+                  <span className="operator-badge !px-2.5 !py-1">Seguro</span>
                 </div>
                 <div className="h-1.5 overflow-hidden rounded-full bg-white/6">
                   <motion.div
@@ -699,16 +699,16 @@ export function Dashboard() {
 
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="data-tile">
-                  <p className="section-kicker mb-2 !text-neutral-500">Risk Profile</p>
-                  <p className="text-lg font-semibold text-white">{allSystemsReady ? 'Nominal' : 'Watch Activation'}</p>
+                  <p className="section-kicker mb-2 !text-neutral-500">Perfil de riesgo</p>
+                  <p className="text-lg font-semibold text-white">{allSystemsReady ? 'Estable' : 'Activación en vigilancia'}</p>
                   <p className="mt-1 text-sm text-neutral-400">
-                    {allSystemsReady ? 'No critical issues detected in the current signal set.' : 'Complete the activation sequence to stabilize the operating graph.'}
+                    {allSystemsReady ? 'No se detectan incidencias críticas en la señal actual.' : 'Completa la secuencia de activación para estabilizar el grafo operativo.'}
                   </p>
                 </div>
                 <div className="data-tile">
-                  <p className="section-kicker mb-2 !text-neutral-500">Data Sync</p>
-                  <p className="text-lg font-semibold text-white">Live</p>
-                  <p className="mt-1 text-sm text-neutral-400">Commercial telemetry is flowing into the dashboard in real time.</p>
+                  <p className="section-kicker mb-2 !text-neutral-500">Sincronización de datos</p>
+                  <p className="text-lg font-semibold text-white">En vivo</p>
+                  <p className="mt-1 text-sm text-neutral-400">La telemetría comercial está entrando al panel en tiempo real.</p>
                 </div>
               </div>
 
@@ -725,7 +725,7 @@ export function Dashboard() {
           <Card>
             <div className="mb-5 flex items-center justify-between">
               <div>
-                <p className="section-kicker mb-2 !text-neutral-500">System Modules</p>
+                <p className="section-kicker mb-2 !text-neutral-500">Módulos del sistema</p>
                 <h3 className="section-title text-xl">{t('dashboard.ops_status.title')}</h3>
               </div>
               <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03]">
@@ -745,7 +745,7 @@ export function Dashboard() {
                     </div>
                     <div className="min-w-0">
                       <p className="text-sm font-semibold text-white">{item.label}</p>
-                      <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-neutral-500">Module health</p>
+                      <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-neutral-500">Salud del módulo</p>
                     </div>
                   </div>
                   <span className={cn(
@@ -762,8 +762,8 @@ export function Dashboard() {
           <Card>
             <div className="mb-5 flex items-center justify-between">
               <div>
-                <p className="section-kicker mb-2 !text-neutral-500">AI Playbooks</p>
-                <h3 className="section-title text-xl">Suggested next moves</h3>
+                <p className="section-kicker mb-2 !text-neutral-500">Playbooks IA</p>
+                <h3 className="section-title text-xl">Siguientes movimientos sugeridos</h3>
               </div>
               <AlertTriangle className="h-4.5 w-4.5 text-neutral-500" />
             </div>
@@ -771,18 +771,18 @@ export function Dashboard() {
             <div className="space-y-3">
               {[
                 {
-                  label: 'Review low-stock exposure',
-                  detail: 'Open inventory intelligence and inspect product coverage before demand spikes.',
+                  label: 'Revisar presión por bajo stock',
+                  detail: 'Abre la inteligencia de inventario e inspecciona cobertura antes de que la demanda aumente.',
                   action: () => navigate('/inventory'),
                 },
                 {
-                  label: 'Inspect transaction flow',
-                  detail: 'Review recent orders and catch conversion blockers before they compound.',
+                  label: 'Inspeccionar flujo transaccional',
+                  detail: 'Revisa pedidos recientes y detecta fricciones de conversión antes de que escalen.',
                   action: () => navigate('/orders'),
                 },
                 {
-                  label: 'Ask Copilot for an executive brief',
-                  detail: 'Generate an AI summary of revenue, customer motion and operational risks.',
+                  label: 'Pedir un informe ejecutivo al operador IA',
+                  detail: 'Genera un resumen de ingresos, movimiento de clientes y riesgos operativos.',
                   action: () => window.dispatchEvent(new CustomEvent('open-copilot')),
                 },
               ].map((item) => (

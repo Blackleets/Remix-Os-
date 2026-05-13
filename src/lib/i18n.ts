@@ -1011,15 +1011,15 @@ const resources = {
         customers: 'Clientes Activos',
         inventory: 'Stock de Unidades',
         orders: 'Velocidad de Pedidos',
-        financial_intelligence: 'Inteligencia Financiera',
-        revenue_optimization: 'Optimización del Ciclo de Ingresos',
-        system_log: 'Registro del Sistema',
-        live_activity: 'Flujo de Actividad en Vivo',
-        business_briefing: 'Informe de Negocios',
-        system_status: 'Estado del Sistema',
-        risk_profile: 'Perfil de Riesgo',
-        data_sync: 'Sincronización de Datos',
-        view_assistant: 'Ver Asistente',
+        financial_intelligence: 'Inteligencia financiera',
+        revenue_optimization: 'Optimización del ciclo de ingresos',
+        system_log: 'Registro operativo',
+        live_activity: 'Flujo operativo',
+        business_briefing: 'Informe operativo',
+        system_status: 'Estado del sistema',
+        risk_profile: 'Perfil de riesgo',
+        data_sync: 'Sincronización de datos',
+        view_assistant: 'Abrir operador IA',
         download_report: 'Descargar Informe',
         generating: 'Generando...',
         new_order: 'Nuevo Pedido',
@@ -2602,7 +2602,7 @@ i18n
   .use(initReactI18next)
   .init({
     resources,
-    fallbackLng: 'en',
+    fallbackLng: 'es',
     interpolation: {
       escapeValue: false, // react already safes from xss
     },

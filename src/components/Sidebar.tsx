@@ -51,7 +51,7 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
               <div className="relative h-5 w-5 rounded-md bg-white transition-all duration-500 group-hover:rotate-45 group-hover:rounded-[10px]" />
             </div>
             <div>
-              <p className="section-kicker mb-1 !tracking-[0.26em] text-blue-300/80">AI Operating System</p>
+              <p className="section-kicker mb-1 !tracking-[0.26em] text-blue-300/80">Sistema operativo IA</p>
               <span className="font-display text-xl font-bold tracking-tight text-white">Remix OS</span>
             </div>
           </Link>
@@ -65,10 +65,10 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
 
         <div className="shell-panel mb-6 p-4">
           <div className="mb-3 flex items-center justify-between">
-            <span className="section-kicker !text-neutral-400">Entity Registry</span>
+            <span className="section-kicker !text-neutral-400">Registro de entidad</span>
             <span className="telemetry-chip !px-2.5 !py-1 !text-[9px]">
-              <span className="status-dot bg-emerald-400 text-emerald-400" />
-              Live
+              <span className="status-dot pulse-live bg-emerald-400 text-emerald-400" />
+              En vivo
             </span>
           </div>
           <div className="flex items-center gap-3">
@@ -80,16 +80,16 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
               )}
             </div>
             <div className="min-w-0">
-              <p className="truncate text-sm font-semibold text-white">{company?.name || 'Main Grid'}</p>
+              <p className="truncate text-sm font-semibold text-white">{company?.name || 'Núcleo principal'}</p>
               <p className="mt-1 truncate font-mono text-[10px] uppercase tracking-[0.2em] text-neutral-500">
-                {company?.industry || 'Operating Core'}
+                {company?.industry || 'Núcleo operativo'}
               </p>
             </div>
           </div>
         </div>
 
         <div className="mb-4">
-          <p className="mb-3 px-2 text-[10px] font-black uppercase tracking-[0.28em] text-neutral-600">Operations</p>
+          <p className="mb-3 px-2 text-[10px] font-black uppercase tracking-[0.28em] text-neutral-600">Operaciones</p>
           <nav className="space-y-1.5">
             {navItems.map((item) => {
               const isActive = location.pathname === item.path;
