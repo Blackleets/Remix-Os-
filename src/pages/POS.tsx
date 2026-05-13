@@ -40,6 +40,7 @@ import { useLocale } from '../hooks/useLocale';
 import { db } from '../lib/firebase';
 import { createSaleTransaction } from '../services/sales';
 import { exportPOSReceiptToPDF } from '../lib/exportUtils';
+import { getOrderTotal } from '../../shared/orders';
 
 interface Product {
   id: string;
@@ -323,7 +324,7 @@ export function POS() {
   }, [orders, activeCashSession]);
 
   const turnSalesTotal = useMemo(
-    () => currentTurnOrders.reduce((sum, order) => sum + (order.total || 0), 0),
+    () => currentTurnOrders.reduce((sum, order) => sum + getOrderTotal(order), 0),
     [currentTurnOrders]
   );
 
@@ -331,7 +332,7 @@ export function POS() {
     () =>
       currentTurnOrders
         .filter((order) => order.paymentMethod === 'Cash')
-        .reduce((sum, order) => sum + (order.total || 0), 0),
+        .reduce((sum, order) => sum + getOrderTotal(order), 0),
     [currentTurnOrders]
   );
 

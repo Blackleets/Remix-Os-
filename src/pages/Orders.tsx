@@ -13,6 +13,7 @@ import { UpgradeModal } from '../components/UpgradeModal';
 import { PLANS, isLimitReached, getCompanyUsage } from '../lib/plans';
 import { exportToCSV } from '../lib/exportUtils';
 import { createSaleTransaction } from '../services/sales';
+import { getOrderTotal } from '../../shared/orders';
 
 interface OrderItem {
   productId: string;
@@ -220,7 +221,7 @@ export function Orders() {
 
   const completedCount = orders.filter((o) => o.status === 'completed').length;
   const pendingCount = orders.filter((o) => o.status === 'pending').length;
-  const totalVolume = filteredOrders.reduce((sum, order) => sum + (order.total || 0), 0);
+  const totalVolume = filteredOrders.reduce((sum, order) => sum + getOrderTotal(order), 0);
 
   const getStatusClasses = (status: string) => {
     switch (status) {
@@ -262,7 +263,7 @@ export function Orders() {
               onClick={() => exportToCSV(filteredOrders.map((o) => ({
                 ID: o.id,
                 Customer: o.customerName,
-                Total: o.total,
+                Total: getOrderTotal(o),
                 Status: o.status,
                 Payment: o.paymentMethod,
                 Date: o.createdAt && o.createdAt.toDate ? o.createdAt.toDate().toISOString() : o.createdAt,
@@ -398,7 +399,7 @@ export function Orders() {
                   </td>
                   <td className="table-cell font-bold text-neutral-100">{order.customerName}</td>
                   <td className="table-cell font-mono font-bold text-blue-300">
-                    ${order.total.toFixed(2)}
+                    ${getOrderTotal(order).toFixed(2)}
                   </td>
                   <td className="table-cell">
                     <span className={cn('inline-flex rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.16em]', getStatusClasses(order.status))}>
@@ -442,7 +443,7 @@ export function Orders() {
                   <p className="mt-0.5 text-[10px] uppercase tracking-widest text-neutral-500">{order.paymentMethod}</p>
                 </div>
                 <div className="text-right">
-                  <p className="font-mono text-base font-bold text-blue-300">${order.total.toFixed(2)}</p>
+                  <p className="font-mono text-base font-bold text-blue-300">${getOrderTotal(order).toFixed(2)}</p>
                   <span className={cn('mt-1 inline-flex rounded-full border px-2.5 py-1 text-[9px] font-black uppercase tracking-[0.15em]', getStatusClasses(order.status))}>
                     {order.status}
                   </span>

@@ -246,6 +246,9 @@ export function Copilot() {
         setAiConfigured(false);
         return 'IA no configurada en el runtime del backend. Revisa GEMINI_API_KEY en Vercel y vuelve a desplegar.';
       }
+      if (error.status === 429 || error.code === 'AI_RATE_LIMIT') {
+        return 'Demasiadas solicitudes a la IA en poco tiempo. Espera unos segundos y vuelve a intentarlo.';
+      }
       if (error.status === 401) return 'Tu sesión no está autenticada para usar Copilot.';
       if (error.status === 403) return 'No tienes permisos para usar la IA con la empresa activa.';
       if (error.status === 400) return 'La solicitud a la IA no es valida. Revisa el mensaje e intenta de nuevo.';
@@ -269,6 +272,9 @@ export function Copilot() {
       if (error.code === 'AI_NOT_CONFIGURED' || error.status === 503) {
         setAiConfigured(false);
         return 'La IA no está configurada. Añade GEMINI_API_KEY en Vercel.';
+      }
+      if (error.status === 429 || error.code === 'AI_RATE_LIMIT') {
+        return 'Demasiadas solicitudes a la IA en poco tiempo. Espera unos segundos y vuelve a intentarlo.';
       }
       if (error.status === 401) return 'Tu sesión no está autenticada para usar Copilot.';
       if (error.status === 403) return 'No tienes permisos para usar la IA con la empresa activa.';

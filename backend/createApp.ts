@@ -9,6 +9,7 @@ import { getAuth } from 'firebase-admin/auth';
 import { FieldValue, Timestamp, getFirestore } from 'firebase-admin/firestore';
 import type { Firestore } from 'firebase-admin/firestore';
 import { BILLING_CURRENCY, PLAN_DEFINITIONS, PLAN_IDS, PlanId, getBillingPriceMap, getPlanDefinition } from '../shared/plans.js';
+import { getOrderTotal, getOrderItems } from '../shared/orders.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -54,6 +55,14 @@ function getFirebaseConfigPath() {
   return path.join(__dirname, '..', 'firebase-applet-config.json');
 }
 
+// In Vercel/serverless environments Application Default Credentials are unavailable.
+// Without FIREBASE_SERVICE_ACCOUNT, verifyIdToken and Firestore reads fail at runtime —
+// fail fast at init so /api/health and /api/ai/health surface the misconfiguration
+// instead of every request returning a confusing 401/500.
+function isServerlessRuntime() {
+  return Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+}
+
 function getDb() {
   if (!adminDb) {
     try {
@@ -61,6 +70,12 @@ function getDb() {
         const svcAcct = process.env.FIREBASE_SERVICE_ACCOUNT;
         if (svcAcct) {
           initializeApp({ credential: cert(JSON.parse(svcAcct)) });
+        } else if (isServerlessRuntime()) {
+          console.error(
+            '[Firebase Admin] FIREBASE_SERVICE_ACCOUNT is required in serverless runtime. ' +
+              'Set the env var to the JSON.stringify(...) of your service account.'
+          );
+          return null;
         } else {
           const configPath = getFirebaseConfigPath();
           const projectId = fs.existsSync(configPath)
@@ -77,7 +92,7 @@ function getDb() {
       const configPath = getFirebaseConfigPath();
       const dbId = fs.existsSync(configPath)
         ? JSON.parse(fs.readFileSync(configPath, 'utf-8')).firestoreDatabaseId
-        : undefined;
+        : process.env.FIREBASE_FIRESTORE_DATABASE_ID;
       const app = getApps()[0];
       adminDb = dbId && dbId !== '(default)' ? getFirestore(app, dbId) : getFirestore(app);
     } catch (error: any) {
@@ -198,6 +213,18 @@ async function requireCompanyAccess(
   res: any,
   allowedRoles: string[] = ['owner', 'admin']
 ): Promise<{ uid: string; companyId: string } | null> {
+  // Surface Firebase Admin misconfiguration with a distinct 503 before any
+  // token verification or DB call — otherwise users see "Invalid token" when
+  // the real problem is a missing FIREBASE_SERVICE_ACCOUNT env var.
+  if (!getDb()) {
+    res.status(503).json({
+      error: 'Firebase Admin not configured',
+      code: 'FIREBASE_ADMIN_NOT_CONFIGURED',
+      details: 'FIREBASE_SERVICE_ACCOUNT is missing in the current runtime. Set it in Vercel env and redeploy.',
+    });
+    return null;
+  }
+
   const authHeader = req.headers.authorization || '';
   const match = authHeader.match(/^Bearer\s+(.+)$/i);
   if (!match) {
@@ -285,6 +312,15 @@ async function requireCompanyAccess(
 }
 
 async function requirePlatformAdmin(req: any, res: any): Promise<{ uid: string; email: string } | null> {
+  if (!getDb()) {
+    res.status(503).json({
+      error: 'Firebase Admin not configured',
+      code: 'FIREBASE_ADMIN_NOT_CONFIGURED',
+      details: 'FIREBASE_SERVICE_ACCOUNT is missing in the current runtime. Set it in Vercel env and redeploy.',
+    });
+    return null;
+  }
+
   const authHeader = req.headers.authorization || '';
   const match = authHeader.match(/^Bearer\s+(.+)$/i);
   if (!match) {
@@ -304,11 +340,7 @@ async function requirePlatformAdmin(req: any, res: any): Promise<{ uid: string; 
     return { uid: decoded.uid, email: decoded.email || '' };
   }
 
-  const db = getDb();
-  if (!db) {
-    res.status(500).json({ error: 'Database not initialized' });
-    return null;
-  }
+  const db = getDb()!;
 
   const adminSnap = await db.collection('platformAdmins').doc(decoded.uid).get();
   const adminData = adminSnap.data();
@@ -321,6 +353,15 @@ async function requirePlatformAdmin(req: any, res: any): Promise<{ uid: string; 
 }
 
 async function requireAuthenticatedUser(req: any, res: any): Promise<{ uid: string; email: string } | null> {
+  if (!getDb()) {
+    res.status(503).json({
+      error: 'Firebase Admin not configured',
+      code: 'FIREBASE_ADMIN_NOT_CONFIGURED',
+      details: 'FIREBASE_SERVICE_ACCOUNT is missing in the current runtime. Set it in Vercel env and redeploy.',
+    });
+    return null;
+  }
+
   const authHeader = req.headers.authorization || '';
   const match = authHeader.match(/^Bearer\s+(.+)$/i);
   if (!match) {
@@ -370,16 +411,6 @@ function getSubscriptionMrr(subscription: any): number {
     if (interval === 'day') return sum + gross / 30 / intervalCount;
     return sum + gross / intervalCount;
   }, 0) / 100;
-}
-
-function getOrderTotal(order: AnyRecord) {
-  return order.totalAmount ?? order.total ?? 0;
-}
-
-function getOrderItems(order: AnyRecord) {
-  if (Array.isArray(order.itemsSnapshot)) return order.itemsSnapshot;
-  if (Array.isArray(order.items)) return order.items;
-  return [];
 }
 
 function getBilledPrices() {
@@ -580,7 +611,12 @@ async function buildCompanyOverview(db: Firestore, companyId: string): Promise<C
   const last30Days = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
   const prev30Days = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
 
-  const orders = ordersSnap.docs.map((entry) => ({ id: entry.id, ...entry.data() })) as AnyRecord[];
+  // Revenue/order metrics count only finalized orders. Keep this list aligned with
+  // src/pages/Dashboard.tsx and src/pages/POS.tsx (both filter completed). If you add
+  // a new terminal status, update the three call sites together.
+  const REVENUE_STATUSES = new Set(['completed', 'paid', 'fulfilled']);
+  const allOrders = ordersSnap.docs.map((entry) => ({ id: entry.id, ...entry.data() })) as AnyRecord[];
+  const orders = allOrders.filter((order) => !order.status || REVENUE_STATUSES.has(order.status));
   const recentOrders = orders.filter((order) => toDate(order.createdAt) && toDate(order.createdAt)! > last7Days);
   const previousOrders = orders.filter((order) => {
     const date = toDate(order.createdAt);
@@ -659,7 +695,7 @@ async function buildCompanyOverview(db: Firestore, companyId: string): Promise<C
     planId: getPlanDefinition(company.subscription?.planId).id,
     customersCount: customersSnap.size,
     productsCount: productsSnap.size,
-    ordersCount: ordersSnap.size,
+    ordersCount: orders.length,
     inventoryValue,
     recentRevenue: recentRevenue30d,
     recentRevenue30d,
@@ -1068,6 +1104,48 @@ function logAiRequest(route: string, companyId: string, start: number, extra?: R
   });
 }
 
+// In-memory rate limiter for AI endpoints. Keyed by companyId since billing
+// happens at the tenant level. Migrate to Upstash Redis in Fase 4 when multi-instance
+// scaling makes the in-memory counter inconsistent across Vercel cold starts.
+const AI_RATE_WINDOW_MS = 60 * 1000;
+const AI_RATE_LIMIT_PER_WINDOW = 30;
+const aiRateLimitBuckets = new Map<string, { count: number; resetAt: number }>();
+
+function checkAiRateLimit(companyId: string): { allowed: boolean; retryAfterSec: number; remaining: number } {
+  const now = Date.now();
+  const bucket = aiRateLimitBuckets.get(companyId);
+  if (!bucket || bucket.resetAt <= now) {
+    aiRateLimitBuckets.set(companyId, { count: 1, resetAt: now + AI_RATE_WINDOW_MS });
+    return { allowed: true, retryAfterSec: 0, remaining: AI_RATE_LIMIT_PER_WINDOW - 1 };
+  }
+  if (bucket.count >= AI_RATE_LIMIT_PER_WINDOW) {
+    return {
+      allowed: false,
+      retryAfterSec: Math.max(1, Math.ceil((bucket.resetAt - now) / 1000)),
+      remaining: 0,
+    };
+  }
+  bucket.count += 1;
+  return { allowed: true, retryAfterSec: 0, remaining: AI_RATE_LIMIT_PER_WINDOW - bucket.count };
+}
+
+function enforceAiRateLimit(req: any, res: any): boolean {
+  const companyId = typeof req.body?.companyId === 'string' ? req.body.companyId : null;
+  if (!companyId) return true; // Defer to requireCompanyAccess, which will 400.
+  const result = checkAiRateLimit(companyId);
+  if (!result.allowed) {
+    res.setHeader('Retry-After', String(result.retryAfterSec));
+    res.status(429).json({
+      error: 'AI rate limit exceeded',
+      code: 'AI_RATE_LIMIT',
+      details: `Too many AI requests for this company. Retry in ${result.retryAfterSec}s.`,
+      retryAfterSec: result.retryAfterSec,
+    });
+    return false;
+  }
+  return true;
+}
+
 export function createApp() {
   const app = express();
 
@@ -1079,7 +1157,17 @@ export function createApp() {
   });
 
   app.get('/api/health', (_req, res) => {
-    res.json({ status: 'ok', time: new Date().toISOString() });
+    const db = getDb();
+    const firebaseAdminReady = Boolean(db);
+    const serviceAccountPresent = Boolean(process.env.FIREBASE_SERVICE_ACCOUNT);
+    const status = firebaseAdminReady ? 'ok' : 'degraded';
+    res.status(firebaseAdminReady ? 200 : 503).json({
+      status,
+      firebaseAdminReady,
+      serviceAccountPresent,
+      vercelEnv: process.env.VERCEL_ENV || null,
+      time: new Date().toISOString(),
+    });
   });
 
   const handleAiHealth = async (req: express.Request, res: express.Response) => {
@@ -1434,7 +1522,13 @@ export function createApp() {
       }
 
       if (sessionId.startsWith('mock_session_')) {
-        if (getStripe()) {
+        // Mock sessions are a dev/staging-only convenience. Block them in any
+        // production runtime regardless of whether STRIPE_SECRET_KEY is set,
+        // so a missing or corrupt key cannot silently enable free plan upgrades.
+        const isProductionRuntime =
+          process.env.VERCEL_ENV === 'production' ||
+          process.env.NODE_ENV === 'production';
+        if (isProductionRuntime || getStripe()) {
           return res.status(400).json({ error: 'Mock sessions are not allowed in production' });
         }
         const planId = (sessionId.split('_')[2] || 'starter') as PlanId;
@@ -1688,6 +1782,7 @@ export function createApp() {
   app.post('/api/ai/insights', async (req, res) => {
     const startedAt = Date.now();
     try {
+      if (!enforceAiRateLimit(req, res)) return;
       const access = await requireCompanyAccess(req, res, ['owner', 'admin']);
       if (!access) return;
       console.info('[AI] GEMINI_API_KEY detected', Boolean(process.env.GEMINI_API_KEY));
@@ -1796,6 +1891,7 @@ No markdown, no preamble.`;
   app.post('/api/ai/chat', async (req, res) => {
     const startedAt = Date.now();
     try {
+      if (!enforceAiRateLimit(req, res)) return;
       const access = await requireCompanyAccess(req, res, ['owner', 'admin', 'staff', 'viewer']);
       if (!access) return;
       console.info('[AI] /api/ai/chat request received', {
@@ -1914,6 +2010,7 @@ Maintain a professional, efficient, and supportive persona.`;
   app.post('/api/ai/proactive-thoughts', async (req, res) => {
     const startedAt = Date.now();
     try {
+      if (!enforceAiRateLimit(req, res)) return;
       const access = await requireCompanyAccess(req, res, ['owner', 'admin', 'staff', 'viewer']);
       if (!access) return;
       console.info('[AI] GEMINI_API_KEY detected', Boolean(process.env.GEMINI_API_KEY));

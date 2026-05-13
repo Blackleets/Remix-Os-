@@ -389,7 +389,11 @@ service cloud.firestore {
       allow get: if isPlatformAdmin() || isMember(resource.data.companyId);
       allow list: if isPlatformAdmin() || (isSignedIn() && exists(/databases/$(database)/documents/memberships/$(request.auth.uid + '_' + resource.data.companyId)));
       allow create: if hasRole(incoming().companyId, ['owner', 'admin', 'staff']);
-      allow update: if hasRole(existing().companyId, ['owner', 'admin', 'staff']);
+      // Block cross-tenant moves: companyId must remain identical on update.
+      // createdAt and ownerId-equivalent fields are also immutable.
+      allow update: if hasRole(existing().companyId, ['owner', 'admin', 'staff']) &&
+                    incoming().companyId == existing().companyId &&
+                    (!('createdAt' in incoming().diff(existing()).affectedKeys()));
       allow delete: if hasRole(existing().companyId, ['owner', 'admin']);
     }
     
