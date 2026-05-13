@@ -125,7 +125,16 @@ service cloud.firestore {
 
     // 1. Users
     match /users/{userId} {
-      allow read: if isPlatformAdmin() || (isSignedIn() && (request.auth.uid == userId || (resource != null && isMember(resource.data.currentCompanyId))));
+      allow read: if isPlatformAdmin() || (
+        isSignedIn() && (
+          request.auth.uid == userId ||
+          (
+            resource != null &&
+            resource.data.currentCompanyId is string &&
+            isMember(resource.data.currentCompanyId)
+          )
+        )
+      );
       allow write: if isSignedIn() && request.auth.uid == userId;
     }
 

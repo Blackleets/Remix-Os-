@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
 import { storage } from '../lib/firebase';
-import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
+import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { Button } from './Common';
 import { Upload, X, Loader2, Image as ImageIcon } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -21,7 +21,7 @@ export function ImageUpload({
   onChange, 
   onRemove, 
   path, 
-  label = 'Upload Image', 
+  label = 'Subir imagen', 
   className,
   aspectRatio = 'square'
 }: ImageUploadProps) {
@@ -36,12 +36,12 @@ export function ImageUpload({
 
     // Basic validation
     if (!file.type.startsWith('image/')) {
-      setError('Please upload an image file.');
+      setError('Sube un archivo de imagen válido.');
       return;
     }
 
     if (file.size > 2 * 1024 * 1024) { // 2MB limit
-      setError('File size must be less than 2MB.');
+      setError('El archivo debe pesar menos de 2 MB.');
       return;
     }
 
@@ -79,8 +79,8 @@ export function ImageUpload({
     } catch (err: any) {
       console.error('Upload failed:', err);
       setError(err.message?.includes('storage/unauthorized') 
-        ? 'Permission denied. Please check storage rules.' 
-        : 'Failed to upload image. Please try again.');
+        ? 'Permiso denegado. Revisa las reglas de Storage.' 
+        : 'No se pudo subir la imagen. Inténtalo de nuevo.');
     } finally {
       setUploading(false);
       // Reset input value to allow re-upload of same file
@@ -138,13 +138,13 @@ export function ImageUpload({
                 onClick={() => fileInputRef.current?.click()}
                 className="bg-white text-black hover:bg-neutral-200 h-9"
               >
-                Change
+                Cambiar
               </Button>
               <Button
                 type="button"
                 variant="ghost"
                 onClick={handleRemove}
-                aria-label="Remove image"
+                aria-label="Eliminar imagen"
                 className="text-white hover:bg-red-500/20 hover:text-red-400 h-9"
               >
                 <X className="w-4 h-4" />
@@ -161,7 +161,7 @@ export function ImageUpload({
               <Upload className="w-5 h-5" />
             </div>
             <span className="text-xs font-bold uppercase tracking-widest">{label}</span>
-            <span className="text-[10px] opacity-60">JPG, PNG up to 2MB</span>
+            <span className="text-[10px] opacity-60">JPG o PNG hasta 2 MB</span>
           </button>
         )}
       </div>

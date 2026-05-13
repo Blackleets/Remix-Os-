@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ChangeEvent } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Card, Button, Input, Label, cn } from '../components/Common';
 import { 
@@ -49,6 +49,7 @@ import { PLANS, isLimitReached, getCompanyUsage } from '../lib/plans';
 import { exportToCSV } from '../lib/exportUtils';
 import { format } from 'date-fns';
 import { ImageUpload } from '../components/ImageUpload';
+import { CustomerImportRow, ImportPreview, buildCustomerImportPreview, chunkArray, downloadCsvTemplate, readImportFile, withImportFileName } from '../lib/importUtils';
 
 interface Customer {
   id: string;
@@ -110,6 +111,11 @@ export function Customers() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [isImportOpen, setIsImportOpen] = useState(false);
+  const [importPreview, setImportPreview] = useState<ImportPreview<CustomerImportRow> | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importResult, setImportResult] = useState<{ created: number; skipped: number; errors: number } | null>(null);
+  const [importing, setImporting] = useState(false);
   const [detailCustomer, setDetailCustomer] = useState<Customer | null>(null);
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [messages, setMessages] = useState<CustomerMessage[]>([]);
@@ -327,6 +333,108 @@ export function Customers() {
     setForm({ name: '', email: '', phone: '', imageURL: '' });
   };
 
+  const handleOpenImport = () => {
+    setIsImportOpen((prev) => !prev);
+    setImportError(null);
+    setImportResult(null);
+    if (isImportOpen) {
+      setImportPreview(null);
+    }
+  };
+
+  const handleCustomerImportFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const parsed = await readImportFile(file);
+      const preview = buildCustomerImportPreview(
+        parsed,
+        new Set(customers.map((customer) => customer.email?.trim().toLowerCase()).filter(Boolean)),
+        new Set(customers.map((customer) => customer.phone?.trim()).filter(Boolean))
+      );
+      setImportPreview(withImportFileName(preview, file.name));
+      setImportError(null);
+      setImportResult(null);
+    } catch (error: any) {
+      setImportPreview(null);
+      setImportError(error?.message || 'No se pudo leer el archivo.');
+    } finally {
+      event.target.value = '';
+    }
+  };
+
+  const handleConfirmCustomerImport = async () => {
+    if (!company || !importPreview) return;
+
+    const validRows = importPreview.rows
+      .filter((row) => row.normalized && row.issues.length === 0 && row.duplicateKeys.length === 0)
+      .map((row) => row.normalized as CustomerImportRow);
+
+    if (validRows.length === 0) {
+      setImportError('No hay filas válidas para importar.');
+      return;
+    }
+
+    const planId = company.subscription?.planId || 'starter';
+    const plan = PLANS[planId];
+
+    try {
+      const usage = await getCompanyUsage(company.id);
+      if (isLimitReached(usage.customers + validRows.length, plan.limits.customers + 1)) {
+        setIsUpgradeModalOpen(true);
+        setImportError('Tu plan actual no permite importar esa cantidad de clientes.');
+        return;
+      }
+    } catch (error) {
+      console.warn('Usage check failed before customer import', error);
+      if (isLimitReached(customers.length + validRows.length, plan.limits.customers + 1)) {
+        setIsUpgradeModalOpen(true);
+        setImportError('Tu plan actual no permite importar esa cantidad de clientes.');
+        return;
+      }
+    }
+
+    setImporting(true);
+    try {
+      for (const chunk of chunkArray(validRows, 400)) {
+        const batch = writeBatch(db);
+        chunk.forEach((row) => {
+          const customerRef = doc(collection(db, 'customers'));
+          batch.set(customerRef, {
+            ...row,
+            email: row.email || '',
+            phone: row.phone || '',
+            companyId: company.id,
+            createdAt: serverTimestamp(),
+          });
+        });
+        await batch.commit();
+      }
+
+      await addDoc(collection(db, 'activities'), {
+        type: 'customer_import',
+        title: 'Importación de clientes',
+        subtitle: `${validRows.length} clientes importados desde ${importPreview.fileName}`,
+        companyId: company.id,
+        createdAt: serverTimestamp(),
+      });
+
+      setImportResult({
+        created: validRows.length,
+        skipped: importPreview.totalRows - validRows.length,
+        errors: importPreview.rows.filter((row) => row.issues.length > 0).length,
+      });
+      setImportError(null);
+      setImportPreview(null);
+      await fetchCustomers();
+    } catch (error: any) {
+      setImportError(error?.message || 'No se pudo completar la importación.');
+    } finally {
+      setImporting(false);
+    }
+  };
+
   const handleDelete = async (id: string) => {
     if (!company) return;
     if (!confirm(t('customers.delete_confirm'))) return;
@@ -421,6 +529,11 @@ export function Customers() {
               <Download className="w-4 h-4" /> {t('common.export')}
             </Button>
             {canEditCustomers && (
+              <Button variant="secondary" onClick={handleOpenImport} className="h-12 gap-2 px-6">
+                <Download className="w-4 h-4" /> Importar clientes
+              </Button>
+            )}
+            {canEditCustomers && (
               <Button onClick={handleCreateNew} className="h-12 gap-2 px-6">
                 <Plus className="w-4 h-4" /> {t('customers.add')}
               </Button>
@@ -469,6 +582,74 @@ export function Customers() {
         message={t('customers.upgrade_message')}
         limitName={t('nav.customers')}
       />
+
+      {isImportOpen && canEditCustomers && (
+        <Card className="space-y-6">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <p className="section-kicker mb-2">Importación masiva</p>
+              <h2 className="section-title text-2xl">Importar clientes</h2>
+              <p className="mt-2 max-w-2xl text-sm text-neutral-400">
+                Soporta CSV y JSON. Límite inicial: 1000 filas por importación. El `companyId` se resuelve desde tu sesión.
+              </p>
+            </div>
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <Button
+                type="button"
+                variant="secondary"
+                className="h-12 gap-2 px-6"
+                onClick={() => downloadCsvTemplate('clientes-template.csv', ['name', 'email', 'phone', 'segment', 'status', 'notes'])}
+              >
+                <Download className="h-4 w-4" /> Descargar plantilla
+              </Button>
+              <label className="inline-flex cursor-pointer items-center justify-center rounded-2xl border border-blue-400/30 bg-[linear-gradient(180deg,rgba(91,136,255,0.95),rgba(50,95,219,0.95))] px-5 py-2.5 text-sm font-semibold text-white shadow-[0_14px_34px_rgba(61,103,255,0.32)]">
+                Seleccionar archivo
+                <input type="file" accept=".csv,.json,application/json,text/csv" className="hidden" onChange={handleCustomerImportFile} />
+              </label>
+            </div>
+          </div>
+
+          {importError && (
+            <p className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">{importError}</p>
+          )}
+
+          {importResult && (
+            <p className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
+              Importación completada. Creados: {importResult.created}. Saltados: {importResult.skipped}. Errores: {importResult.errors}.
+            </p>
+          )}
+
+          {importPreview && (
+            <div className="space-y-5">
+              <div className="grid gap-3 md:grid-cols-4">
+                <div className="data-tile"><p className="section-kicker mb-2 !text-neutral-500">Archivo</p><p className="text-sm font-semibold text-white">{importPreview.fileName}</p></div>
+                <div className="data-tile"><p className="section-kicker mb-2 !text-neutral-500">Filas</p><p className="text-3xl font-bold text-white">{importPreview.totalRows}</p></div>
+                <div className="data-tile"><p className="section-kicker mb-2 !text-neutral-500">Válidas</p><p className="text-3xl font-bold text-emerald-300">{importPreview.validRows}</p></div>
+                <div className="data-tile"><p className="section-kicker mb-2 !text-neutral-500">Errores / duplicados</p><p className="text-3xl font-bold text-amber-300">{importPreview.errorRows + importPreview.duplicateRows}</p></div>
+              </div>
+
+              <div className="space-y-3">
+                {importPreview.rows.filter((row) => row.issues.length > 0 || row.duplicateKeys.length > 0).slice(0, 8).map((row) => (
+                  <div key={`${row.index}-${row.raw.email || row.raw.phone || row.raw.name}`} className="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
+                    <p className="text-xs font-black uppercase tracking-[0.2em] text-white">Fila {row.index}</p>
+                    <p className="mt-2 text-sm text-neutral-300">{row.raw.name || 'Sin nombre'} · {row.raw.email || row.raw.phone || 'Sin identificador'}</p>
+                    <p className="mt-2 text-xs leading-relaxed text-amber-200">{[...row.issues, ...row.duplicateKeys].join(' | ')}</p>
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
+                <Button type="button" variant="secondary" onClick={() => { setImportPreview(null); setImportError(null); setImportResult(null); }}>
+                  Limpiar preview
+                </Button>
+                <Button type="button" disabled={importing || importPreview.validRows === 0} onClick={handleConfirmCustomerImport}>
+                  {importing ? 'Importando...' : 'Confirmar importación'}
+                </Button>
+              </div>
+            </div>
+          )}
+        </Card>
+      )}
 
       <Card className="overflow-hidden p-0">
         <div className="space-y-6 border-b border-white/[0.05] bg-white/[0.02] p-6">

@@ -76,10 +76,34 @@ function getInsightTone(priority?: string) {
     };
   }
   return {
-    chip: 'Senal',
+    chip: 'Señal',
     accent: 'border-blue-400/16 bg-blue-500/8 text-blue-200',
     iconWrap: 'border-blue-400/16 bg-blue-500/10 text-blue-300',
   };
+}
+
+function buildCopilotDiagnostic(message: string, aiConfigured: boolean) {
+  if (!aiConfigured) {
+    return [
+      'La IA no está configurada. Añade GEMINI_API_KEY en Vercel.',
+      '',
+      'Próximos pasos:',
+      '- Añade `GEMINI_API_KEY` en Vercel.',
+      '- Verifica que la función `/api/index` esté desplegada.',
+      '- Redeploy de la app para que el backend tome la variable.',
+    ].join('\n');
+  }
+
+  return [
+    'No se pudo completar la consulta del Copilot.',
+    '',
+    `Diagnóstico: ${message}`,
+    '',
+    'Próximos pasos:',
+    '- Verifica que `/api/company/overview` y `/api/ai/chat` respondan.',
+    '- Confirma que Firebase Admin esté configurado en el backend.',
+    '- Reintenta cuando el backend vuelva a estar disponible.',
+  ].join('\n');
 }
 
 export function Copilot() {
@@ -167,17 +191,43 @@ export function Copilot() {
         setAiConfigured(false);
         return 'IA no configurada. Define GEMINI_API_KEY en el servidor para habilitar Copilot.';
       }
-      if (error.status === 401) return 'Tu sesion no esta autenticada para usar Copilot.';
+      if (error.status === 401) return 'Tu sesión no está autenticada para usar Copilot.';
       if (error.status === 403) return 'Tu rol actual no tiene acceso a este operador IA.';
       if (error.status === 400) return 'La solicitud a la IA no es valida. Revisa el mensaje e intenta de nuevo.';
       return error.message || 'La IA no pudo procesar la solicitud.';
     }
 
     if (error instanceof Error) {
+      if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+        return 'No se pudo conectar con el backend de Copilot. Verifica que las rutas /api estén activas.';
+      }
       return error.message || 'La IA no pudo procesar la solicitud.';
     }
 
     return 'La IA no pudo procesar la solicitud.';
+  }, []);
+
+  const normalizedCopilotError = useCallback((error: unknown) => {
+    if (error instanceof CopilotRequestError) {
+      if (error.code === 'AI_NOT_CONFIGURED' || error.status === 503) {
+        setAiConfigured(false);
+        return 'La IA no está configurada. Añade GEMINI_API_KEY en Vercel.';
+      }
+      if (error.status === 401) return 'Tu sesión no está autenticada para usar Copilot.';
+      if (error.status === 403) return 'Tu rol actual no tiene acceso a este operador IA.';
+      if (error.status === 400) return 'La solicitud a la IA no es válida. Revisa el mensaje e inténtalo de nuevo.';
+      if (error.status >= 500) return 'No se pudo contactar con la IA.';
+      return error.message || 'No se pudo contactar con la IA.';
+    }
+
+    if (error instanceof Error) {
+      if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+        return 'No se pudo contactar con la IA.';
+      }
+      return error.message || 'No se pudo contactar con la IA.';
+    }
+
+    return 'No se pudo contactar con la IA.';
   }, []);
 
   useEffect(() => {
@@ -266,12 +316,12 @@ export function Copilot() {
           }
         } catch (error) {
           console.warn('Proactive thoughts failed:', error);
-          const message = resolveCopilotError(error);
+          const message = normalizedCopilotError(error);
           setCopilotError(message);
         }
       } catch (error) {
         console.error('Monitoring error:', error);
-        const message = resolveCopilotError(error);
+        const message = normalizedCopilotError(error);
         setCopilotError(message);
       }
     };
@@ -279,7 +329,7 @@ export function Copilot() {
     runMonitoring();
     const interval = setInterval(runMonitoring, 60000 * 2);
     return () => clearInterval(interval);
-  }, [company?.id, isOpen, showToast, language, resolveCopilotError]);
+  }, [company?.id, isOpen, showToast, language, normalizedCopilotError]);
 
   const handleSendMessage = async (overrideText?: string) => {
     const textToSend = (overrideText || inputText).trim();
@@ -303,8 +353,12 @@ export function Copilot() {
 
     try {
       const overview = await fetchCompanyOverview(company.id);
+      setPhaseLabel('Analizando datos del negocio...');
       setPhase('analyzing');
-      setPhaseLabel('Analizando operacion...');
+      setPhaseLabel('Analizando datos del negocio...');
+      setPhaseLabel('Analizando operación...');
+
+      setPhaseLabel('Analizando datos del negocio...');
 
       const context = {
         ...overview,
@@ -318,7 +372,7 @@ export function Copilot() {
 
       const aiResponse = await chatCopilot(textToSend, history, context, language);
       if (!aiResponse || !aiResponse.trim()) {
-        throw new Error('La IA no devolvio contenido util.');
+        throw new Error('La IA no devolvió contenido útil.');
       }
 
       const userTriedToInject = /\[COMMAND:/i.test(textToSend);
@@ -364,7 +418,11 @@ export function Copilot() {
       }, ...prev].slice(0, 10));
     } catch (error) {
       console.error('Chat error:', error);
-      const message = resolveCopilotError(error);
+      const message = normalizedCopilotError(error);
+      const diagnostic = buildCopilotDiagnostic(
+        message,
+        message.includes('GEMINI_API_KEY') || message.includes('no está configurada') || !aiConfigured
+      );
       setIsTyping(false);
       setPhase('error');
       setPhaseLabel(message);
@@ -372,7 +430,7 @@ export function Copilot() {
       setMessages((prev) => [...prev, {
         id: `err-${Date.now()}`,
         role: 'model',
-        text: message,
+        text: diagnostic,
         timestamp: new Date(),
       }]);
     }
@@ -415,15 +473,28 @@ export function Copilot() {
 
   const quickPrompts = [
     { label: 'Informe ejecutivo', prompt: 'Dame un informe operativo ejecutivo y conciso para hoy.', icon: Activity },
-    { label: 'Pulso de ingresos', prompt: 'Resume el rendimiento de ingresos y las senales de tendencia.', icon: TrendingUp },
-    { label: 'Vigilancia de stock', prompt: 'Muestrame la exposicion por bajo stock y las prioridades de reposicion.', icon: Package },
-    { label: 'Movimiento de clientes', prompt: 'Que clientes necesitan atencion ahora mismo?', icon: Users },
+    { label: 'Pulso de ingresos', prompt: 'Resume el rendimiento de ingresos y las señales de tendencia.', icon: TrendingUp },
+    { label: 'Vigilancia de stock', prompt: 'Muéstrame la exposición por bajo stock y las prioridades de reposición.', icon: Package },
+    { label: 'Movimiento de clientes', prompt: '¿Qué clientes necesitan atención ahora mismo?', icon: Users },
   ];
 
   const intelActions = [
     { label: 'Generar informe semanal', prompt: 'Redacta un informe operativo semanal con ingresos, riesgos y siguientes acciones.', icon: TrendingUp },
-    { label: 'Revisar presion de inventario', prompt: 'Inspecciona productos con bajo stock y crea una lista de reposicion priorizada.', icon: Package },
-    { label: 'Detectar oportunidades de retencion', prompt: 'Revisa la actividad de clientes y detecta oportunidades de retencion.', icon: Users },
+    { label: 'Revisar presión de inventario', prompt: 'Inspecciona productos con bajo stock y crea una lista de reposición priorizada.', icon: Package },
+    { label: 'Detectar oportunidades de retención', prompt: 'Revisa la actividad de clientes y detecta oportunidades de retención.', icon: Users },
+  ];
+
+  const normalizedQuickPrompts = [
+    { label: 'Informe ejecutivo', prompt: 'Dame un informe operativo ejecutivo y conciso para hoy.', icon: Activity },
+    { label: 'Pulso de ingresos', prompt: 'Resume el rendimiento de ingresos y las señales de tendencia.', icon: TrendingUp },
+    { label: 'Vigilancia de stock', prompt: 'Muéstrame la exposición por bajo stock y las prioridades de reposición.', icon: Package },
+    { label: 'Movimiento de clientes', prompt: '¿Qué clientes necesitan atención ahora mismo?', icon: Users },
+  ];
+
+  const normalizedIntelActions = [
+    { label: 'Generar informe semanal', prompt: 'Redacta un informe operativo semanal con ingresos, riesgos y siguientes acciones.', icon: TrendingUp },
+    { label: 'Revisar presión de inventario', prompt: 'Inspecciona productos con bajo stock y crea una lista de reposición priorizada.', icon: Package },
+    { label: 'Detectar oportunidades de retención', prompt: 'Revisa la actividad de clientes y detecta oportunidades de retención.', icon: Users },
   ];
 
   const activeCommandCount = useMemo(
@@ -433,10 +504,18 @@ export function Copilot() {
 
   const phaseChip = useMemo(() => {
     if (phase === 'connecting') return { label: 'Conectando con IA...', accent: 'text-blue-200' };
-    if (phase === 'analyzing') return { label: 'Analizando operacion...', accent: 'text-amber-200' };
+    if (phase === 'analyzing') return { label: 'Analizando operación...', accent: 'text-amber-200' };
     if (!aiConfigured) return { label: 'IA no configurada', accent: 'text-red-200' };
-    if (phase === 'error') return { label: 'Error de operacion IA', accent: 'text-red-200' };
-    return { label: 'Operador en linea', accent: 'text-emerald-200' };
+    if (phase === 'error') return { label: 'Error de operación IA', accent: 'text-red-200' };
+    return { label: 'Operador en línea', accent: 'text-emerald-200' };
+  }, [aiConfigured, phase]);
+
+  const displayPhaseChip = useMemo(() => {
+    if (phase === 'connecting') return { label: 'Conectando con IA...', accent: 'text-blue-200' };
+    if (phase === 'analyzing') return { label: 'Analizando datos del negocio...', accent: 'text-amber-200' };
+    if (!aiConfigured) return { label: 'IA no configurada', accent: 'text-red-200' };
+    if (phase === 'error') return { label: 'No se pudo contactar con la IA', accent: 'text-red-200' };
+    return { label: 'Operador en línea', accent: 'text-emerald-200' };
   }, [aiConfigured, phase]);
 
   return (
@@ -487,7 +566,7 @@ export function Copilot() {
 
           <div className="min-w-0 text-left">
             <p className="section-kicker mb-1 !text-blue-200/80">Operador IA</p>
-            <p className="truncate text-[11px] font-semibold text-white">{phaseChip.label}</p>
+            <p className="truncate text-[11px] font-semibold text-white">{displayPhaseChip.label}</p>
           </div>
 
           {!isOpen && (
@@ -576,20 +655,20 @@ export function Copilot() {
               <div className="mb-4 flex flex-wrap items-center gap-2">
                 <span className="telemetry-chip !px-2.5 !py-1">
                   <Radar className="h-3 w-3 text-blue-300" />
-                  {lastScanAt ? `Ultimo escaneo ${format(lastScanAt, 'HH:mm')}` : 'Monitoreando'}
+                  {lastScanAt ? `Último escaneo ${format(lastScanAt, 'HH:mm')}` : 'Monitoreando'}
                 </span>
                 <span className="telemetry-chip !px-2.5 !py-1">
                   <Clock3 className="h-3 w-3 text-neutral-300" />
                   Refresco / 2m
                 </span>
-                <span className={cn('telemetry-chip !px-2.5 !py-1', phaseChip.accent)}>
+                <span className={cn('telemetry-chip !px-2.5 !py-1', displayPhaseChip.accent)}>
                   <Zap className="h-3 w-3" />
-                  {phaseChip.label}
+                  {displayPhaseChip.label}
                 </span>
                 {activeCommandCount > 0 && (
                   <span className="telemetry-chip !px-2.5 !py-1">
                     <Zap className="h-3 w-3 text-amber-300" />
-                    {activeCommandCount} accion lista
+                    {activeCommandCount} acción lista
                   </span>
                 )}
               </div>
@@ -600,7 +679,7 @@ export function Copilot() {
                     <AlertTriangle className="h-4 w-4" />
                     <span className="font-semibold">IA no configurada</span>
                   </div>
-                  <p className="leading-relaxed">Define <code>GEMINI_API_KEY</code> en el servidor para habilitar Copilot y los insights IA.</p>
+                  <p className="leading-relaxed">La IA no está configurada. Añade <code>GEMINI_API_KEY</code> en Vercel.</p>
                 </div>
               )}
 
@@ -646,11 +725,11 @@ export function Copilot() {
                           <p className="section-kicker mb-2">Operador IA</p>
                           <h4 className="mb-3 text-lg font-semibold text-white">Pide un informe operativo real</h4>
                           <p className="mb-6 text-sm leading-relaxed text-neutral-400">
-                            Puedo resumir flujo de ingresos, presion de producto, movimiento de clientes y acciones recomendadas a partir de datos reales del espacio de trabajo.
+                            Puedo resumir flujo de ingresos, presión de producto, movimiento de clientes y acciones recomendadas a partir de datos reales del espacio de trabajo.
                           </p>
 
                           <div className="space-y-2 text-left">
-                            {quickPrompts.map((prompt) => (
+                            {normalizedQuickPrompts.map((prompt) => (
                               <button
                                 key={prompt.label}
                                 onClick={() => handleSendMessage(prompt.prompt)}
@@ -748,7 +827,7 @@ export function Copilot() {
                                     <div className="mb-3 flex items-center gap-2">
                                       <Zap className="h-4 w-4 text-blue-300" />
                                       <span className="text-[10px] font-black uppercase tracking-[0.22em] text-blue-200">
-                                        {m.command.isReviewOnly ? 'Revision lista' : 'Accion lista'} · {m.command.type.replace('_', ' ')}
+                                        {m.command.isReviewOnly ? 'Revisión lista' : 'Acción lista'} · {m.command.type.replace('_', ' ')}
                                       </span>
                                     </div>
                                     <div className="flex gap-2">
@@ -774,7 +853,7 @@ export function Copilot() {
                               {!m.streaming && m.command && m.commandStatus === 'executed' && (
                                 <div className="mt-3 flex items-center gap-2 text-emerald-300">
                                   <CheckCircle2 className="h-3.5 w-3.5" />
-                                  <span className="text-[10px] font-black uppercase tracking-[0.2em]">Accion confirmada</span>
+                                  <span className="text-[10px] font-black uppercase tracking-[0.2em]">Acción confirmada</span>
                                 </div>
                               )}
                             </div>
@@ -786,7 +865,7 @@ export function Copilot() {
                     {isTyping && !messages.some((m) => m.streaming) && (
                       <div className="flex justify-start">
                         <div className="rounded-[22px] border border-white/8 bg-white/[0.03] px-4 py-3">
-                          <p className="mb-2 text-[10px] font-black uppercase tracking-[0.18em] text-neutral-500">{phaseLabel || 'Analizando operacion...'}</p>
+                          <p className="mb-2 text-[10px] font-black uppercase tracking-[0.18em] text-neutral-500">{phaseLabel || 'Analizando operación...'}</p>
                           <div className="flex gap-1.5">
                             <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-blue-300/60" />
                             <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-blue-300/60 [animation-delay:0.15s]" />
@@ -813,7 +892,7 @@ export function Copilot() {
                             void handleSendMessage();
                           }
                         }}
-                        placeholder={aiConfigured ? 'Pide un informe, una vigilancia, un resumen o la siguiente accion...' : 'IA no configurada'}
+                        placeholder={aiConfigured ? 'Pide un informe, una vigilancia, un resumen o la siguiente acción...' : 'IA no configurada'}
                         disabled={!aiConfigured}
                         className="flex-1 rounded-2xl border border-white/10 bg-white/[0.035] px-4 py-3 text-sm text-white placeholder:text-neutral-600 focus:border-blue-400/30 focus:outline-none focus:ring-2 focus:ring-blue-400/25 disabled:cursor-not-allowed disabled:opacity-50"
                       />
@@ -836,7 +915,7 @@ export function Copilot() {
                         }}
                         className="mt-3 w-full text-center text-[10px] font-black uppercase tracking-[0.2em] text-neutral-600 transition-colors hover:text-neutral-400"
                       >
-                        Limpiar sesion del operador
+                        Limpiar sesión del operador
                       </button>
                     )}
                   </div>
@@ -852,16 +931,16 @@ export function Copilot() {
                             <Zap className="h-5 w-5 text-neutral-500" />
                           </OSGlyph>
                         <p className="section-kicker mb-2">Vigilancia IA</p>
-                        <p className="text-base font-semibold text-white">Aun no hay senales del operador</p>
+                        <p className="text-base font-semibold text-white">Aún no hay señales del operador</p>
                         <p className="mt-2 text-sm leading-relaxed text-neutral-400">
-                          Copilot escanea el grafo operativo cada dos minutos y publica aqui las senales relevantes.
+                          Copilot escanea el grafo operativo cada dos minutos y publica aquí las señales relevantes.
                         </p>
                       </div>
                     </div>
                   ) : (
                     <div className="space-y-3">
                       <div className="mb-4 flex items-center justify-between">
-                        <p className="section-kicker">Cola de senales</p>
+                        <p className="section-kicker">Cola de señales</p>
                         <span className="telemetry-chip !px-2.5 !py-1">{insights.length} observaciones</span>
                       </div>
 
@@ -891,7 +970,7 @@ export function Copilot() {
                                 <button
                                   onClick={() => {
                                     setActiveTab('chat');
-                                    void handleSendMessage(`Cuentame mas sobre esta senal operativa: "${ins.text.slice(0, 100)}"`);
+                                    void handleSendMessage(`Cuéntame más sobre esta señal operativa: "${ins.text.slice(0, 100)}"`);
                                   }}
                                   className="mt-3 inline-flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-blue-200 transition-colors hover:text-blue-100"
                                 >
@@ -907,7 +986,7 @@ export function Copilot() {
                       <div className="mt-6 border-t border-white/6 pt-5">
                         <p className="mb-3 section-kicker">Playbooks del operador</p>
                         <div className="space-y-2">
-                          {intelActions.map((action) => (
+                          {normalizedIntelActions.map((action) => (
                             <button
                               key={action.label}
                               onClick={() => {

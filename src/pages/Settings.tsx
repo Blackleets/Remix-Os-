@@ -8,6 +8,7 @@ import { motion } from 'motion/react';
 import { useLocale } from '../hooks/useLocale';
 import { ImageUpload } from '../components/ImageUpload';
 import { updateProfile } from 'firebase/auth';
+import { COMPANY_VERTICAL_OPTIONS, getCompanyVerticalLabel, normalizeCompanyVertical } from '../lib/company';
 
 export function Settings() {
   const { company, user, userProfile, refreshCompany, refreshProfile } = useAuth();
@@ -19,7 +20,7 @@ export function Settings() {
   const [form, setForm] = useState({
     name: company?.name || '',
     industry: company?.industry || '',
-    vertical: (company as any)?.vertical || company?.industry || 'Retail',
+    vertical: normalizeCompanyVertical((company as any)?.vertical || company?.industry),
     email: company?.email || '',
     phone: company?.phone || '',
     currency: company?.currency || 'USD',
@@ -35,22 +36,15 @@ export function Settings() {
 
   const [avatarLoading, setAvatarLoading] = useState(false);
   const [avatarSuccess, setAvatarSuccess] = useState(false);
+  const [avatarError, setAvatarError] = useState<string | null>(null);
 
   const [userLang, setUserLang] = useState(userProfile?.language || 'es');
-
-  const verticalOptions = [
-    { value: 'Belleza', label: 'Belleza' },
-    { value: 'Restaurante', label: 'Restaurante' },
-    { value: 'Retail', label: 'Retail' },
-    { value: 'Servicios', label: 'Servicios' },
-    { value: 'Wellness', label: 'Wellness' },
-  ];
 
   useEffect(() => {
     setForm({
       name: company?.name || '',
       industry: company?.industry || '',
-      vertical: (company as any)?.vertical || company?.industry || 'Retail',
+      vertical: normalizeCompanyVertical((company as any)?.vertical || company?.industry),
       email: company?.email || '',
       phone: company?.phone || '',
       currency: company?.currency || 'USD',
@@ -85,10 +79,11 @@ export function Settings() {
 
     try {
       const companyRef = doc(db, 'companies', company.id);
+      const vertical = normalizeCompanyVertical(form.vertical);
       await updateDoc(companyRef, {
         ...form,
-        industry: form.vertical,
-        vertical: form.vertical,
+        industry: getCompanyVerticalLabel(vertical),
+        vertical,
         updatedAt: serverTimestamp(),
       });
       
@@ -104,11 +99,12 @@ export function Settings() {
 
   const handleAvatarSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!userProfile) return;
+    if (!user?.uid) return;
 
     setAvatarLoading(true);
+    setAvatarError(null);
     try {
-      const userRef = doc(db, 'users', userProfile.uid);
+      const userRef = doc(db, 'users', user.uid);
       if (user) {
         await updateProfile(user, {
           displayName: avatarForm.displayName || user.displayName || '',
@@ -122,8 +118,9 @@ export function Settings() {
       await refreshProfile();
       setAvatarSuccess(true);
       setTimeout(() => setAvatarSuccess(false), 3000);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Avatar update failed:", err);
+      setAvatarError(err?.message || 'No se pudo actualizar el perfil.');
     } finally {
       setAvatarLoading(false);
     }
@@ -149,7 +146,7 @@ export function Settings() {
                         </div>
                         <div>
                             <h2 className="font-display font-bold text-xl text-white">{t('settings.security_credentials')}</h2>
-                            <p className="text-xs text-neutral-500 uppercase tracking-widest font-mono">NODE_USER_PROFILE</p>
+                            <p className="text-xs text-neutral-500 uppercase tracking-widest font-mono">PERFIL_USUARIO</p>
                         </div>
                     </div>
                 </div>
@@ -160,7 +157,7 @@ export function Settings() {
                             <ImageUpload 
                                 value={avatarForm.photoURL}
                                 onChange={url => setAvatarForm({ ...avatarForm, photoURL: url })}
-                                path={`users/${userProfile?.uid}/avatar`}
+                                path={`users/${user?.uid}/avatar`}
                                 label="Avatar"
                             />
                         </div>
@@ -180,6 +177,9 @@ export function Settings() {
                             >
                                 {avatarLoading ? t('common.syncing') : avatarSuccess ? t('settings.profile_updated') : t('settings.update_profile')}
                             </Button>
+                            {avatarError && (
+                              <p className="text-xs text-red-400">{avatarError}</p>
+                            )}
                         </div>
                     </div>
                 </form>
@@ -193,7 +193,7 @@ export function Settings() {
                     </div>
                     <div>
                         <h2 className="font-display font-bold text-xl text-white">{t('settings.localization')}</h2>
-                        <p className="text-xs text-neutral-500 uppercase tracking-widest font-mono">NODE_LOCALE_PARAMS</p>
+                        <p className="text-xs text-neutral-500 uppercase tracking-widest font-mono">PARAMETROS_LOCALES</p>
                     </div>
                 </div>
 
@@ -231,7 +231,7 @@ export function Settings() {
                 </div>
                 <div>
                   <h2 className="font-display font-bold text-2xl text-white">{t('settings.company_profile')}</h2>
-                  <p className="text-sm text-neutral-500 font-mono">NODE_OS_ID: {company?.id.slice(0, 12).toUpperCase()}</p>
+                  <p className="text-sm text-neutral-500 font-mono">EMPRESA_ID: {company?.id.slice(0, 12).toUpperCase()}</p>
                 </div>
               </div>
               <div className="flex flex-col md:flex-row items-center gap-4">
@@ -270,9 +270,9 @@ export function Settings() {
                     <select 
                         className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition-all appearance-none"
                         value={form.vertical}
-                        onChange={e => setForm({...form, vertical: e.target.value, industry: e.target.value})}
+                        onChange={e => setForm({...form, vertical: e.target.value as typeof form.vertical})}
                     >
-                        {verticalOptions.map((option) => (
+                        {COMPANY_VERTICAL_OPTIONS.map((option) => (
                           <option key={option.value} className="bg-neutral-900" value={option.value}>{option.label}</option>
                         ))}
                     </select>
@@ -292,7 +292,7 @@ export function Settings() {
                       <option value="MXN" className="bg-neutral-900">MXN ($) - Pesos Mexicanos</option>
                       <option value="COP" className="bg-neutral-900">COP ($) - Pesos Colombianos</option>
                       <option value="BRL" className="bg-neutral-900">BRL (R$) - Real Brasileiro</option>
-                      <option value="GBP" className="bg-neutral-900">GBP (£) - British Pounds</option>
+                      <option value="GBP" className="bg-neutral-900">GBP (£) - Libras esterlinas</option>
                     </select>
                   </div>
                   <div className="space-y-2">
@@ -350,7 +350,7 @@ export function Settings() {
                     <div className="space-y-3 pt-4">
                         <div className="flex items-center justify-between py-2 border-b border-white/[0.03]">
                             <span className="text-[10px] uppercase font-bold text-neutral-600 tracking-widest">{t('settings.node_tier')}</span>
-                            <span className="text-[10px] font-mono bg-blue-500/10 text-blue-400 px-2 py-0.5 rounded border border-blue-500/20 uppercase font-bold text-center">Priority V1</span>
+                            <span className="text-[10px] font-mono bg-blue-500/10 text-blue-400 px-2 py-0.5 rounded border border-blue-500/20 uppercase font-bold text-center">Prioridad V1</span>
                         </div>
                         <div className="flex items-center justify-between py-2">
                             <span className="text-[10px] uppercase font-bold text-neutral-600 tracking-widest">{t('settings.entity_health')}</span>
@@ -382,7 +382,7 @@ export function Settings() {
             </div>
             <div className="md:ml-auto">
                 <Button variant="secondary" disabled className="text-[10px] uppercase tracking-widest font-bold opacity-50 px-6">
-                    Multi-Admin coming in v2.4
+                    Multi-admin disponible en v2.4
                 </Button>
             </div>
           </div>

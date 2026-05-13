@@ -15,13 +15,13 @@ export function useLocale() {
   const { userProfile, company, refreshProfile } = useAuth();
 
   // Prioritize current i18n language, then user profile, then company default
-  const rawLang = i18n.language || userProfile?.language || company?.defaultLanguage || 'en';
+  const rawLang = i18n.language || userProfile?.language || company?.defaultLanguage || 'es';
   let language = rawLang.split('-')[0].toLowerCase();
   
   // Validate supported languages
   const supported = ['en', 'es', 'pt'];
   if (!supported.includes(language)) {
-    language = 'en';
+    language = 'es';
   }
   
   const currency = company?.currency || 'USD';

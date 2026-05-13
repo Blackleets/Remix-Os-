@@ -27,9 +27,9 @@ const SuperAdmin = lazy(() => import('./pages/SuperAdmin').then((module) => ({ d
 const RouteLoading = () => (
   <div className="flex h-[60vh] items-center justify-center">
     <div className="shell-panel min-w-[260px] px-6 py-10 text-center">
-      <p className="section-kicker mb-3">Module Loader</p>
-      <p className="text-base font-semibold text-white">Initializing premium surface...</p>
-      <p className="mt-2 text-sm text-neutral-500">Preparing the next operating module.</p>
+      <p className="section-kicker mb-3">Cargador de módulos</p>
+      <p className="text-base font-semibold text-white">Inicializando la siguiente superficie...</p>
+      <p className="mt-2 text-sm text-neutral-500">Preparando el próximo módulo operativo.</p>
     </div>
   </div>
 );
@@ -42,8 +42,8 @@ const ProtectedRoute = ({ children, allowedRoles }: { children: React.ReactNode;
     return (
       <div className="shell-background flex h-screen items-center justify-center">
         <div className="shell-panel px-8 py-10 text-center">
-          <p className="section-kicker mb-3">Boot Sequence</p>
-          <p className="text-base font-semibold text-white">Loading Remix OS...</p>
+          <p className="section-kicker mb-3">Secuencia de arranque</p>
+          <p className="text-base font-semibold text-white">Cargando Remix OS...</p>
         </div>
       </div>
     );
@@ -129,8 +129,8 @@ const PlatformAdminRoute = ({ children }: { children: React.ReactNode }) => {
     return (
       <div className="shell-background flex h-screen items-center justify-center">
         <div className="shell-panel px-8 py-10 text-center">
-          <p className="section-kicker mb-3">Admin Layer</p>
-          <p className="text-base font-semibold text-white">Validating platform access...</p>
+          <p className="section-kicker mb-3">Capa de administración</p>
+          <p className="text-base font-semibold text-white">Validando acceso a la plataforma...</p>
         </div>
       </div>
     );

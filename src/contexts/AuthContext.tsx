@@ -1,7 +1,8 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import { User, onAuthStateChanged } from 'firebase/auth';
-import { doc, getDoc, collection, query, where, getDocs, setDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, collection, query, where, getDocs, setDoc, serverTimestamp, updateDoc, limit } from 'firebase/firestore';
 import { auth, db, handleFirestoreError, OperationType } from '../lib/firebase';
+import { normalizeCompanyVertical, getCompanyVerticalLabel } from '../lib/company';
 
 interface Company {
   id: string;
@@ -42,6 +43,7 @@ interface UserProfile {
   displayName?: string;
   photoURL?: string;
   language?: string;
+  currentCompanyId?: string | null;
   createdAt?: any;
 }
 
@@ -92,6 +94,72 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     }
   };
 
+  const syncCurrentCompanyId = async (uid: string, companyId?: string | null) => {
+    try {
+      await setDoc(doc(db, 'users', uid), {
+        currentCompanyId: companyId || null,
+        updatedAt: serverTimestamp(),
+      }, { merge: true });
+    } catch (error) {
+      console.error('Error syncing currentCompanyId:', error);
+    }
+  };
+
+  const syncOnboardingState = async (
+    companyId: string,
+    membershipRole: 'viewer' | 'staff' | 'admin' | 'owner' | null,
+    currentCompany?: Company | null
+  ) => {
+    const [productsSnap, customersSnap, ordersSnap] = await Promise.all([
+      getDocs(query(collection(db, 'products'), where('companyId', '==', companyId), limit(1))),
+      getDocs(query(collection(db, 'customers'), where('companyId', '==', companyId), limit(1))),
+      getDocs(query(collection(db, 'orders'), where('companyId', '==', companyId), limit(1))),
+    ]);
+
+    const checklist = {
+      profile: true,
+      product: !productsSnap.empty,
+      customer: !customersSnap.empty,
+      order: !ordersSnap.empty,
+    };
+    const completedSteps = Object.values(checklist).filter(Boolean).length;
+    const nextStep = checklist.order ? 4 : checklist.customer ? 3 : checklist.product ? 2 : 1;
+    const onboardingState = {
+      isComplete: completedSteps === 4,
+      step: nextStep,
+      checklist,
+    };
+
+    const normalizedVertical = normalizeCompanyVertical(currentCompany?.vertical || currentCompany?.industry);
+    const normalizedCompany = currentCompany ? {
+      ...currentCompany,
+      vertical: normalizedVertical,
+      industry: getCompanyVerticalLabel(normalizedVertical),
+      onboardingState,
+    } : null;
+
+    const stateChanged =
+      currentCompany?.onboardingState?.isComplete !== onboardingState.isComplete ||
+      currentCompany?.onboardingState?.step !== onboardingState.step ||
+      currentCompany?.onboardingState?.checklist?.profile !== onboardingState.checklist.profile ||
+      currentCompany?.onboardingState?.checklist?.product !== onboardingState.checklist.product ||
+      currentCompany?.onboardingState?.checklist?.customer !== onboardingState.checklist.customer ||
+      currentCompany?.onboardingState?.checklist?.order !== onboardingState.checklist.order ||
+      currentCompany?.vertical !== normalizedVertical ||
+      currentCompany?.industry !== getCompanyVerticalLabel(normalizedVertical);
+
+    if (stateChanged && (membershipRole === 'owner' || membershipRole === 'admin')) {
+      await updateDoc(doc(db, 'companies', companyId), {
+        vertical: normalizedVertical,
+        industry: getCompanyVerticalLabel(normalizedVertical),
+        onboardingState,
+        updatedAt: serverTimestamp(),
+      });
+    }
+
+    return normalizedCompany;
+  };
+
   const ensureUserProfile = async (firebaseUser: User) => {
     try {
       const userRef = doc(db, 'users', firebaseUser.uid);
@@ -109,6 +177,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           displayName: fallbackName,
           photoURL: firebaseUser.photoURL || '',
           language: fallbackLanguage,
+          currentCompanyId: null,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         });
@@ -122,6 +191,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       if (!current.photoURL && firebaseUser.photoURL) patch.photoURL = firebaseUser.photoURL;
       if (!current.email && firebaseUser.email) patch.email = firebaseUser.email;
       if (!current.language) patch.language = fallbackLanguage;
+      if (!('currentCompanyId' in current)) patch.currentCompanyId = null;
 
       if (Object.keys(patch).length > 0) {
         await setDoc(userRef, { ...patch, updatedAt: serverTimestamp() }, { merge: true });
@@ -151,7 +221,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         try {
           const companyDoc = await getDoc(doc(db, 'companies', membershipData.companyId));
           if (companyDoc.exists()) {
-            setCompany({ id: companyDoc.id, ...companyDoc.data() } as Company);
+            const rawCompany = { id: companyDoc.id, ...companyDoc.data() } as Company;
+            const normalizedCompany = await syncOnboardingState(
+              membershipData.companyId,
+              membershipData.role,
+              rawCompany
+            );
+            setCompany(normalizedCompany || rawCompany);
+            await syncCurrentCompanyId(userId, membershipData.companyId);
           }
         } catch (e) {
           handleFirestoreError(e, OperationType.GET, `companies/${membershipData.companyId}`);
@@ -159,6 +236,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       } else {
         setCompany(null);
         setRole(null);
+        await syncCurrentCompanyId(userId, null);
       }
     } catch (error) {
       console.error("Error fetching company:", error);

@@ -1,14 +1,15 @@
 import { useEffect, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
-import { Button, Input, Label, Card, cn } from '../components/Common';
+import { Button, Input, Card, cn } from '../components/Common';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../lib/firebase';
-import { doc, setDoc, serverTimestamp, collection, addDoc, query, where, getDocs, updateDoc } from 'firebase/firestore';
+import { doc, serverTimestamp, collection, query, where, getDocs } from 'firebase/firestore';
 import { motion, AnimatePresence } from 'motion/react';
 import { CheckCircle2, Building2, Plus, ArrowRight } from 'lucide-react';
 import { ImageUpload } from '../components/ImageUpload';
 
 import { useLocale } from '../hooks/useLocale';
+import { COMPANY_VERTICAL_OPTIONS, getCompanyVerticalLabel } from '../lib/company';
 
 interface Invitation {
   id: string;
@@ -20,17 +21,17 @@ interface Invitation {
 
 export function Onboarding() {
   const { t, language } = useLocale();
-  const { user, userProfile, company, refreshCompany } = useAuth();
+  const { user, company, refreshCompany } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [onboardingError, setOnboardingError] = useState<string | null>(null);
   const [step, setStep] = useState(1);
   const [invitations, setInvitations] = useState<Invitation[]>([]);
+  const [draftCompanyId] = useState(() => doc(collection(db, 'companies')).id);
   const [form, setForm] = useState({
     name: '',
-    industry: 'Retail',
     vertical: 'retail',
-    country: 'United States',
+    country: 'Estados Unidos',
     currency: 'USD',
     defaultLanguage: language || 'es',
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
@@ -40,36 +41,11 @@ export function Onboarding() {
     useSeedData: true
   });
 
-  const verticalOptions = [
-    { value: 'beauty', label: 'Belleza' },
-    { value: 'restaurant', label: 'Restaurante' },
-    { value: 'retail', label: 'Retail' },
-    { value: 'services', label: 'Servicios' },
-    { value: 'wellness', label: 'Wellness' },
-  ];
-
-  const currencyOptions = [
-    { value: 'USD', label: 'USD ($)' },
-    { value: 'EUR', label: 'EUR (EUR)' },
-    { value: 'MXN', label: 'MXN ($)' },
-    { value: 'COP', label: 'COP ($)' },
-    { value: 'BRL', label: 'BRL (R$)' },
-  ];
-
   const languageOptions = [
-    { value: 'es', label: 'Espanol' },
+    { value: 'es', label: 'Español' },
     { value: 'en', label: 'English' },
-    { value: 'pt', label: 'Portugues' },
+    { value: 'pt', label: 'Português' },
   ];
-
-  const handleVerticalChange = (vertical: string) => {
-    const match = verticalOptions.find((option) => option.value === vertical);
-    setForm((prev) => ({
-      ...prev,
-      vertical,
-      industry: match?.label || prev.industry,
-    }));
-  };
 
   useEffect(() => {
     const fetchInvitations = async () => {
@@ -86,7 +62,7 @@ export function Onboarding() {
   }, [user]);
 
   if (!user) return <Navigate to="/auth" />;
-  if (company?.onboardingState?.isComplete) return <Navigate to="/dashboard" />;
+  if (company) return <Navigate to="/dashboard" replace />;
 
   const handleAcceptInvite = async (invite: Invitation) => {
     setLoading(true);
@@ -109,8 +85,8 @@ export function Onboarding() {
 
       batch.set(doc(collection(db, 'activities')), {
         type: 'team_join',
-        title: 'New Member Joined',
-        subtitle: `${user.email} joined through invitation`,
+        title: 'Miembro incorporado',
+        subtitle: `${user.email} se unió mediante invitación`,
         companyId: invite.companyId,
         createdAt: serverTimestamp(),
       });
@@ -131,11 +107,12 @@ export function Onboarding() {
     try {
       const { writeBatch, doc } = await import('firebase/firestore');
       const batch = writeBatch(db);
-      const companyRef = doc(collection(db, 'companies'));
+      const companyRef = doc(db, 'companies', draftCompanyId);
+      const verticalLabel = getCompanyVerticalLabel(form.vertical);
       
       batch.set(companyRef, {
         name: form.name,
-        industry: form.industry,
+        industry: verticalLabel,
         vertical: form.vertical,
         country: form.country,
         currency: form.currency,
@@ -147,8 +124,8 @@ export function Onboarding() {
         ownerId: user.uid,
         createdAt: serverTimestamp(),
         onboardingState: {
-          isComplete: true,
-          step: 3,
+          isComplete: false,
+          step: 1,
           checklist: {
             profile: true,
             product: false,
@@ -255,14 +232,14 @@ export function Onboarding() {
                     <ImageUpload
                       value={form.logoURL}
                       onChange={(url) => setForm({ ...form, logoURL: url })}
-                      path={`companies/pending-${user?.uid}/logo`}
+                      path={`companies/${draftCompanyId}/logo`}
                       label="Logo"
                     />
                   </div>
                   <div className="min-w-0">
                     <p className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-500">Identidad visual</p>
-                    <p className="mt-2 text-sm font-semibold text-white">Sube tu logo o continua sin el.</p>
-                    <p className="mt-1 text-xs text-neutral-500">Podras cambiarlo despues desde Configuracion.</p>
+                    <p className="mt-2 text-sm font-semibold text-white">Sube tu logo o continúa sin él.</p>
+                    <p className="mt-1 text-xs text-neutral-500">Podrás cambiarlo después desde Configuración.</p>
                   </div>
                 </div>
                 
@@ -283,9 +260,9 @@ export function Onboarding() {
                       <select 
                         className="w-full h-14 sm:h-16 bg-white/[0.03] border border-white/10 rounded-2xl px-6 text-lg font-bold text-white outline-none focus:ring-4 focus:ring-white/5 transition-all appearance-none cursor-pointer"
                         value={form.vertical}
-                        onChange={(e) => handleVerticalChange(e.target.value)}
+                        onChange={(e) => setForm({ ...form, vertical: e.target.value })}
                       >
-                        {verticalOptions.map((option) => (
+                        {COMPANY_VERTICAL_OPTIONS.map((option) => (
                           <option key={option.value} className="bg-neutral-900" value={option.value}>{option.label}</option>
                         ))}
                       </select>
@@ -310,9 +287,9 @@ export function Onboarding() {
                 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 sm:gap-8 relative">
                   <div className="space-y-4">
-                    <span className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-500 ml-1">Pais</span>
+                    <span className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-500 ml-1">País</span>
                     <Input
-                      placeholder="Pais de operacion"
+                      placeholder="País de operación"
                       className="h-14 sm:h-16 text-lg sm:text-xl font-bold px-6 rounded-2xl bg-white/[0.03] border-white/10 text-white placeholder:text-neutral-700 focus:bg-white/[0.05] focus:border-white/20 transition-all"
                       value={form.country}
                       onChange={(e) => setForm({ ...form, country: e.target.value })}
@@ -383,7 +360,7 @@ export function Onboarding() {
                   />
                 </div>
                 <div className="space-y-4">
-                  <span className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-500 ml-1">Timezone</span>
+                  <span className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-500 ml-1">Zona horaria</span>
                   <div className="relative">
                     <select
                       className="w-full h-14 sm:h-16 bg-white/[0.03] border border-white/10 rounded-2xl px-6 text-base font-bold text-white outline-none focus:ring-4 focus:ring-white/5 transition-all appearance-none cursor-pointer"

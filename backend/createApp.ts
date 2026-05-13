@@ -34,6 +34,7 @@ interface CompanyOverview {
   inventoryStatus: Array<{ id: string; name: string; stock: number }>;
   pendingReminders: Array<{ customer: string; type: string; due: unknown; notes: string }>;
   recentCommunications: Array<{ customer: string; status: string; content: string }>;
+  recentActivities: Array<{ type: string; title: string; subtitle: string; createdAt: unknown }>;
   salesVelocity: {
     currentPeriodOrders: number;
     previousPeriodOrders: number;
@@ -116,7 +117,7 @@ function sendAiConfigError(res: any) {
   return res.status(503).json({
     error: 'AI not configured',
     code: 'AI_NOT_CONFIGURED',
-    details: 'Set GEMINI_API_KEY to enable Copilot and AI insights.',
+    details: 'Set GEMINI_API_KEY in Vercel to enable Copilot and AI insights.',
   });
 }
 
@@ -383,12 +384,16 @@ async function buildCompanyOverview(db: Firestore, companyId: string): Promise<C
   const companySnap = await db.collection('companies').doc(companyId).get();
   const company = companySnap.data() || {};
 
-  const [productsSnap, ordersSnap, customersSnap, remindersSnap, messagesSnap] = await Promise.all([
+  const [productsSnap, ordersSnap, customersSnap, remindersSnap, messagesSnap, activitiesSnap] = await Promise.all([
     db.collection('products').where('companyId', '==', companyId).get(),
     db.collection('orders').where('companyId', '==', companyId).get(),
     db.collection('customers').where('companyId', '==', companyId).get(),
     db.collection('reminders').where('companyId', '==', companyId).where('status', '==', 'pending').get(),
     db.collection('customerMessages').where('companyId', '==', companyId).orderBy('createdAt', 'desc').limit(10).get().catch(() => ({
+      docs: [],
+      size: 0,
+    })),
+    db.collection('activities').where('companyId', '==', companyId).orderBy('createdAt', 'desc').limit(10).get().catch(() => ({
       docs: [],
       size: 0,
     })),
@@ -459,12 +464,19 @@ async function buildCompanyOverview(db: Firestore, companyId: string): Promise<C
   const growth = previousRevenue30d > 0
     ? ((recentRevenue30d - previousRevenue30d) / previousRevenue30d) * 100
     : recentRevenue30d > 0 ? 100 : 0;
+  const onboardingChecklist = {
+    profile: true,
+    product: productsSnap.size > 0,
+    customer: customersSnap.size > 0,
+    order: ordersSnap.size > 0,
+  };
+  const onboardingCompleted = Object.values(onboardingChecklist).every(Boolean);
 
   return {
     companyId,
     companyName: company.name || 'Unknown company',
     industry: company.industry || 'General',
-    onboardingCompleted: Boolean(company.onboardingState?.isComplete),
+    onboardingCompleted,
     planId: getPlanDefinition(company.subscription?.planId).id,
     customersCount: customersSnap.size,
     productsCount: productsSnap.size,
@@ -487,6 +499,12 @@ async function buildCompanyOverview(db: Firestore, companyId: string): Promise<C
       customer: entry.data().customerName || 'Unknown',
       status: entry.data().status || 'draft',
       content: String(entry.data().content || '').slice(0, 120),
+    })) || [],
+    recentActivities: (activitiesSnap as any).docs?.map((entry: any) => ({
+      type: entry.data().type || 'activity',
+      title: entry.data().title || '',
+      subtitle: entry.data().subtitle || '',
+      createdAt: entry.data().createdAt || null,
     })) || [],
     salesVelocity: {
       currentPeriodOrders: recentOrders.length,
@@ -1252,6 +1270,8 @@ BUSINESS TELEMETRY:
 - Sales Trend: ${ctx.salesVelocity?.currentPeriodOrders || 0} orders this week (${ctx.salesVelocity?.trend || 'flat'} vs last week)
 - Inventory Risk: ${ctx.lowStockCount || 0} items below threshold.
 - Engagement: ${ctx.pendingReminders?.length || 0} urgent follow-ups pending.
+- Recent Activities: ${JSON.stringify(ctx.recentActivities || [])}
+- Recent Communications: ${JSON.stringify(ctx.recentCommunications || [])}
 
 OPERATIONAL PRINCIPLES:
 1. OPERATIONAL FOCUS: Avoid conversational filler. Provide high-impact data analysis first.
@@ -1333,6 +1353,10 @@ ${(context.topCustomers?.slice(0, 3) || []).map((customer: AnyRecord, index: num
 LOW INVENTORY:
 ${(context.inventoryStatus?.slice(0, 3) || []).map((product: AnyRecord) =>
   `- ${product.name}: ${product.stock} units`).join('\n') || 'All stock healthy'}
+
+RECENT ACTIVITIES:
+${(context.recentActivities?.slice(0, 5) || []).map((activity: AnyRecord, index: number) =>
+  `${index + 1}. ${activity.title || activity.type}: ${activity.subtitle || ''}`).join('\n') || 'No recent activity'}
 
 Format: Return ONLY a JSON object with:
 { "insights": [ { "text": "specific insight", "priority": "high"|"medium"|"low" } ] }

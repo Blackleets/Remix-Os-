@@ -21,6 +21,7 @@ import { auth } from '../lib/firebase';
 import { signOut } from 'firebase/auth';
 import { useTranslation } from 'react-i18next';
 import { usePlatformAdmin } from '../hooks/usePlatformAdmin';
+import { getCompanyVerticalLabel } from '../lib/company';
 
 export function Sidebar({ onClose }: { onClose?: () => void }) {
   const location = useLocation();
@@ -82,7 +83,7 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
             <div className="min-w-0">
               <p className="truncate text-sm font-semibold text-white">{company?.name || 'Núcleo principal'}</p>
               <p className="mt-1 truncate font-mono text-[10px] uppercase tracking-[0.2em] text-neutral-500">
-                {company?.industry || 'Núcleo operativo'}
+                {company ? getCompanyVerticalLabel(company.vertical || company.industry) : 'Núcleo operativo'}
               </p>
             </div>
           </div>
@@ -128,10 +129,12 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
                     <div className="flex-1">
                       <span>{item.label}</span>
                     </div>
-                    <span className={cn(
-                      'font-mono text-[10px] tracking-normal transition-opacity',
-                      isActive ? 'text-blue-200/70' : 'text-neutral-700 group-hover:text-neutral-500'
-                    )}>
+                    <span
+                      className={cn(
+                        'font-mono text-[10px] tracking-normal transition-opacity',
+                        isActive ? 'text-blue-200/70' : 'text-neutral-700 group-hover:text-neutral-500'
+                      )}
+                    >
                       OS
                     </span>
                   </motion.div>

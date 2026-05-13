@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ChangeEvent } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Card, Button, Input, Label, cn } from '../components/Common';
 import { Plus, Search, Box, Trash2, Edit2, Download, Package, Radar, Sparkles, Archive } from 'lucide-react';
@@ -12,6 +12,7 @@ import { UpgradeModal } from '../components/UpgradeModal';
 import { PLANS, isLimitReached, getCompanyUsage } from '../lib/plans';
 import { exportToCSV } from '../lib/exportUtils';
 import { ImageUpload } from '../components/ImageUpload';
+import { ImportPreview, ProductImportRow, buildProductImportPreview, chunkArray, downloadCsvTemplate, readImportFile, withImportFileName } from '../lib/importUtils';
 
 interface Product {
   id: string;
@@ -34,6 +35,11 @@ export function Products() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [isImportOpen, setIsImportOpen] = useState(false);
+  const [importPreview, setImportPreview] = useState<ImportPreview<ProductImportRow> | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importResult, setImportResult] = useState<{ created: number; skipped: number; errors: number } | null>(null);
+  const [importing, setImporting] = useState(false);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -179,6 +185,105 @@ export function Products() {
     setForm({ name: '', price: '', stockLevel: '', category: '', sku: '', description: '', status: 'active', imageURL: '' });
   };
 
+  const handleOpenImport = () => {
+    setIsImportOpen((prev) => !prev);
+    setImportError(null);
+    setImportResult(null);
+    if (isImportOpen) {
+      setImportPreview(null);
+    }
+  };
+
+  const handleProductImportFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const parsed = await readImportFile(file);
+      const preview = buildProductImportPreview(
+        parsed,
+        new Set(products.map((product) => product.sku?.trim().toLowerCase()).filter(Boolean))
+      );
+      setImportPreview(withImportFileName(preview, file.name));
+      setImportError(null);
+      setImportResult(null);
+    } catch (error: any) {
+      setImportPreview(null);
+      setImportError(error?.message || 'No se pudo leer el archivo.');
+    } finally {
+      event.target.value = '';
+    }
+  };
+
+  const handleConfirmProductImport = async () => {
+    if (!company || !importPreview) return;
+
+    const validRows = importPreview.rows
+      .filter((row) => row.normalized && row.issues.length === 0 && row.duplicateKeys.length === 0)
+      .map((row) => row.normalized as ProductImportRow);
+
+    if (validRows.length === 0) {
+      setImportError('No hay filas válidas para importar.');
+      return;
+    }
+
+    const planId = company.subscription?.planId || 'starter';
+    const plan = PLANS[planId];
+
+    try {
+      const usage = await getCompanyUsage(company.id);
+      if (isLimitReached(usage.products + validRows.length, plan.limits.products + 1)) {
+        setIsUpgradeModalOpen(true);
+        setImportError('Tu plan actual no permite importar esa cantidad de productos.');
+        return;
+      }
+    } catch (error) {
+      console.warn('Usage check failed before import', error);
+      if (isLimitReached(products.length + validRows.length, plan.limits.products + 1)) {
+        setIsUpgradeModalOpen(true);
+        setImportError('Tu plan actual no permite importar esa cantidad de productos.');
+        return;
+      }
+    }
+
+    setImporting(true);
+    try {
+      for (const chunk of chunkArray(validRows, 400)) {
+        const batch = writeBatch(db);
+        chunk.forEach((row) => {
+          const productRef = doc(collection(db, 'products'));
+          batch.set(productRef, {
+            ...row,
+            companyId: company.id,
+            createdAt: serverTimestamp(),
+          });
+        });
+        await batch.commit();
+      }
+
+      await addDoc(collection(db, 'activities'), {
+        type: 'product_import',
+        title: 'Importación de productos',
+        subtitle: `${validRows.length} productos importados desde ${importPreview.fileName}`,
+        companyId: company.id,
+        createdAt: serverTimestamp(),
+      });
+
+      setImportResult({
+        created: validRows.length,
+        skipped: importPreview.totalRows - validRows.length,
+        errors: importPreview.rows.filter((row) => row.issues.length > 0).length,
+      });
+      setImportError(null);
+      setImportPreview(null);
+      await fetchProducts();
+    } catch (error: any) {
+      setImportError(error?.message || 'No se pudo completar la importación.');
+    } finally {
+      setImporting(false);
+    }
+  };
+
   const handleDelete = async (id: string) => {
     if (!company) return;
     if (!confirm(t('products.delete_confirm'))) return;
@@ -257,6 +362,11 @@ export function Products() {
             >
               <Download className="w-4 h-4" /> {t('common.export')}
             </Button>
+            {canEditProducts && (
+              <Button variant="secondary" onClick={handleOpenImport} className="h-12 gap-2 px-6">
+                <Download className="w-4 h-4" /> Importar productos
+              </Button>
+            )}
             {role !== 'viewer' && (
               <Button onClick={handleCreateNew} className="h-12 gap-2 px-6">
                 <Plus className="w-4 h-4" /> {t('products.add')}
@@ -306,6 +416,74 @@ export function Products() {
         message={t('products.upgrade.message')}
         limitName={t('products.limit_products') || 'Products'}
       />
+
+      {isImportOpen && canEditProducts && (
+        <Card className="space-y-6">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <p className="section-kicker mb-2">Importación masiva</p>
+              <h2 className="section-title text-2xl">Importar productos</h2>
+              <p className="mt-2 max-w-2xl text-sm text-neutral-400">
+                Soporta CSV y JSON. Límite inicial: 1000 filas por importación. El `companyId` se toma de tu sesión actual.
+              </p>
+            </div>
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <Button
+                type="button"
+                variant="secondary"
+                className="h-12 gap-2 px-6"
+                onClick={() => downloadCsvTemplate('productos-template.csv', ['name', 'sku', 'price', 'cost', 'stockLevel', 'category', 'status', 'description'])}
+              >
+                <Download className="h-4 w-4" /> Descargar plantilla
+              </Button>
+              <label className="inline-flex cursor-pointer items-center justify-center rounded-2xl border border-blue-400/30 bg-[linear-gradient(180deg,rgba(91,136,255,0.95),rgba(50,95,219,0.95))] px-5 py-2.5 text-sm font-semibold text-white shadow-[0_14px_34px_rgba(61,103,255,0.32)]">
+                Seleccionar archivo
+                <input type="file" accept=".csv,.json,application/json,text/csv" className="hidden" onChange={handleProductImportFile} />
+              </label>
+            </div>
+          </div>
+
+          {importError && (
+            <p className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">{importError}</p>
+          )}
+
+          {importResult && (
+            <p className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
+              Importación completada. Creados: {importResult.created}. Saltados: {importResult.skipped}. Errores: {importResult.errors}.
+            </p>
+          )}
+
+          {importPreview && (
+            <div className="space-y-5">
+              <div className="grid gap-3 md:grid-cols-4">
+                <div className="data-tile"><p className="section-kicker mb-2 !text-neutral-500">Archivo</p><p className="text-sm font-semibold text-white">{importPreview.fileName}</p></div>
+                <div className="data-tile"><p className="section-kicker mb-2 !text-neutral-500">Filas</p><p className="text-3xl font-bold text-white">{importPreview.totalRows}</p></div>
+                <div className="data-tile"><p className="section-kicker mb-2 !text-neutral-500">Válidas</p><p className="text-3xl font-bold text-emerald-300">{importPreview.validRows}</p></div>
+                <div className="data-tile"><p className="section-kicker mb-2 !text-neutral-500">Errores / duplicados</p><p className="text-3xl font-bold text-amber-300">{importPreview.errorRows + importPreview.duplicateRows}</p></div>
+              </div>
+
+              <div className="space-y-3">
+                {importPreview.rows.filter((row) => row.issues.length > 0 || row.duplicateKeys.length > 0).slice(0, 8).map((row) => (
+                  <div key={`${row.index}-${row.raw.sku || row.raw.name}`} className="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
+                    <p className="text-xs font-black uppercase tracking-[0.2em] text-white">Fila {row.index}</p>
+                    <p className="mt-2 text-sm text-neutral-300">{row.raw.name || 'Sin nombre'} · {row.raw.sku || 'Sin SKU'}</p>
+                    <p className="mt-2 text-xs leading-relaxed text-amber-200">{[...row.issues, ...row.duplicateKeys].join(' | ')}</p>
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
+                <Button type="button" variant="secondary" onClick={() => { setImportPreview(null); setImportError(null); setImportResult(null); }}>
+                  Limpiar preview
+                </Button>
+                <Button type="button" disabled={importing || importPreview.validRows === 0} onClick={handleConfirmProductImport}>
+                  {importing ? 'Importando...' : 'Confirmar importación'}
+                </Button>
+              </div>
+            </div>
+          )}
+        </Card>
+      )}
 
       <Card className="overflow-hidden p-0">
         <div className="border-b border-white/[0.06] bg-white/[0.02] p-6">

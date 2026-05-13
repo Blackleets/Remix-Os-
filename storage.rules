@@ -1,0 +1,50 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function companyDoc(companyId) {
+      return firestore.get(/databases/(default)/documents/companies/$(companyId));
+    }
+
+    function membershipDoc(companyId) {
+      return firestore.get(/databases/(default)/documents/memberships/$(request.auth.uid + '_' + companyId));
+    }
+
+    function companyExists(companyId) {
+      return companyDoc(companyId).data != null;
+    }
+
+    function hasCompanyRole(companyId, roles) {
+      return isSignedIn() &&
+        membershipDoc(companyId).data != null &&
+        membershipDoc(companyId).data.role in roles;
+    }
+
+    match /users/{userId}/{allPaths=**} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && request.auth.uid == userId;
+    }
+
+    match /companies/{companyId}/logo/{allPaths=**} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && (!companyExists(companyId) || hasCompanyRole(companyId, ['owner', 'admin']));
+    }
+
+    match /companies/{companyId}/products/{allPaths=**} {
+      allow read: if isSignedIn();
+      allow write: if hasCompanyRole(companyId, ['owner', 'admin', 'staff']);
+    }
+
+    match /companies/{companyId}/customers/{allPaths=**} {
+      allow read: if isSignedIn();
+      allow write: if hasCompanyRole(companyId, ['owner', 'admin', 'staff']);
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

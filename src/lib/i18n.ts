@@ -140,6 +140,11 @@ const resources = {
           init_failed: 'Failed to initialize workspace.'
         }
       },
+      auth: {
+        errors: {
+          google_sign_in: 'Google sign-in failed. Please try again.'
+        }
+      },
       dashboard: {
         title: 'Operational Overview',
         status: 'Remix OS is active for {{name}}. System status: Optimized.',
@@ -498,6 +503,8 @@ const resources = {
         search: 'Search OS: Commands, Entities, Transactions...',
         live: 'Live',
         abort: 'Abort',
+        back: 'Back',
+        continue: 'Continue',
         sync: 'Sync',
         update: 'Update',
         export: 'Export CSV',
@@ -1004,6 +1011,11 @@ const resources = {
           init_failed: 'Error al inicializar el espacio de trabajo.'
         }
       },
+      auth: {
+        errors: {
+          google_sign_in: 'No se pudo iniciar sesión con Google. Inténtalo de nuevo.'
+        }
+      },
       dashboard: {
         title: 'Resumen Operativo',
         status: 'Remix OS está activo para {{name}}. Estado del sistema: Optimizado.',
@@ -1362,6 +1374,8 @@ const resources = {
         search: 'Buscar: Comandos, Entidades, Transacciones...',
         live: 'En Vivo',
         abort: 'Abortar',
+        back: 'Atrás',
+        continue: 'Continuar',
         sync: 'Sincronizar',
         update: 'Actualizar',
         export: 'Exportar CSV',
@@ -1868,6 +1882,11 @@ const resources = {
           init_failed: 'Erro ao inicializar o espaço de trabalho.'
         }
       },
+      auth: {
+        errors: {
+          google_sign_in: 'Falha ao entrar com o Google. Tente novamente.'
+        }
+      },
       dashboard: {
         title: 'Visão Geral Operacional',
         status: 'Remix OS está ativo para {{name}}. Status do sistema: Otimizado.',
@@ -2226,6 +2245,8 @@ const resources = {
         search: 'Buscar: Comandos, Entidades, Transações...',
         live: 'Ao Vivo',
         abort: 'Abortar',
+        back: 'Voltar',
+        continue: 'Continuar',
         sync: 'Sincronizar',
         update: 'Atualizar',
         export: 'Exportar CSV',

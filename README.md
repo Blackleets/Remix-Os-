@@ -2,19 +2,41 @@
 <img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
 </div>
 
-# Run and deploy your AI Studio app
+# Remix OS SaaS Setup
 
-This contains everything you need to run your app locally.
+## Requisitos
 
-View your app in AI Studio: https://ai.studio/apps/5da6adea-9b27-408f-afc6-40bb653047c8
+- Node.js
+- Proyecto Firebase con Auth, Firestore y Storage activos
+- Backend con acceso a Firebase Admin
+- `GEMINI_API_KEY` si quieres Copilot e insights IA
+- Stripe si quieres billing real
 
-## Run Locally
+## Desarrollo local
 
-**Prerequisites:**  Node.js
-
-
-1. Install dependencies:
+1. Instala dependencias:
    `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
+2. Crea `.env.local` a partir de `.env.example`
+3. Configura como mínimo:
+   - `GEMINI_API_KEY`
+   - `FIREBASE_SERVICE_ACCOUNT` o acceso equivalente para `backend/createApp.ts`
+   - `STRIPE_*` sólo si vas a probar billing real
+4. Ejecuta la app:
    `npm run dev`
+
+## Dependencias operativas
+
+- El frontend usa rutas autenticadas `/api/*` para overview de empresa, Copilot, insights y billing.
+- Si el backend no está disponible, Copilot entrará en modo degradado.
+- Los uploads dependen de `storage.rules`.
+- Los permisos de datos dependen de `firestore.rules`.
+
+## Reglas a desplegar
+
+- Firestore: `firestore.rules`
+- Storage: `storage.rules`
+
+## Build
+
+- `npm run build`
+- `npm run lint`
