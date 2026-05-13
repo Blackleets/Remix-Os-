@@ -372,11 +372,13 @@ export function Copilot() {
         setLastScanAt(new Date());
         setCopilotError(null);
 
+        // Always ask the AI for a thought, even on empty operational context.
+        // The backend prompt knows how to nudge with onboarding hints instead of
+        // pretending there are insights to extract from zero data.
         if (!hasOperationalData(overview)) {
-          console.info('[Copilot] Empty operational context detected during monitoring.', {
+          console.info('[Copilot] Empty operational context — requesting onboarding nudge.', {
             companyId: company.id,
           });
-          return;
         }
 
         try {
@@ -410,7 +412,9 @@ export function Copilot() {
     };
 
     runMonitoring();
-    const interval = setInterval(runMonitoring, 60000 * 2);
+    // Tick every 60s for a more "alive" Copilot. Rate limit (30/min/companyId)
+    // caps any abuse; the polling pauses when the tab is hidden (Fase 2 task).
+    const interval = setInterval(runMonitoring, 60000);
     return () => clearInterval(interval);
   }, [company?.id, isOpen, showToast, language, normalizedCopilotError]);
 
@@ -644,31 +648,23 @@ export function Copilot() {
         )}
       </AnimatePresence>
 
-      <div className={cn('fixed bottom-6 z-[60]', isPOSRoute ? 'left-6 right-6 sm:right-auto' : 'right-6', isOpen && 'pointer-events-none opacity-0')}>
-        <motion.button
-          onClick={() => {
-            if (isOpen) setIsOpen(false);
-            else openPanel();
-          }}
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.98 }}
-          className={cn(
-            'operator-launcher group relative flex h-13 items-center gap-2.5 overflow-hidden rounded-[20px] border px-3.5 pr-4 transition-all duration-300',
-            isOpen
-              ? 'border-white/12 bg-[rgba(14,18,24,0.96)] shadow-[0_18px_48px_rgba(0,0,0,0.42)]'
-              : 'border-blue-400/18 bg-[linear-gradient(180deg,rgba(15,22,37,0.96),rgba(7,11,18,0.96))] shadow-[0_22px_56px_rgba(6,10,20,0.38)]'
-          )}
-        >
-          <OSGlyph tone={isOpen ? 'neutral' : 'blue'} size="sm" className="relative">
-            {isOpen ? <X className="h-4 w-4 text-white" /> : <PanelRightOpen className="h-4 w-4" />}
-          </OSGlyph>
+      {!isOpen && (
+        <div className={cn('fixed bottom-6 z-[60]', isPOSRoute ? 'left-6 right-6 sm:right-auto' : 'right-6')}>
+          <motion.button
+            onClick={openPanel}
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            className="operator-launcher group relative flex h-13 items-center gap-2.5 overflow-hidden rounded-[20px] border border-blue-400/18 bg-[linear-gradient(180deg,rgba(15,22,37,0.96),rgba(7,11,18,0.96))] px-3.5 pr-4 shadow-[0_22px_56px_rgba(6,10,20,0.38)] transition-all duration-300"
+          >
+            <OSGlyph tone="blue" size="sm" className="relative">
+              <PanelRightOpen className="h-4 w-4" />
+            </OSGlyph>
 
-          <div className="min-w-0 text-left">
-            <p className="section-kicker mb-1 !text-blue-200/80">Operador IA</p>
-            <p className="truncate text-[11px] font-semibold text-white">{displayPhaseChip.label}</p>
-          </div>
+            <div className="min-w-0 text-left">
+              <p className="section-kicker mb-1 !text-blue-200/80">Operador IA</p>
+              <p className="truncate text-[11px] font-semibold text-white">{displayPhaseChip.label}</p>
+            </div>
 
-          {!isOpen && (
             <div className="ml-auto flex items-center gap-2">
               {unreadInsights > 0 && (
                 <span className="flex min-w-[22px] items-center justify-center rounded-full border border-emerald-300/20 bg-emerald-400 px-2 py-1 text-[10px] font-black text-[#03110a]">
@@ -677,9 +673,9 @@ export function Copilot() {
               )}
               <BrainCircuit className="h-3.5 w-3.5 text-blue-300" />
             </div>
-          )}
-        </motion.button>
-      </div>
+          </motion.button>
+        </div>
+      )}
 
       <AnimatePresence>
         {isOpen && (

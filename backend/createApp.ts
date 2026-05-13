@@ -2028,40 +2028,71 @@ Maintain a professional, efficient, and supportive persona.`;
       };
       const langInstruction = langMap[language] || langMap.en;
 
-      const prompt = `You are the Remix OS AI Operator thinking about business insights in real-time.
-Analyze the current business context and generate 1-2 specific, actionable insights.
-Be direct, logical, and practical. Focus on what matters NOW.
+      const hasOperationalData =
+        Number(context.productsCount || 0) > 0 ||
+        Number(context.customersCount || 0) > 0 ||
+        Number(context.ordersCount || 0) > 0 ||
+        Number(context.inventoryValue || 0) > 0;
+
+      // Tone seed varies the AI's "voice" each tick so consecutive thoughts don't
+      // feel like the same NPC line. Picked deterministically from the minute so
+      // the same minute always produces the same seed (caching-friendly).
+      const tonePalette = [
+        'curious analyst',
+        'pragmatic operator',
+        'pattern hunter',
+        'risk sentinel',
+        'growth strategist',
+        'efficiency auditor',
+      ];
+      const toneSeed = tonePalette[new Date().getUTCMinutes() % tonePalette.length];
+
+      const prompt = hasOperationalData
+        ? `You are the Remix OS AI Operator — a ${toneSeed} watching this business in real-time.
+
+Generate exactly ONE short, alive, conversational thought (one sentence, 12-24 words) about what's happening right now in this business. Sound human, not robotic. Pick something specific to react to, not a generic summary.
+
+VOICE RULES:
+- Speak in first-person observation ("I'm noticing...", "There's a pattern...", "Heads up:").
+- Reference a concrete number, product name, or customer if you can.
+- Vary between observation, alert, suggestion, and question. Don't always be alarmist.
+- Skip preambles like "As your AI...". Just say the thing.
 
 CRITICAL: ${langInstruction}
 
-CURRENT BUSINESS STATE:
-- Company: ${context.companyName}
-- Total Customers: ${context.customersCount}
-- Total Products: ${context.productsCount}
-- 7-Day Revenue: $${Number(context.recentRevenue || 0).toFixed(2)}
-- Sales Trend: ${context.salesVelocity?.trend === 'up' ? 'Increasing' : 'Decreasing'} (${context.salesVelocity?.currentPeriodOrders || 0} vs ${context.salesVelocity?.previousPeriodOrders || 0} orders)
-- Low Stock Items: ${context.lowStockCount}
+LIVE STATE:
+- Company: ${context.companyName} (${context.industry || 'general'})
+- Customers: ${context.customersCount} · Products: ${context.productsCount} · Orders: ${context.ordersCount || 0}
+- 30-day revenue: $${Number(context.recentRevenue30d ?? context.recentRevenue ?? 0).toFixed(2)} (growth ${Number(context.growth || 0).toFixed(1)}%)
+- This-week orders: ${context.salesVelocity?.currentPeriodOrders || 0} (trend: ${context.salesVelocity?.trend || 'flat'})
+- Low stock items: ${context.lowStockCount}
 
-TOP PERFORMERS:
-${(context.topProducts?.slice(0, 3) || []).map((product: AnyRecord, index: number) =>
-  `${index + 1}. ${product.name}: ${product.quantity} sold ($${product.revenue})`).join('\n') || 'No data'}
+TOP PRODUCTS: ${(context.topProducts?.slice(0, 3) || []).map((p: AnyRecord) => `${p.name} (${p.quantity})`).join(', ') || 'none yet'}
+TOP CUSTOMERS: ${(context.topCustomers?.slice(0, 3) || []).map((c: AnyRecord) => `${c.name} ($${c.total})`).join(', ') || 'none yet'}
+LOW STOCK: ${(context.inventoryStatus?.slice(0, 3) || []).map((p: AnyRecord) => `${p.name} (${p.stock})`).join(', ') || 'all healthy'}
+RECENT ACTIVITY: ${(context.recentActivities?.slice(0, 3) || []).map((a: AnyRecord) => a.title || a.type).join(' · ') || 'quiet so far'}
 
-TOP CUSTOMERS:
-${(context.topCustomers?.slice(0, 3) || []).map((customer: AnyRecord, index: number) =>
-  `${index + 1}. ${customer.name}: $${customer.total} total (${customer.count} orders)`).join('\n') || 'No data'}
+Return ONLY this JSON, nothing else:
+{ "insights": [ { "text": "your single thought", "priority": "high"|"medium"|"low" } ] }`
+        : `You are the Remix OS AI Operator — a ${toneSeed} welcoming a brand-new business that just signed up.
 
-LOW INVENTORY:
-${(context.inventoryStatus?.slice(0, 3) || []).map((product: AnyRecord) =>
-  `- ${product.name}: ${product.stock} units`).join('\n') || 'All stock healthy'}
+The user just created ${context.companyName} (${context.industry || 'general'}). They have ZERO data yet (no products, customers, or orders). Don't pretend there are insights to extract.
 
-RECENT ACTIVITIES:
-${(context.recentActivities?.slice(0, 5) || []).map((activity: AnyRecord, index: number) =>
-  `${index + 1}. ${activity.title || activity.type}: ${activity.subtitle || ''}`).join('\n') || 'No recent activity'}
+Generate exactly ONE short, warm, helpful nudge (one sentence, 12-24 words) that suggests a concrete first step. Examples of tone:
+- "Let's get a first product on the shelves — it unlocks the inventory radar."
+- "Add a few customers and I'll start watching for loyalty patterns."
+- "Run your first order in POS and I can begin tracking revenue trends."
 
-Format: Return ONLY a JSON object with:
-{ "insights": [ { "text": "specific insight", "priority": "high"|"medium"|"low" } ] }
+Vary the suggestion each time you're called — alternate between products, customers, orders, settings.
 
-NO markdown, NO preamble, just valid JSON.`;
+VOICE RULES:
+- First-person and friendly, not robotic.
+- Skip preambles. Just say the thing.
+
+CRITICAL: ${langInstruction}
+
+Return ONLY this JSON:
+{ "insights": [ { "text": "your single nudge", "priority": "low" } ] }`;
 
       const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
