@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { addDoc, collection, doc, serverTimestamp, setDoc } from 'firebase/firestore';
 import type { ComponentType } from 'react';
+import { SuperAdminFeedbackCenter } from '../components/super-admin/FeedbackCenter';
 import { Button, Card, cn, Input, Label } from '../components/Common';
 import { db } from '../lib/firebase';
 import { useLocale } from '../hooks/useLocale';
@@ -1484,6 +1485,8 @@ export function SuperAdmin() {
           </div>
 
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+            <SuperAdminFeedbackCenter />
+
             <Card className="border-white/5 bg-neutral-900/40 p-5 xl:col-span-2">
               <div className="mb-5">
                 <p className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-600">{t('super_admin.tables.users_label')}</p>

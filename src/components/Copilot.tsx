@@ -21,7 +21,7 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { chatCopilot, CopilotRequestError, getProactiveThoughts } from '../services/gemini';
+import { chatCopilot, checkAiHealth, CopilotRequestError, getProactiveThoughts } from '../services/gemini';
 import { cn, OSGlyph } from './Common';
 import { useLocation, useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
@@ -184,6 +184,50 @@ export function Copilot() {
   }, [messages, activeTab, insights]);
 
   useEffect(() => {
+    if (!company?.id) {
+      setAiConfigured(true);
+      return;
+    }
+
+    let cancelled = false;
+
+    const run = async () => {
+      try {
+        const health = await checkAiHealth();
+        if (cancelled) return;
+        setAiConfigured(Boolean(health?.geminiConfigured));
+      } catch (error) {
+        if (cancelled || !(error instanceof CopilotRequestError)) return;
+        if (error.code === 'AI_NOT_CONFIGURED' || error.status === 503) {
+          setAiConfigured(false);
+          return;
+        }
+        if (error.status === 404) {
+          setCopilotError('El endpoint de IA no esta desplegado o no existe en este entorno.');
+          return;
+        }
+        if (error.status === 401) {
+          setCopilotError('Tu sesion no esta autenticada para usar Copilot.');
+          return;
+        }
+        if (error.status === 403) {
+          setCopilotError('No tienes permisos para usar la IA con la empresa activa.');
+          return;
+        }
+        if (error.status === 500) {
+          setCopilotError('Error interno del backend al consultar el estado de la IA.');
+        }
+      }
+    };
+
+    void run();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [company?.id]);
+
+  useEffect(() => {
     return () => {
       if (streamingRef.current) clearInterval(streamingRef.current);
       if (toastRef.current) clearTimeout(toastRef.current);
@@ -200,11 +244,13 @@ export function Copilot() {
     if (error instanceof CopilotRequestError) {
       if (error.code === 'AI_NOT_CONFIGURED' || error.status === 503) {
         setAiConfigured(false);
-        return 'IA no configurada. Define GEMINI_API_KEY en el servidor para habilitar Copilot.';
+        return 'IA no configurada en el runtime del backend. Revisa GEMINI_API_KEY en Vercel y vuelve a desplegar.';
       }
       if (error.status === 401) return 'Tu sesión no está autenticada para usar Copilot.';
-      if (error.status === 403) return 'Tu rol actual no tiene acceso a este operador IA.';
+      if (error.status === 403) return 'No tienes permisos para usar la IA con la empresa activa.';
       if (error.status === 400) return 'La solicitud a la IA no es valida. Revisa el mensaje e intenta de nuevo.';
+      if (error.status === 404) return 'El endpoint de IA no está desplegado o no existe en este entorno.';
+      if (error.status === 500) return 'Error interno del backend al procesar la solicitud de IA.';
       return error.message || 'La IA no pudo procesar la solicitud.';
     }
 
@@ -225,8 +271,10 @@ export function Copilot() {
         return 'La IA no está configurada. Añade GEMINI_API_KEY en Vercel.';
       }
       if (error.status === 401) return 'Tu sesión no está autenticada para usar Copilot.';
-      if (error.status === 403) return 'Tu rol actual no tiene acceso a este operador IA.';
+      if (error.status === 403) return 'No tienes permisos para usar la IA con la empresa activa.';
       if (error.status === 400) return 'La solicitud a la IA no es válida. Revisa el mensaje e inténtalo de nuevo.';
+      if (error.status === 404) return 'El endpoint de IA no está desplegado o no existe en este entorno.';
+      if (error.status === 500) return 'Error interno del backend al procesar la solicitud de IA.';
       if (error.status >= 500) return 'No se pudo contactar con la IA.';
       return error.message || 'No se pudo contactar con la IA.';
     }

@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-route
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { Sidebar } from './components/Sidebar';
 import { Topbar } from './components/Topbar';
+import { BetaFeedbackButton } from './components/BetaFeedbackButton';
 import { Landing } from './pages/Landing';
 import { Auth } from './pages/Auth';
 import { Onboarding } from './pages/Onboarding';
@@ -109,6 +110,7 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
             {children}
           </div>
         </main>
+        {pathname !== '/pos' && <BetaFeedbackButton />}
         {pathname !== '/pos' && <Copilot />}
       </div>
     </div>

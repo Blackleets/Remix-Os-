@@ -14,6 +14,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 type AnyRecord = Record<string, any>;
+const VALID_PLATFORM_FEEDBACK_STATUSES = ['open', 'reviewed', 'resolved'] as const;
+const VALID_PLATFORM_FEEDBACK_SEVERITIES = ['low', 'medium', 'high', 'critical'] as const;
 
 interface CompanyOverview {
   companyId: string;
@@ -119,7 +121,7 @@ function sendAiConfigError(res: any) {
   return res.status(503).json({
     error: 'AI not configured',
     code: 'AI_NOT_CONFIGURED',
-    details: 'Set GEMINI_API_KEY in Vercel to enable Copilot and AI insights.',
+    details: 'GEMINI_API_KEY is not available in the current Vercel runtime. Check environment scope and redeploy.',
   });
 }
 
@@ -318,6 +320,26 @@ async function requirePlatformAdmin(req: any, res: any): Promise<{ uid: string; 
   return { uid: decoded.uid, email: decoded.email || '' };
 }
 
+async function requireAuthenticatedUser(req: any, res: any): Promise<{ uid: string; email: string } | null> {
+  const authHeader = req.headers.authorization || '';
+  const match = authHeader.match(/^Bearer\s+(.+)$/i);
+  if (!match) {
+    res.status(401).json({ error: 'Missing Authorization bearer token' });
+    return null;
+  }
+
+  try {
+    const decoded = await getAuth().verifyIdToken(match[1]);
+    return {
+      uid: decoded.uid,
+      email: decoded.email || '',
+    };
+  } catch {
+    res.status(401).json({ error: 'Invalid or expired token' });
+    return null;
+  }
+}
+
 function getPeriodEndMs(sub: any): number {
   const direct = sub?.current_period_end;
   if (typeof direct === 'number') return direct * 1000;
@@ -498,6 +520,34 @@ function compareByCreatedAtDesc<T extends { createdAt?: any }>(items: T[]) {
     const bTime = toDate(b.createdAt)?.getTime() || 0;
     return bTime - aTime;
   });
+}
+
+function serializeTimestamp(value: any) {
+  const date = toDate(value);
+  return date ? date.toISOString() : null;
+}
+
+function serializeBetaFeedback(entry: AnyRecord) {
+  return {
+    id: entry.id,
+    companyId: entry.companyId,
+    companyName: entry.companyName || null,
+    userId: entry.userId,
+    userEmail: entry.userEmail,
+    userName: entry.userName || null,
+    type: entry.type,
+    severity: entry.severity,
+    title: entry.title,
+    message: entry.message,
+    pagePath: entry.pagePath,
+    status: entry.status,
+    createdAt: serializeTimestamp(entry.createdAt),
+    updatedAt: serializeTimestamp(entry.updatedAt),
+    reviewedAt: serializeTimestamp(entry.reviewedAt),
+    resolvedAt: serializeTimestamp(entry.resolvedAt),
+    adminNotes: entry.adminNotes || '',
+    lastUpdatedByAdminUid: entry.lastUpdatedByAdminUid || null,
+  };
 }
 
 async function buildCompanyOverview(db: Firestore, companyId: string): Promise<CompanyOverview> {
@@ -1032,6 +1082,37 @@ export function createApp() {
     res.json({ status: 'ok', time: new Date().toISOString() });
   });
 
+  const handleAiHealth = async (req: express.Request, res: express.Response) => {
+    try {
+      const access = await requireAuthenticatedUser(req, res);
+      if (!access) return;
+      const db = getDb();
+      const geminiConfigured = Boolean(process.env.GEMINI_API_KEY);
+      const firebaseAdminReady = Boolean(db);
+      console.info('[AI Health] runtime', {
+        geminiConfigured,
+        firebaseAdminReady,
+        vercelEnv: process.env.VERCEL_ENV || null,
+      });
+      res.json({
+        ok: true,
+        provider: 'gemini',
+        geminiConfigured,
+        firebaseAdminReady,
+        nodeEnv: process.env.NODE_ENV || null,
+        vercelEnv: process.env.VERCEL_ENV || null,
+        deploymentUrlPresent: Boolean(process.env.VERCEL_URL),
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error: any) {
+      console.error('[AI] /api/ai/health error:', error.message || error);
+      res.status(500).json({ error: error.message || 'Failed to load AI health' });
+    }
+  };
+
+  app.get('/api/ai/health', handleAiHealth);
+  app.post('/api/ai/health', handleAiHealth);
+
   app.get('/api/billing/config', (_req, res) => {
     res.json({
       stripeEnabled: !!process.env.STRIPE_SECRET_KEY,
@@ -1056,6 +1137,9 @@ export function createApp() {
 
   app.post('/api/company/overview', async (req, res) => {
     try {
+      console.info('[AI] company overview request received', {
+        companyId: req.body?.companyId,
+      });
       logCompanyOverview('Overview request received.', {
         companyId: req.body?.companyId,
       });
@@ -1065,6 +1149,13 @@ export function createApp() {
       if (!db) throw new Error('Database not initialized');
       const overview = await buildCompanyOverview(db, access.companyId);
       logCompanyOverview('Overview response ready.', {
+        companyId: access.companyId,
+        productsCount: overview.productsCount,
+        customersCount: overview.customersCount,
+        ordersCount: overview.ordersCount,
+        inventoryValue: overview.inventoryValue,
+      });
+      console.info('[AI] company overview loaded', {
         companyId: access.companyId,
         productsCount: overview.productsCount,
         customersCount: overview.customersCount,
@@ -1093,6 +1184,113 @@ export function createApp() {
       res.json(overview);
     } catch (error: any) {
       res.status(500).json({ error: error.message || 'Failed to load platform overview' });
+    }
+  });
+
+  app.get('/api/platform/feedback', async (req, res) => {
+    try {
+      const access = await requirePlatformAdmin(req, res);
+      if (!access) return;
+      const db = getDb();
+      if (!db) throw new Error('Database not initialized');
+
+      const status = typeof req.query?.status === 'string' ? req.query.status.trim() : '';
+      const severity = typeof req.query?.severity === 'string' ? req.query.severity.trim() : '';
+
+      if (status && !VALID_PLATFORM_FEEDBACK_STATUSES.includes(status as typeof VALID_PLATFORM_FEEDBACK_STATUSES[number])) {
+        return res.status(400).json({ error: 'Invalid status filter' });
+      }
+
+      if (severity && !VALID_PLATFORM_FEEDBACK_SEVERITIES.includes(severity as typeof VALID_PLATFORM_FEEDBACK_SEVERITIES[number])) {
+        return res.status(400).json({ error: 'Invalid severity filter' });
+      }
+
+      const feedbackSnap = await db
+        .collection('betaFeedback')
+        .orderBy('createdAt', 'desc')
+        .limit(100)
+        .get();
+
+      const feedback = feedbackSnap.docs
+        .map((entry) => serializeBetaFeedback({ id: entry.id, ...entry.data() }))
+        .filter((entry) => (!status || entry.status === status) && (!severity || entry.severity === severity));
+
+      res.json({ feedback });
+    } catch (error: any) {
+      console.error('Platform feedback load failed:', error);
+      res.status(500).json({ error: error.message || 'Failed to load platform feedback' });
+    }
+  });
+
+  app.patch('/api/platform/feedback/:feedbackId', async (req, res) => {
+    try {
+      const access = await requirePlatformAdmin(req, res);
+      if (!access) return;
+      const db = getDb();
+      if (!db) throw new Error('Database not initialized');
+
+      const feedbackId = typeof req.params?.feedbackId === 'string' ? req.params.feedbackId.trim() : '';
+      if (!feedbackId) {
+        return res.status(400).json({ error: 'feedbackId is required' });
+      }
+
+      const status = req.body?.status;
+      const adminNotes = req.body?.adminNotes;
+
+      if (status !== undefined && !VALID_PLATFORM_FEEDBACK_STATUSES.includes(status)) {
+        return res.status(400).json({ error: 'Invalid status value' });
+      }
+
+      if (adminNotes !== undefined && typeof adminNotes !== 'string') {
+        return res.status(400).json({ error: 'adminNotes must be a string' });
+      }
+
+      const allowedKeys = Object.keys(req.body || {});
+      const hasOnlyAllowedKeys = allowedKeys.every((key) => ['status', 'adminNotes'].includes(key));
+      if (!hasOnlyAllowedKeys || allowedKeys.length === 0) {
+        return res.status(400).json({ error: 'Only status and adminNotes can be updated' });
+      }
+
+      const feedbackRef = db.collection('betaFeedback').doc(feedbackId);
+      const feedbackSnap = await feedbackRef.get();
+      if (!feedbackSnap.exists) {
+        return res.status(404).json({ error: 'Feedback not found' });
+      }
+
+      const payload: Record<string, unknown> = {
+        updatedAt: FieldValue.serverTimestamp(),
+        lastUpdatedByAdminUid: access.uid,
+      };
+
+      if (typeof status === 'string') {
+        payload.status = status;
+        if (status === 'reviewed') {
+          payload.reviewedAt = FieldValue.serverTimestamp();
+        }
+        if (status === 'resolved') {
+          payload.resolvedAt = FieldValue.serverTimestamp();
+        }
+      }
+
+      if (typeof adminNotes === 'string') {
+        payload.adminNotes = adminNotes.trim();
+      }
+
+      await feedbackRef.update(payload);
+      await db.collection('adminAuditLogs').add({
+        adminUid: access.uid,
+        adminEmail: access.email,
+        action: 'beta_feedback_updated',
+        targetCompanyId: feedbackSnap.data()?.companyId || null,
+        targetUserId: feedbackSnap.data()?.userId || null,
+        feedbackId,
+        createdAt: FieldValue.serverTimestamp(),
+      });
+
+      res.json({ ok: true });
+    } catch (error: any) {
+      console.error('Platform feedback update failed:', error);
+      res.status(500).json({ error: error.message || 'Failed to update feedback' });
     }
   });
 
@@ -1492,6 +1690,7 @@ export function createApp() {
     try {
       const access = await requireCompanyAccess(req, res, ['owner', 'admin']);
       if (!access) return;
+      console.info('[AI] GEMINI_API_KEY detected', Boolean(process.env.GEMINI_API_KEY));
       const ai = getGenAI();
       if (!ai) return sendAiConfigError(res);
 
@@ -1536,7 +1735,16 @@ No markdown, no preamble.`;
         model: 'gemini-2.0-flash',
         contents: prompt,
       });
+      console.info('[AI] Gemini response received', {
+        route: '/api/ai/insights',
+        companyId: access.companyId,
+      });
       const responseText = extractTextFromGeminiResponse(response);
+      console.info('[AI] Gemini extraction result length', {
+        route: '/api/ai/insights',
+        companyId: access.companyId,
+        length: responseText.length,
+      });
       const text = parseJSONPayload(responseText);
       if (!text) {
         logAiRequest('/api/ai/insights', access.companyId, startedAt, { empty: true });
@@ -1590,6 +1798,11 @@ No markdown, no preamble.`;
     try {
       const access = await requireCompanyAccess(req, res, ['owner', 'admin', 'staff', 'viewer']);
       if (!access) return;
+      console.info('[AI] /api/ai/chat request received', {
+        hasGeminiKey: Boolean(process.env.GEMINI_API_KEY),
+        hasCompanyId: Boolean(req.body?.companyId),
+        vercelEnv: process.env.VERCEL_ENV || null,
+      });
       const ai = getGenAI();
       if (!ai) return sendAiConfigError(res);
       const { message, history, language } = req.body || {};
@@ -1600,6 +1813,14 @@ No markdown, no preamble.`;
       const db = getDb();
       if (!db) throw new Error('Database not initialized');
       const ctx = req.body?.context || await buildCompanyOverview(db, access.companyId);
+      console.info('[AI] company overview loaded', {
+        companyId: access.companyId,
+        productsCount: ctx.productsCount,
+        customersCount: ctx.customersCount,
+        ordersCount: ctx.ordersCount,
+        inventoryValue: ctx.inventoryValue,
+        recentRevenue30d: ctx.recentRevenue30d,
+      });
       const langMap: Record<string, string> = {
         en: 'Communicate in English.',
         es: 'Comunícate en Español. Mantén un tono profesional y premium.',
@@ -1653,7 +1874,16 @@ Maintain a professional, efficient, and supportive persona.`;
         config: { systemInstruction },
       });
       const result = await chat.sendMessage({ message });
+      console.info('[AI] Gemini response received', {
+        route: '/api/ai/chat',
+        companyId: access.companyId,
+      });
       const responseText = extractTextFromGeminiResponse(result);
+      console.info('[AI] Gemini extraction result length', {
+        route: '/api/ai/chat',
+        companyId: access.companyId,
+        length: responseText.length,
+      });
 
       if (!responseText || !responseText.trim()) {
         console.warn('[AI] /api/ai/chat: Empty response from Gemini', { companyId: access.companyId });
@@ -1686,6 +1916,7 @@ Maintain a professional, efficient, and supportive persona.`;
     try {
       const access = await requireCompanyAccess(req, res, ['owner', 'admin', 'staff', 'viewer']);
       if (!access) return;
+      console.info('[AI] GEMINI_API_KEY detected', Boolean(process.env.GEMINI_API_KEY));
       const ai = getGenAI();
       if (!ai) return sendAiConfigError(res);
 
@@ -1739,7 +1970,16 @@ NO markdown, NO preamble, just valid JSON.`;
         model: 'gemini-2.0-flash',
         contents: prompt,
       });
+      console.info('[AI] Gemini response received', {
+        route: '/api/ai/proactive-thoughts',
+        companyId: access.companyId,
+      });
       const responseText = extractTextFromGeminiResponse(response);
+      console.info('[AI] Gemini extraction result length', {
+        route: '/api/ai/proactive-thoughts',
+        companyId: access.companyId,
+        length: responseText.length,
+      });
       const text = parseJSONPayload(responseText);
       if (!text) {
         logAiRequest('/api/ai/proactive-thoughts', access.companyId, startedAt, { empty: true });

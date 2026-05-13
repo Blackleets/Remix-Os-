@@ -121,6 +121,57 @@ service cloud.firestore {
              data.status in ["draft", "ready", "sent"];
     }
 
+    function isValidFeedback(data) {
+      return data.userId is string &&
+             data.userId == request.auth.uid &&
+             data.userEmail is string &&
+             data.companyId is string &&
+             isMember(data.companyId) &&
+             data.companyName is string && data.companyName.size() > 0 && data.companyName.size() <= 200 &&
+             data.type in ['bug', 'improvement', 'idea', 'other'] &&
+             data.message is string && data.message.size() > 0 && data.message.size() <= 4000 &&
+             data.route is string && data.route.size() > 0 && data.route.size() <= 300 &&
+             data.status == 'open' &&
+             data.createdAt == request.time;
+    }
+
+    function isValidBetaFeedbackCreate(data) {
+      return data.keys().hasAll([
+               'companyId',
+               'userId',
+               'userEmail',
+               'type',
+               'severity',
+               'title',
+               'message',
+               'pagePath',
+               'status',
+               'createdAt',
+               'updatedAt'
+             ]) &&
+             data.companyId is string &&
+             data.companyId.size() > 0 &&
+             data.companyId.size() <= 128 &&
+             data.userId is string &&
+             data.userId == request.auth.uid &&
+             data.userEmail is string &&
+             data.userEmail.size() > 0 &&
+             data.userEmail.size() <= 320 &&
+             data.type in ['bug', 'idea', 'ux', 'billing', 'copilot', 'other'] &&
+             data.severity in ['low', 'medium', 'high', 'critical'] &&
+             data.title is string &&
+             data.title.size() > 0 &&
+             data.title.size() <= 120 &&
+             data.message is string &&
+             data.message.size() > 0 &&
+             data.message.size() <= 3000 &&
+             data.pagePath is string &&
+             data.pagePath.size() <= 500 &&
+             data.status == 'open' &&
+             data.createdAt == request.time &&
+             data.updatedAt == request.time;
+    }
+
     // --- Rules ---
 
     // 1. Users
@@ -182,6 +233,44 @@ service cloud.firestore {
                     request.resource.data.adminUid == request.auth.uid &&
                     request.resource.data.action is string;
       allow update, delete: if false;
+    }
+
+    match /feedback/{feedbackId} {
+      allow read: if isPlatformAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow create: if isEmailVerified() && isValidFeedback(incoming());
+      allow update: if isPlatformAdmin() &&
+                    incoming().userId == existing().userId &&
+                    incoming().companyId == existing().companyId &&
+                    incoming().companyName == existing().companyName &&
+                    incoming().userEmail == existing().userEmail &&
+                    incoming().type == existing().type &&
+                    incoming().message == existing().message &&
+                    incoming().route == existing().route &&
+                    incoming().createdAt == existing().createdAt &&
+                    incoming().status in ['open', 'reviewed', 'resolved'];
+      allow delete: if false;
+    }
+
+    match /betaFeedback/{feedbackId} {
+      allow create: if isSignedIn() &&
+                    isEmailVerified() &&
+                    isValidBetaFeedbackCreate(request.resource.data) &&
+                    isMember(request.resource.data.companyId);
+
+      allow read: if isPlatformAdmin();
+
+      allow update: if isPlatformAdmin() &&
+                    request.resource.data.companyId == resource.data.companyId &&
+                    request.resource.data.userId == resource.data.userId &&
+                    request.resource.data.userEmail == resource.data.userEmail &&
+                    request.resource.data.title == resource.data.title &&
+                    request.resource.data.message == resource.data.message &&
+                    request.resource.data.pagePath == resource.data.pagePath &&
+                    request.resource.data.type == resource.data.type &&
+                    request.resource.data.severity == resource.data.severity &&
+                    request.resource.data.status in ['open', 'reviewed', 'resolved'];
+
+      allow delete: if false;
     }
 
     // 0.2 Test connection

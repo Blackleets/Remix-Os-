@@ -1,17 +1,20 @@
 import { Link } from 'react-router-dom';
-import { motion } from 'motion/react';
+import { AnimatePresence, motion } from 'motion/react';
+import { useEffect, useMemo, useState } from 'react';
 import {
+  Activity,
   ArrowRight,
   BarChart3,
   Cpu,
   Layers,
   Package,
+  Radar,
   ShieldCheck,
   ShoppingCart,
   Users,
   Zap,
 } from 'lucide-react';
-import { Button } from '../components/Common';
+import { Button, OSGlyph, cn } from '../components/Common';
 import { LanguageSwitcher } from '../components/LanguageSwitcher';
 
 const modules = [
@@ -41,103 +44,250 @@ const modules = [
   },
 ];
 
-function PlatformPreview() {
+const typewriterLines = [
+  'Analiza ventas, inventario y clientes en tiempo real.',
+  'Detecta riesgos antes de que afecten tus ingresos.',
+  'Convierte datos operativos en decisiones accionables.',
+  'Prioriza clientes, pedidos y stock desde una sola consola.',
+  'Activa una capa IA para operar con más claridad.',
+];
+
+const consoleLogs = [
+  '[OS] Núcleo comercial sincronizado',
+  '[IA] Riesgo de stock bajo detectado',
+  '[DATA] Flujo de pedidos estable',
+  '[OPS] Clientes listos para seguimiento',
+  '[AI] Analizando tendencia de ingresos',
+  '[INV] 4 productos requieren reposición',
+  '[CRM] 12 clientes con alta intención',
+  '[PAY] Facturación mensual verificada',
+  '[TEAM] Equipo operativo activo',
+  '[POS] Ventas recientes sincronizadas',
+];
+
+const revenueValues = ['$12.4k', '$18.9k', '$24.2k', '$31.8k', '$42.6k'];
+const orderValues = ['48', '126', '248', '391', '482'];
+const alertValues = ['3', '7', '12', '9', '5'];
+
+const telemetrySets = [
+  [72, 88, 54, 94, 68, 82],
+  [78, 91, 61, 86, 74, 88],
+  [66, 83, 58, 97, 71, 79],
+  [82, 89, 63, 92, 77, 90],
+];
+
+const moduleStateSets = [
+  [
+    { label: 'Panel ejecutivo', state: 'active' },
+    { label: 'Inventario', state: 'watch' },
+    { label: 'Clientes', state: 'syncing' },
+    { label: 'Copilot IA', state: 'active' },
+  ],
+  [
+    { label: 'Panel ejecutivo', state: 'active' },
+    { label: 'Inventario', state: 'active' },
+    { label: 'Clientes', state: 'watch' },
+    { label: 'Copilot IA', state: 'syncing' },
+  ],
+  [
+    { label: 'Panel ejecutivo', state: 'syncing' },
+    { label: 'Inventario', state: 'active' },
+    { label: 'Clientes', state: 'active' },
+    { label: 'Copilot IA', state: 'watch' },
+  ],
+];
+
+function useTypewriterRotator(lines: string[]) {
+  const [lineIndex, setLineIndex] = useState(0);
+  const [displayedText, setDisplayedText] = useState('');
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  useEffect(() => {
+    const currentLine = lines[lineIndex];
+    const typingDelay = isDeleting ? 28 : 42;
+    const pauseDelay = isDeleting ? 500 : 1800;
+
+    const timeout = window.setTimeout(() => {
+      if (!isDeleting) {
+        const nextText = currentLine.slice(0, displayedText.length + 1);
+        setDisplayedText(nextText);
+        if (nextText === currentLine) {
+          setIsDeleting(true);
+        }
+      } else {
+        const nextText = currentLine.slice(0, Math.max(0, displayedText.length - 1));
+        setDisplayedText(nextText);
+        if (nextText.length === 0) {
+          setIsDeleting(false);
+          setLineIndex((current) => (current + 1) % lines.length);
+        }
+      }
+    }, displayedText === currentLine || displayedText.length === 0 ? pauseDelay : typingDelay);
+
+    return () => window.clearTimeout(timeout);
+  }, [displayedText, isDeleting, lineIndex, lines]);
+
+  return displayedText;
+}
+
+function useRotatingConsoleData() {
+  const [tick, setTick] = useState(0);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      setTick((current) => (current + 1) % 20);
+    }, 2600);
+
+    return () => window.clearInterval(interval);
+  }, []);
+
+  const visibleLogs = useMemo(() => {
+    const start = tick % consoleLogs.length;
+    return Array.from({ length: 4 }, (_, index) => consoleLogs[(start + index) % consoleLogs.length]);
+  }, [tick]);
+
+  return {
+    visibleLogs,
+    revenue: revenueValues[tick % revenueValues.length],
+    orders: orderValues[tick % orderValues.length],
+    alerts: alertValues[tick % alertValues.length],
+    telemetry: telemetrySets[tick % telemetrySets.length],
+    modules: moduleStateSets[tick % moduleStateSets.length],
+  };
+}
+
+function LiveOperatingConsole() {
+  const { visibleLogs, revenue, orders, alerts, telemetry, modules: activeModules } = useRotatingConsoleData();
+
   return (
-    <div className="shell-panel overflow-hidden rounded-[28px]">
-      <div className="flex h-11 items-center border-b border-white/6 bg-white/[0.02] px-4">
-        <div className="flex gap-1.5">
-          {[0, 1, 2].map((item) => (
-            <span key={item} className="h-2.5 w-2.5 rounded-full border border-white/10 bg-white/10" />
-          ))}
-        </div>
-        <div className="mx-auto flex items-center gap-2 text-[10px] uppercase tracking-[0.22em] text-neutral-500">
-          <ShieldCheck className="h-3 w-3" />
-          remix-os.console
-        </div>
-      </div>
+    <div className="landing-console-wrap relative mx-auto w-full max-w-[640px]">
+      <div className="landing-console-glow absolute inset-6 rounded-[36px] bg-blue-500/12 blur-[70px]" />
+      <div className="shell-panel landing-console relative overflow-hidden rounded-[32px]">
+        <div className="landing-console-scan absolute inset-x-0 top-0 h-[160px]" />
 
-      <div className="grid gap-4 bg-[rgba(7,10,14,0.96)] p-4 md:grid-cols-[0.8fr_1.2fr] md:p-6">
-        <div className="space-y-4">
-          <div className="surface-elevated p-4">
-            <div className="mb-3 flex items-center justify-between">
-              <span className="section-kicker !text-neutral-400">Estado del sistema</span>
-              <span className="telemetry-chip !px-2.5 !py-1">
-                <span className="status-dot pulse-live bg-emerald-400 text-emerald-400" />
-                En vivo
-              </span>
-            </div>
-            <div className="space-y-2 font-mono text-[11px] text-neutral-400">
-              <p>[OS] Núcleo comercial sincronizado</p>
-              <p>[IA] Riesgo de stock bajo detectado</p>
-              <p>[DATA] Flujo de pedidos estable</p>
-              <p>[OPS] Clientes listos para seguimiento</p>
-            </div>
-          </div>
-
-          <div className="surface-elevated p-4">
-            <p className="section-kicker mb-3 !text-neutral-400">Módulos activos</p>
-            <div className="space-y-2">
-              {['Panel ejecutivo', 'Inventario', 'Clientes', 'Copilot IA'].map((item, index) => (
-                <div key={item} className="flex items-center justify-between rounded-2xl border border-white/6 bg-white/[0.02] px-3 py-2.5">
-                  <span className="text-sm text-neutral-300">{item}</span>
-                  <span className={`h-2 w-2 rounded-full ${index === 1 ? 'bg-amber-300' : 'bg-emerald-400'}`} />
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        <div className="space-y-4">
-          <div className="grid gap-3 sm:grid-cols-3">
-            {[
-              { label: 'Ingresos 30d', value: '$128.4k', accent: 'text-blue-300' },
-              { label: 'Pedidos', value: '482', accent: 'text-emerald-300' },
-              { label: 'Alertas IA', value: '12', accent: 'text-amber-300' },
-            ].map((card) => (
-              <div key={card.label} className="data-tile !p-4">
-                <p className="mb-2 text-[10px] font-black uppercase tracking-[0.18em] text-neutral-500">{card.label}</p>
-                <p className={`text-xl font-bold ${card.accent}`}>{card.value}</p>
-              </div>
+        <div className="flex h-12 items-center border-b border-white/6 bg-white/[0.02] px-4">
+          <div className="flex gap-1.5">
+            {[0, 1, 2].map((item) => (
+              <span key={item} className="h-2.5 w-2.5 rounded-full border border-white/10 bg-white/10" />
             ))}
           </div>
+          <div className="mx-auto flex items-center gap-2 text-[10px] uppercase tracking-[0.22em] text-neutral-500">
+            <Radar className="h-3 w-3 text-blue-300" />
+            REMIX-OS.CONSOLE
+          </div>
+        </div>
 
-          <div className="surface-elevated p-5">
-            <div className="mb-4 flex items-center justify-between">
-              <div>
-                <p className="section-kicker mb-2">Telemetría ejecutiva</p>
-                <h3 className="text-lg font-semibold text-white">Centro operativo Remix OS</h3>
+        <div className="grid gap-4 bg-[rgba(7,10,14,0.97)] p-4 md:grid-cols-[0.86fr_1.14fr] md:p-6">
+          <div className="space-y-4">
+            <div className="surface-elevated p-4">
+              <div className="mb-3 flex items-center justify-between">
+                <span className="section-kicker !text-neutral-400">Estado del sistema</span>
+                <span className="telemetry-chip !px-2.5 !py-1">
+                  <span className="status-dot pulse-live bg-emerald-400 text-emerald-400" />
+                  EN VIVO
+                </span>
               </div>
-              <BarChart3 className="h-5 w-5 text-blue-300" />
+              <div className="space-y-2 overflow-hidden font-mono text-[11px] text-neutral-400">
+                <AnimatePresence mode="popLayout" initial={false}>
+                  {visibleLogs.map((log) => (
+                    <motion.p
+                      key={log}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -10 }}
+                      transition={{ duration: 0.28 }}
+                    >
+                      {log}
+                    </motion.p>
+                  ))}
+                </AnimatePresence>
+              </div>
             </div>
 
-            <div className="space-y-3">
-              {[72, 88, 54, 94, 68, 82].map((height, index) => (
-                <div key={index} className="flex items-center gap-3">
-                  <span className="w-10 text-[10px] font-mono uppercase tracking-[0.18em] text-neutral-600">N{index + 1}</span>
-                  <div className="h-2 flex-1 overflow-hidden rounded-full bg-white/[0.05]">
-                    <motion.div
-                      initial={{ width: 0 }}
-                      animate={{ width: `${height}%` }}
-                      transition={{ duration: 0.7, delay: index * 0.08 }}
-                      className="h-full rounded-full bg-[linear-gradient(90deg,#4d7cff,#7cb8ff)]"
+            <div className="surface-elevated p-4">
+              <p className="section-kicker mb-3 !text-neutral-400">Módulos activos</p>
+              <div className="space-y-2">
+                {activeModules.map((item) => (
+                  <div key={item.label} className="flex items-center justify-between rounded-2xl border border-white/6 bg-white/[0.02] px-3 py-2.5">
+                    <span className="text-sm text-neutral-300">{item.label}</span>
+                    <span
+                      className={cn(
+                        'h-2.5 w-2.5 rounded-full shadow-[0_0_12px_currentColor]',
+                        item.state === 'active'
+                          ? 'bg-emerald-400 text-emerald-400'
+                          : item.state === 'watch'
+                            ? 'bg-amber-300 text-amber-300'
+                            : 'bg-blue-300 text-blue-300'
+                      )}
                     />
                   </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <div className="grid gap-3 sm:grid-cols-3">
+              {[
+                { label: 'Ingresos 30d', value: revenue, accent: 'text-blue-300' },
+                { label: 'Pedidos', value: orders, accent: 'text-emerald-300' },
+                { label: 'Alertas IA', value: alerts, accent: 'text-amber-300' },
+              ].map((card) => (
+                <div key={card.label} className="data-tile !p-4">
+                  <p className="mb-2 text-[10px] font-black uppercase tracking-[0.18em] text-neutral-500">{card.label}</p>
+                  <AnimatePresence mode="wait" initial={false}>
+                    <motion.p
+                      key={card.value}
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -8 }}
+                      transition={{ duration: 0.22 }}
+                      className={cn('text-xl font-bold', card.accent)}
+                    >
+                      {card.value}
+                    </motion.p>
+                  </AnimatePresence>
                 </div>
               ))}
             </div>
 
-            <div className="mt-5 grid gap-3 sm:grid-cols-2">
-              <div className="rounded-[20px] border border-blue-400/12 bg-blue-500/8 p-4">
-                <p className="mb-2 text-[10px] font-black uppercase tracking-[0.18em] text-blue-200">Capa IA</p>
-                <p className="text-sm leading-relaxed text-neutral-200">
-                  Prioriza clientes, detecta presión de inventario y resume el pulso comercial.
-                </p>
+            <div className="surface-elevated p-5">
+              <div className="mb-4 flex items-center justify-between">
+                <div>
+                  <p className="section-kicker mb-2">Telemetría ejecutiva</p>
+                  <h3 className="text-lg font-semibold text-white">Live Operating Console</h3>
+                </div>
+                <BarChart3 className="h-5 w-5 text-blue-300" />
               </div>
-              <div className="rounded-[20px] border border-white/8 bg-white/[0.02] p-4">
-                <p className="mb-2 text-[10px] font-black uppercase tracking-[0.18em] text-neutral-400">Vista premium</p>
-                <p className="text-sm leading-relaxed text-neutral-300">
-                  Un solo espacio para operar ventas, equipo, inventario y decisiones críticas.
-                </p>
+
+              <div className="space-y-3">
+                {telemetry.map((width, index) => (
+                  <div key={index} className="flex items-center gap-3">
+                    <span className="w-10 text-[10px] font-mono uppercase tracking-[0.18em] text-neutral-600">N{index + 1}</span>
+                    <div className="h-2 flex-1 overflow-hidden rounded-full bg-white/[0.05]">
+                      <motion.div
+                        animate={{ width: `${width}%` }}
+                        transition={{ duration: 0.8, ease: 'easeInOut' }}
+                        className="h-full rounded-full bg-[linear-gradient(90deg,#4d7cff,#7cb8ff)]"
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                <div className="rounded-[20px] border border-blue-400/12 bg-blue-500/8 p-4">
+                  <p className="mb-2 text-[10px] font-black uppercase tracking-[0.18em] text-blue-200">CAPA IA</p>
+                  <p className="text-sm leading-relaxed text-neutral-200">
+                    Prioriza clientes, detecta presión de inventario y resume el pulso comercial.
+                  </p>
+                </div>
+                <div className="rounded-[20px] border border-white/8 bg-white/[0.02] p-4">
+                  <p className="mb-2 text-[10px] font-black uppercase tracking-[0.18em] text-neutral-400">VISTA PREMIUM</p>
+                  <p className="text-sm leading-relaxed text-neutral-300">
+                    Un solo espacio para operar ventas, equipo, inventario y decisiones críticas.
+                  </p>
+                </div>
               </div>
             </div>
           </div>
@@ -148,6 +298,8 @@ function PlatformPreview() {
 }
 
 export function Landing() {
+  const dynamicLine = useTypewriterRotator(typewriterLines);
+
   return (
     <div className="min-h-screen bg-black text-white selection:bg-blue-500/30">
       <nav className="sticky top-0 z-50 border-b border-white/6 bg-[rgba(3,4,7,0.72)] backdrop-blur-2xl">
@@ -184,39 +336,68 @@ export function Landing() {
           <div className="absolute inset-0 grid-bg opacity-15" />
           <div className="absolute left-1/2 top-12 h-[360px] w-[360px] -translate-x-1/2 rounded-full bg-blue-500/12 blur-[120px] sm:h-[460px] sm:w-[460px]" />
 
-          <div className="relative mx-auto grid max-w-7xl items-center gap-12 lg:grid-cols-[1.02fr_0.98fr] lg:gap-14">
+          <div className="relative mx-auto grid max-w-7xl items-center gap-12 lg:grid-cols-[0.97fr_1.03fr] lg:gap-16">
             <div className="max-w-2xl pt-4 sm:pt-8">
-              <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-blue-400/14 bg-blue-500/8 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.24em] text-blue-200">
-                <span className="status-dot pulse-live bg-blue-400 text-blue-400" />
-                Remix OS v1.0
+              <div className="mb-6 flex flex-wrap items-center gap-3">
+                <div className="inline-flex items-center gap-2 rounded-full border border-blue-400/14 bg-blue-500/8 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.24em] text-blue-200">
+                  <span className="status-dot pulse-live bg-blue-400 text-blue-400" />
+                  REMIX OS · AI BUSINESS OPERATING SYSTEM
+                </div>
+                <div className="telemetry-chip !px-3 !py-1.5">Beta pública</div>
               </div>
 
               <h1 className="font-display text-4xl font-bold tracking-[-0.05em] text-white sm:text-5xl lg:text-6xl xl:text-[74px] xl:leading-[0.96]">
-                Opera tu negocio con una interfaz premium y una capa IA realmente útil.
+                El sistema operativo inteligente para negocios modernos
               </h1>
 
-              <p className="mt-5 max-w-xl text-base leading-relaxed text-neutral-400 sm:text-lg">
-                Remix OS unifica clientes, inventario, pedidos y vigilancia operativa en un núcleo oscuro, preciso y listo para crecer contigo.
+              <p className="mt-5 max-w-2xl text-base leading-relaxed text-neutral-400 sm:text-lg">
+                Centraliza ventas, inventario, clientes y decisiones con una capa IA diseñada para operar, no solo responder.
               </p>
+
+              <div className="mt-6 min-h-[64px] max-w-xl rounded-[22px] border border-white/8 bg-white/[0.025] px-4 py-4">
+                <p className="section-kicker mb-2 !text-neutral-500">Señal operativa</p>
+                <div className="flex items-center gap-2 text-base font-medium text-white sm:text-lg">
+                  <span>{dynamicLine}</span>
+                  <span className="landing-caret h-5 w-[2px] rounded-full bg-blue-300/80" />
+                </div>
+              </div>
 
               <div className="mt-8 flex flex-col gap-3 sm:flex-row">
                 <Link to="/auth" className="w-full sm:w-auto">
                   <Button className="h-14 w-full rounded-2xl bg-white px-7 text-black hover:bg-neutral-200 sm:w-auto">
-                    Entrar a Remix OS <ArrowRight className="ml-2 h-4 w-4" />
+                    Entrar a la consola <ArrowRight className="ml-2 h-4 w-4" />
                   </Button>
                 </Link>
                 <a href="#plataforma" className="w-full sm:w-auto">
                   <Button variant="ghost" className="h-14 w-full rounded-2xl border border-white/10 px-7 text-white hover:bg-white/[0.05] sm:w-auto">
-                    Ver plataforma
+                    Ver capacidades
                   </Button>
                 </a>
               </div>
 
+              <div className="mt-8 flex flex-wrap gap-3">
+                {['Multi-tenant', 'IA operativa', 'Ventas + Inventario', 'Beta pública'].map((item, index) => (
+                  <div key={item} className="telemetry-chip !px-3 !py-2">
+                    <span
+                      className={cn(
+                        'status-dot',
+                        index === 1
+                          ? 'bg-blue-300 text-blue-300'
+                          : index === 3
+                            ? 'bg-amber-300 text-amber-300'
+                            : 'bg-emerald-400 text-emerald-400'
+                      )}
+                    />
+                    {item}
+                  </div>
+                ))}
+              </div>
+
               <div className="mt-8 grid gap-3 sm:grid-cols-3">
                 {[
-                  { label: 'Visión ejecutiva', value: 'Dashboard vivo' },
-                  { label: 'Operación central', value: 'Clientes + pedidos' },
-                  { label: 'Asistencia IA', value: 'Señales accionables' },
+                  { label: 'Vista ejecutiva', value: 'Panel en vivo' },
+                  { label: 'Operación central', value: 'Ventas + clientes' },
+                  { label: 'Capa de decisión', value: 'Señales accionables' },
                 ].map((item) => (
                   <div key={item.label} className="rounded-[22px] border border-white/8 bg-white/[0.025] p-4">
                     <p className="mb-2 text-[10px] font-black uppercase tracking-[0.18em] text-neutral-500">{item.label}</p>
@@ -226,8 +407,14 @@ export function Landing() {
               </div>
             </div>
 
-            <div id="plataforma" className="w-full">
-              <PlatformPreview />
+            <div id="plataforma" className="w-full self-center">
+              <motion.div
+                initial={{ opacity: 0, y: 18 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.55 }}
+              >
+                <LiveOperatingConsole />
+              </motion.div>
             </div>
           </div>
         </section>

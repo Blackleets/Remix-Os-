@@ -50,6 +50,10 @@ async function authedFetchJSON(url: string, body: Record<string, any>) {
   return res.json();
 }
 
+export async function checkAiHealth() {
+  return authedFetchJSON('/api/ai/health', {});
+}
+
 export async function generateBusinessInsights(businessData: any, language: string = 'en') {
   if (!businessData?.companyId) {
     console.warn('generateBusinessInsights: missing companyId');
