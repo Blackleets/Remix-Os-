@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Button, cn } from '../components/Common';
+import { Card, Button, cn, OSGlyph } from '../components/Common';
 import {
   Contact,
   Shapes,
@@ -357,7 +357,7 @@ export function Dashboard() {
   ];
 
   return (
-    <div className="space-y-6 md:space-y-8">
+    <div className="space-y-6 overflow-x-hidden md:space-y-8">
       <motion.section
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
@@ -415,16 +415,16 @@ export function Dashboard() {
           <div className="grid gap-4 sm:grid-cols-3 xl:grid-cols-1">
             <div className="data-tile">
               <p className="section-kicker mb-2 !text-neutral-400">Integridad del sistema</p>
-              <div className="flex items-end justify-between gap-4">
-                <div>
-                  <p className="text-3xl font-bold text-white">{allSystemsReady ? '98%' : '71%'}</p>
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="text-2xl font-bold text-white md:text-3xl">{allSystemsReady ? '98%' : '71%'}</p>
                   <p className="mt-1 text-sm text-neutral-400">
                     {allSystemsReady ? 'Los módulos principales responden con normalidad.' : 'La activación sigue en curso en los módulos comerciales.'}
                   </p>
                 </div>
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-blue-400/14 bg-blue-500/10">
-                  <Sparkles className="h-5 w-5 text-blue-300" />
-                </div>
+                <OSGlyph tone="blue" size="md">
+                  <Sparkles className="h-4.5 w-4.5" />
+                </OSGlyph>
               </div>
             </div>
 
@@ -448,9 +448,9 @@ export function Dashboard() {
                 <p className="text-sm leading-relaxed text-neutral-300">
                   Copilot observa ingresos, flujo operativo y riesgo comercial en tiempo real.
                 </p>
-                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-emerald-400/14 bg-emerald-500/8">
-                  <Zap className="h-4.5 w-4.5 text-emerald-300" />
-                </div>
+                <OSGlyph tone="emerald" size="md">
+                  <Zap className="h-4.5 w-4.5" />
+                </OSGlyph>
               </div>
             </div>
           </div>
@@ -500,14 +500,9 @@ export function Dashboard() {
                     )}
                   >
                     <div className="mb-4 flex items-center justify-between">
-                      <div className={cn(
-                        'flex h-11 w-11 items-center justify-center rounded-2xl border',
-                        item.done
-                          ? 'border-emerald-400/18 bg-emerald-500/10 text-emerald-300'
-                          : 'border-white/10 bg-white/[0.03] text-neutral-300'
-                      )}>
-                        {item.done ? <CheckCircle2 className="h-5 w-5" /> : item.icon}
-                      </div>
+                      <OSGlyph tone={item.done ? 'emerald' : 'neutral'} size="md">
+                        {item.done ? <CheckCircle2 className="h-4.5 w-4.5" /> : item.icon}
+                      </OSGlyph>
                       <ChevronRight className="h-4 w-4 text-neutral-600" />
                     </div>
                     <p className="text-sm font-semibold text-white">{item.label}</p>
@@ -522,7 +517,7 @@ export function Dashboard() {
 
       <div className="grid gap-6 xl:grid-cols-[1.3fr_0.7fr]">
         <div className="space-y-6">
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-4">
             {statCards.map((stat, index) => (
               <motion.div
                 key={stat.label}
@@ -530,20 +525,20 @@ export function Dashboard() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.05 + index * 0.05 }}
               >
-                <Card className={cn('relative overflow-hidden bg-[rgba(9,12,18,0.94)]', stat.ring)}>
+                <Card className={cn('relative min-w-0 overflow-hidden bg-[rgba(9,12,18,0.94)]', stat.ring)}>
                   <div className={cn('absolute inset-x-0 top-0 h-20 bg-gradient-to-b opacity-80', stat.ring)} />
-                  <div className="relative">
+                  <div className="relative min-w-0">
                     <div className="mb-5 flex items-start justify-between gap-3">
-                      <div>
-                        <p className="section-kicker mb-2 !text-neutral-500">{stat.signal}</p>
+                      <div className="min-w-0 flex-1">
+                        <p className="section-kicker mb-2 truncate !text-neutral-500">{stat.signal}</p>
                         <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-neutral-400">{stat.label}</p>
                       </div>
-                      <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03]">
-                        <stat.icon className={cn('h-5 w-5', stat.accent)} />
-                      </div>
+                      <OSGlyph tone={stat.accent.includes('violet') ? 'violet' : stat.accent.includes('emerald') ? 'emerald' : stat.accent.includes('amber') ? 'amber' : 'blue'} size="md">
+                        <stat.icon className="h-4.5 w-4.5" />
+                      </OSGlyph>
                     </div>
-                    <p className="text-3xl font-bold tracking-tight text-white">{stat.value}</p>
-                    <div className="mt-4 flex items-center justify-between text-xs">
+                    <p className="truncate text-2xl font-bold tracking-tight text-white md:text-3xl">{stat.value}</p>
+                    <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-xs">
                       <span className="font-mono uppercase tracking-[0.18em] text-neutral-500">Señal</span>
                       <span className="font-mono text-blue-200">{stat.change}</span>
                     </div>
@@ -561,9 +556,9 @@ export function Dashboard() {
                   <h3 className="section-title text-2xl">{t('dashboard.financial_intelligence')}</h3>
                   <p className="section-subtitle mt-2">{t('dashboard.revenue_optimization')}</p>
                 </div>
-                <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-blue-400/14 bg-blue-500/10">
-                  <TrendingUp className="h-5 w-5 text-blue-300" />
-                </div>
+                <OSGlyph tone="blue" size="md">
+                  <TrendingUp className="h-4.5 w-4.5" />
+                </OSGlyph>
               </div>
 
               <div className="mb-5 flex flex-wrap gap-2">
@@ -623,9 +618,9 @@ export function Dashboard() {
                   <h3 className="section-title text-2xl">{t('dashboard.system_log')}</h3>
                   <p className="section-subtitle mt-2">Eventos en vivo priorizados por relevancia operativa.</p>
                 </div>
-                <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-amber-400/14 bg-amber-500/10">
-                  <History className="h-5 w-5 text-amber-300" />
-                </div>
+                <OSGlyph tone="amber" size="md">
+                  <History className="h-4.5 w-4.5" />
+                </OSGlyph>
               </div>
 
               <div className="max-h-[360px] space-y-3 overflow-y-auto pr-1 custom-scrollbar">
@@ -671,9 +666,9 @@ export function Dashboard() {
         <div className="space-y-6">
           <Card className="overflow-hidden border-blue-400/14 bg-[linear-gradient(180deg,rgba(28,43,90,0.52),rgba(8,11,16,0.96))]">
             <div className="mb-5 flex items-center gap-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-blue-300/16 bg-blue-500/12">
-                <Cpu className="h-5 w-5 text-blue-200" />
-              </div>
+              <OSGlyph tone="blue" size="md">
+                <Cpu className="h-4.5 w-4.5" />
+              </OSGlyph>
               <div>
                 <p className="section-kicker">Informe operativo</p>
                 <h3 className="section-title text-xl">{t('dashboard.business_briefing')}</h3>
@@ -728,21 +723,18 @@ export function Dashboard() {
                 <p className="section-kicker mb-2 !text-neutral-500">Módulos del sistema</p>
                 <h3 className="section-title text-xl">{t('dashboard.ops_status.title')}</h3>
               </div>
-              <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03]">
-                <Fingerprint className="h-4.5 w-4.5 text-neutral-300" />
-              </div>
+              <OSGlyph tone="neutral" size="sm">
+                <Fingerprint className="h-4 w-4 text-neutral-300" />
+              </OSGlyph>
             </div>
 
             <div className="space-y-3">
               {systemModules.map((item) => (
                 <div key={item.label} className="surface-elevated flex items-center justify-between gap-4 p-4">
                   <div className="flex min-w-0 items-center gap-3">
-                    <div className={cn(
-                      'flex h-10 w-10 items-center justify-center rounded-2xl border',
-                      item.good ? 'border-emerald-400/14 bg-emerald-500/8 text-emerald-300' : 'border-amber-400/14 bg-amber-500/8 text-amber-300'
-                    )}>
+                    <OSGlyph tone={item.good ? 'emerald' : 'amber'} size="sm">
                       <item.icon className="h-4 w-4" />
-                    </div>
+                    </OSGlyph>
                     <div className="min-w-0">
                       <p className="text-sm font-semibold text-white">{item.label}</p>
                       <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-neutral-500">Salud del módulo</p>

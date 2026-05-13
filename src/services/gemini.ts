@@ -3,6 +3,20 @@ import { auth } from '../lib/firebase';
 // All Gemini calls run on the server so the API key never ships to the browser.
 // These helpers POST to the authenticated /api/ai/* endpoints.
 
+export class CopilotRequestError extends Error {
+  status: number;
+  code?: string;
+  details?: string;
+
+  constructor(message: string, status: number, code?: string, details?: string) {
+    super(message);
+    this.name = 'CopilotRequestError';
+    this.status = status;
+    this.code = code;
+    this.details = details;
+  }
+}
+
 async function authedFetchJSON(url: string, body: Record<string, any>) {
   const token = await auth.currentUser?.getIdToken();
   const res = await fetch(url, {
@@ -15,8 +29,22 @@ async function authedFetchJSON(url: string, body: Record<string, any>) {
   });
 
   if (!res.ok) {
-    const err = await res.text();
-    throw new Error(err || `Request failed (${res.status})`);
+    const raw = await res.text();
+    let parsed: any = null;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      parsed = null;
+    }
+    if (parsed) {
+      throw new CopilotRequestError(
+        parsed.error || `Request failed (${res.status})`,
+        res.status,
+        parsed.code,
+        parsed.details
+      );
+    }
+    throw new CopilotRequestError(raw || `Request failed (${res.status})`, res.status);
   }
 
   return res.json();

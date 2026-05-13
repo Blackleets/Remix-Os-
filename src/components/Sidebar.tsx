@@ -15,7 +15,7 @@ import {
   X,
   Radar,
 } from 'lucide-react';
-import { cn } from './Common';
+import { cn, OSGlyph } from './Common';
 import { useAuth } from '../contexts/AuthContext';
 import { auth } from '../lib/firebase';
 import { signOut } from 'firebase/auth';
@@ -115,14 +115,16 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
                         className="absolute left-0 top-1/2 h-8 w-[3px] -translate-y-1/2 rounded-full bg-blue-400 shadow-[0_0_20px_rgba(96,165,250,0.7)]"
                       />
                     )}
-                    <div className={cn(
-                      'flex h-9 w-9 items-center justify-center rounded-xl border transition-all duration-300',
-                      isActive
-                        ? 'border-blue-300/20 bg-blue-400/10 text-blue-200'
-                        : 'border-white/8 bg-white/[0.03] text-neutral-600 group-hover:text-neutral-300'
-                    )}>
+                    <OSGlyph
+                      tone={isActive ? 'blue' : 'neutral'}
+                      size="sm"
+                      className={cn(
+                        'transition-all duration-300',
+                        !isActive && 'text-neutral-600 group-hover:text-neutral-300'
+                      )}
+                    >
                       <item.icon className="h-4 w-4" />
-                    </div>
+                    </OSGlyph>
                     <div className="flex-1">
                       <span>{item.label}</span>
                     </div>
@@ -150,9 +152,9 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
                   : 'border-white/0 text-neutral-500 hover:border-white/8 hover:bg-white/[0.04] hover:text-white'
               )}
             >
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/8 bg-white/[0.03]">
+              <OSGlyph tone="neutral" size="sm">
                 <Settings className="h-4 w-4" />
-              </div>
+              </OSGlyph>
               {t('nav.settings')}
             </motion.div>
           </Link>
@@ -161,9 +163,9 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
               whileHover={{ x: 3 }}
               className="flex items-center gap-3 rounded-2xl border border-red-400/0 px-4 py-3 text-[11px] font-black uppercase tracking-[0.18em] text-red-300/60 transition-all duration-300 hover:border-red-400/10 hover:bg-red-400/6 hover:text-red-200"
             >
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-red-400/10 bg-red-400/5">
+              <OSGlyph tone="red" size="sm">
                 <LogOut className="h-4 w-4" />
-              </div>
+              </OSGlyph>
               {t('nav.logout')}
             </motion.div>
           </button>

@@ -17,10 +17,12 @@ import {
   Radar,
   ShieldCheck,
   Clock3,
+  PanelRightOpen,
+  AlertTriangle,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { chatCopilot, getProactiveThoughts } from '../services/gemini';
-import { cn } from './Common';
+import { chatCopilot, CopilotRequestError, getProactiveThoughts } from '../services/gemini';
+import { cn, OSGlyph } from './Common';
 import { useLocation, useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import { useLocale } from '../hooks/useLocale';
@@ -56,10 +58,12 @@ interface LiveMetrics {
   customers: number;
 }
 
+type CopilotPhase = 'idle' | 'connecting' | 'analyzing' | 'error';
+
 function getInsightTone(priority?: string) {
   if (priority === 'high') {
     return {
-      chip: 'Vigilancia crítica',
+      chip: 'Vigilancia critica',
       accent: 'border-red-400/16 bg-red-500/8 text-red-200',
       iconWrap: 'border-red-400/16 bg-red-500/10 text-red-300',
     };
@@ -72,7 +76,7 @@ function getInsightTone(priority?: string) {
     };
   }
   return {
-    chip: 'Señal',
+    chip: 'Senal',
     accent: 'border-blue-400/16 bg-blue-500/8 text-blue-200',
     iconWrap: 'border-blue-400/16 bg-blue-500/10 text-blue-300',
   };
@@ -97,6 +101,10 @@ export function Copilot() {
   const [operatorHistory, setOperatorHistory] = useState<{ type: string; action: string; timestamp: Date }[]>([]);
   const [actionProcessing, setActionProcessing] = useState<string | null>(null);
   const [lastScanAt, setLastScanAt] = useState<Date | null>(null);
+  const [phase, setPhase] = useState<CopilotPhase>('idle');
+  const [phaseLabel, setPhaseLabel] = useState('');
+  const [copilotError, setCopilotError] = useState<string | null>(null);
+  const [aiConfigured, setAiConfigured] = useState(true);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -138,12 +146,38 @@ export function Copilot() {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages, activeTab]);
+  }, [messages, activeTab, insights]);
+
+  useEffect(() => {
+    return () => {
+      if (streamingRef.current) clearInterval(streamingRef.current);
+      if (toastRef.current) clearTimeout(toastRef.current);
+    };
+  }, []);
 
   const showToast = useCallback((text: string) => {
     setToast(text);
     if (toastRef.current) clearTimeout(toastRef.current);
     toastRef.current = setTimeout(() => setToast(null), 5000);
+  }, []);
+
+  const resolveCopilotError = useCallback((error: unknown) => {
+    if (error instanceof CopilotRequestError) {
+      if (error.code === 'AI_NOT_CONFIGURED' || error.status === 503) {
+        setAiConfigured(false);
+        return 'IA no configurada. Define GEMINI_API_KEY en el servidor para habilitar Copilot.';
+      }
+      if (error.status === 401) return 'Tu sesion no esta autenticada para usar Copilot.';
+      if (error.status === 403) return 'Tu rol actual no tiene acceso a este operador IA.';
+      if (error.status === 400) return 'La solicitud a la IA no es valida. Revisa el mensaje e intenta de nuevo.';
+      return error.message || 'La IA no pudo procesar la solicitud.';
+    }
+
+    if (error instanceof Error) {
+      return error.message || 'La IA no pudo procesar la solicitud.';
+    }
+
+    return 'La IA no pudo procesar la solicitud.';
   }, []);
 
   useEffect(() => {
@@ -158,7 +192,7 @@ export function Copilot() {
           streaming: false,
         })));
       }
-    } catch (_) {
+    } catch {
       // ignore malformed local data
     }
   }, [company?.id]);
@@ -175,22 +209,26 @@ export function Copilot() {
     return () => clearTimeout(timer);
   }, [messages, company?.id]);
 
-  const simulateStreaming = useCallback((msgId: string, fullText: string, onDone?: () => void) => {
-    const words = fullText.split(' ');
+  const simulateStreaming = useCallback((msgId: string, fullText: string) => {
+    const words = fullText.split(/\s+/).filter(Boolean);
     let i = 0;
+
     if (streamingRef.current) clearInterval(streamingRef.current);
+
+    if (words.length === 0) {
+      setMessages((prev) => prev.map((m) => (m.id === msgId ? { ...m, text: fullText, streaming: false } : m)));
+      return;
+    }
+
     streamingRef.current = setInterval(() => {
-      i++;
+      i += 1;
       const partial = words.slice(0, i).join(' ');
       const done = i >= words.length;
-      setMessages((prev) =>
-        prev.map((m) => (m.id === msgId ? { ...m, text: partial, streaming: !done } : m))
-      );
-      if (done) {
-        if (streamingRef.current) clearInterval(streamingRef.current);
-        onDone?.();
+      setMessages((prev) => prev.map((m) => (m.id === msgId ? { ...m, text: partial, streaming: !done } : m)));
+      if (done && streamingRef.current) {
+        clearInterval(streamingRef.current);
       }
-    }, 22);
+    }, 20);
   }, []);
 
   useEffect(() => {
@@ -199,13 +237,13 @@ export function Copilot() {
     const runMonitoring = async () => {
       try {
         const overview = await fetchCompanyOverview(company.id);
-
         setMetrics({
           revenue: Number(overview.recentRevenue30d ?? overview.recentRevenue ?? 0),
           ordersThisWeek: overview.salesVelocity?.currentPeriodOrders || 0,
           lowStockCount: overview.lowStockCount || 0,
           customers: overview.customersCount || 0,
         });
+        setAiConfigured(true);
         setLastScanAt(new Date());
 
         try {
@@ -226,23 +264,32 @@ export function Copilot() {
             setUnreadInsights((prev) => prev + 1);
             if (!isOpen) showToast(insight.text);
           }
-        } catch (e) {
-          console.warn('Proactive thoughts failed:', e);
+        } catch (error) {
+          console.warn('Proactive thoughts failed:', error);
+          const message = resolveCopilotError(error);
+          setCopilotError(message);
         }
       } catch (error) {
         console.error('Monitoring error:', error);
+        const message = resolveCopilotError(error);
+        setCopilotError(message);
       }
     };
 
     runMonitoring();
     const interval = setInterval(runMonitoring, 60000 * 2);
     return () => clearInterval(interval);
-  }, [company?.id, isOpen, showToast, language]);
+  }, [company?.id, isOpen, showToast, language, resolveCopilotError]);
 
   const handleSendMessage = async (overrideText?: string) => {
     const textToSend = (overrideText || inputText).trim();
     if (!textToSend || !company) return;
+
     if (!overrideText) setInputText('');
+    setCopilotError(null);
+    setAiConfigured(true);
+    setPhase('connecting');
+    setPhaseLabel('Conectando con IA...');
 
     const userMsg: Message = {
       id: `u-${Date.now()}`,
@@ -250,11 +297,15 @@ export function Copilot() {
       text: textToSend,
       timestamp: new Date(),
     };
+
     setMessages((prev) => [...prev, userMsg]);
     setIsTyping(true);
 
     try {
       const overview = await fetchCompanyOverview(company.id);
+      setPhase('analyzing');
+      setPhaseLabel('Analizando operacion...');
+
       const context = {
         ...overview,
         userRole: role || 'staff',
@@ -266,6 +317,9 @@ export function Copilot() {
         .map((m) => ({ role: m.role, parts: [{ text: m.text }] }));
 
       const aiResponse = await chatCopilot(textToSend, history, context, language);
+      if (!aiResponse || !aiResponse.trim()) {
+        throw new Error('La IA no devolvio contenido util.');
+      }
 
       const userTriedToInject = /\[COMMAND:/i.test(textToSend);
       const commandMatch = !userTriedToInject
@@ -273,8 +327,8 @@ export function Copilot() {
         : null;
 
       const cleanText = commandMatch ? aiResponse.split('[COMMAND:')[0].trim() : aiResponse;
-
       let command: Message['command'] | undefined;
+
       if (commandMatch) {
         const type = commandMatch[1].trim();
         const params = commandMatch[2].trim();
@@ -297,8 +351,10 @@ export function Copilot() {
         command,
         commandStatus: command ? 'pending' : undefined,
       }]);
-      setIsTyping(false);
 
+      setIsTyping(false);
+      setPhase('idle');
+      setPhaseLabel('');
       simulateStreaming(botMsgId, cleanText);
 
       setOperatorHistory((prev) => [{
@@ -308,11 +364,15 @@ export function Copilot() {
       }, ...prev].slice(0, 10));
     } catch (error) {
       console.error('Chat error:', error);
+      const message = resolveCopilotError(error);
       setIsTyping(false);
+      setPhase('error');
+      setPhaseLabel(message);
+      setCopilotError(message);
       setMessages((prev) => [...prev, {
         id: `err-${Date.now()}`,
         role: 'model',
-        text: 'No pude conectarme al servicio de datos del negocio. Inténtalo de nuevo.',
+        text: message,
         timestamp: new Date(),
       }]);
     }
@@ -340,8 +400,8 @@ export function Copilot() {
       }
 
       setMessages((prev) => prev.map((m) => (m.id === msgId ? { ...m, commandStatus: 'executed' } : m)));
-    } catch (err: any) {
-      console.error('Action execution failed:', err);
+    } catch (error) {
+      console.error('Action execution failed:', error);
       setMessages((prev) => prev.map((m) => (m.id === msgId ? { ...m, commandStatus: 'dismissed' } : m)));
     } finally {
       setActionProcessing(null);
@@ -355,21 +415,29 @@ export function Copilot() {
 
   const quickPrompts = [
     { label: 'Informe ejecutivo', prompt: 'Dame un informe operativo ejecutivo y conciso para hoy.', icon: Activity },
-    { label: 'Pulso de ingresos', prompt: 'Resume el rendimiento de ingresos y las señales de tendencia.', icon: TrendingUp },
-    { label: 'Vigilancia de stock', prompt: 'Muéstrame la exposición por bajo stock y las prioridades de reposición.', icon: Package },
-    { label: 'Movimiento de clientes', prompt: '¿Qué clientes necesitan atención ahora mismo?', icon: Users },
+    { label: 'Pulso de ingresos', prompt: 'Resume el rendimiento de ingresos y las senales de tendencia.', icon: TrendingUp },
+    { label: 'Vigilancia de stock', prompt: 'Muestrame la exposicion por bajo stock y las prioridades de reposicion.', icon: Package },
+    { label: 'Movimiento de clientes', prompt: 'Que clientes necesitan atencion ahora mismo?', icon: Users },
   ];
 
   const intelActions = [
     { label: 'Generar informe semanal', prompt: 'Redacta un informe operativo semanal con ingresos, riesgos y siguientes acciones.', icon: TrendingUp },
-    { label: 'Revisar presión de inventario', prompt: 'Inspecciona productos con bajo stock y crea una lista de reposición priorizada.', icon: Package },
-    { label: 'Detectar oportunidades de retención', prompt: 'Revisa la actividad de clientes y detecta oportunidades de retención.', icon: Users },
+    { label: 'Revisar presion de inventario', prompt: 'Inspecciona productos con bajo stock y crea una lista de reposicion priorizada.', icon: Package },
+    { label: 'Detectar oportunidades de retencion', prompt: 'Revisa la actividad de clientes y detecta oportunidades de retencion.', icon: Users },
   ];
 
   const activeCommandCount = useMemo(
     () => messages.filter((m) => m.command && m.commandStatus === 'pending').length,
     [messages]
   );
+
+  const phaseChip = useMemo(() => {
+    if (phase === 'connecting') return { label: 'Conectando con IA...', accent: 'text-blue-200' };
+    if (phase === 'analyzing') return { label: 'Analizando operacion...', accent: 'text-amber-200' };
+    if (!aiConfigured) return { label: 'IA no configurada', accent: 'text-red-200' };
+    if (phase === 'error') return { label: 'Error de operacion IA', accent: 'text-red-200' };
+    return { label: 'Operador en linea', accent: 'text-emerald-200' };
+  }, [aiConfigured, phase]);
 
   return (
     <>
@@ -380,15 +448,15 @@ export function Copilot() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 10, scale: 0.96 }}
             className={cn(
-              'fixed bottom-24 z-[60] max-w-[340px] rounded-[24px] border border-blue-400/14 bg-[rgba(8,12,18,0.94)] p-4 shadow-[0_18px_56px_rgba(0,0,0,0.44)] backdrop-blur-2xl cursor-pointer',
+              'fixed bottom-24 z-[60] max-w-[360px] rounded-[24px] border border-blue-400/14 bg-[rgba(8,12,18,0.94)] p-4 shadow-[0_18px_56px_rgba(0,0,0,0.44)] backdrop-blur-2xl cursor-pointer',
               isPOSRoute ? 'left-6 right-6 sm:right-auto' : 'right-6'
             )}
             onClick={openPanel}
           >
             <div className="flex gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-blue-400/14 bg-blue-500/10">
-                <BrainCircuit className="h-4.5 w-4.5 text-blue-300" />
-              </div>
+              <OSGlyph tone="blue" size="sm">
+                <BrainCircuit className="h-4 w-4" />
+              </OSGlyph>
               <div>
                 <p className="section-kicker mb-2">Vigilancia IA</p>
                 <p className="text-sm leading-relaxed text-neutral-200">{toast}</p>
@@ -398,45 +466,39 @@ export function Copilot() {
         )}
       </AnimatePresence>
 
-      <div className={cn('fixed bottom-6 z-[60]', isPOSRoute ? 'left-6' : 'right-6')}>
+      <div className={cn('fixed bottom-6 z-[60]', isPOSRoute ? 'left-6 right-6 sm:right-auto' : 'right-6')}>
         <motion.button
           onClick={() => {
             if (isOpen) setIsOpen(false);
             else openPanel();
           }}
-          whileHover={{ scale: 1.035 }}
-          whileTap={{ scale: 0.97 }}
+          whileHover={{ scale: 1.02 }}
+          whileTap={{ scale: 0.98 }}
           className={cn(
-            'group relative flex h-16 w-16 items-center justify-center overflow-hidden rounded-[22px] border transition-all duration-300',
+            'operator-launcher group relative flex h-13 items-center gap-2.5 overflow-hidden rounded-[20px] border px-3.5 pr-4 transition-all duration-300',
             isOpen
               ? 'border-white/12 bg-[rgba(14,18,24,0.96)] shadow-[0_18px_48px_rgba(0,0,0,0.42)]'
-              : 'border-blue-400/18 bg-[linear-gradient(180deg,rgba(89,133,255,0.96),rgba(43,88,211,0.96))] shadow-[0_22px_56px_rgba(43,88,211,0.36)] before:absolute before:inset-0 before:bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.24),transparent_45%)] before:opacity-90'
+              : 'border-blue-400/18 bg-[linear-gradient(180deg,rgba(15,22,37,0.96),rgba(7,11,18,0.96))] shadow-[0_22px_56px_rgba(6,10,20,0.38)]'
           )}
         >
-          {isOpen ? (
-            <X className="relative h-5 w-5 text-white" />
-          ) : (
-            <>
-              <BrainCircuit className="relative h-6 w-6 text-white" />
-              <span className="absolute bottom-1.5 rounded-full border border-white/14 bg-black/20 px-1.5 py-0.5 font-mono text-[8px] font-bold uppercase tracking-[0.18em] text-blue-100">
-                IA
-              </span>
-              <motion.div
-                animate={{ opacity: [0.45, 1, 0.45] }}
-                transition={{ duration: 2.4, repeat: Infinity }}
-                className="absolute inset-[8px] rounded-[18px] border border-white/12"
-              />
-              <motion.div
-                animate={{ opacity: [0.2, 0.6, 0.2], scale: [0.96, 1.02, 0.96] }}
-                transition={{ duration: 3.2, repeat: Infinity }}
-                className="absolute inset-[5px] rounded-[20px] border border-blue-200/20"
-              />
+          <OSGlyph tone={isOpen ? 'neutral' : 'blue'} size="sm" className="relative">
+            {isOpen ? <X className="h-4 w-4 text-white" /> : <PanelRightOpen className="h-4 w-4" />}
+          </OSGlyph>
+
+          <div className="min-w-0 text-left">
+            <p className="section-kicker mb-1 !text-blue-200/80">Operador IA</p>
+            <p className="truncate text-[11px] font-semibold text-white">{phaseChip.label}</p>
+          </div>
+
+          {!isOpen && (
+            <div className="ml-auto flex items-center gap-2">
               {unreadInsights > 0 && (
-                <span className="absolute -right-1 -top-1 flex min-w-[22px] items-center justify-center rounded-full border-2 border-[#05070b] bg-emerald-400 px-1.5 py-0.5 text-[10px] font-black text-[#03110a]">
+                <span className="flex min-w-[22px] items-center justify-center rounded-full border border-emerald-300/20 bg-emerald-400 px-2 py-1 text-[10px] font-black text-[#03110a]">
                   {unreadInsights > 9 ? '9+' : unreadInsights}
                 </span>
               )}
-            </>
+              <BrainCircuit className="h-3.5 w-3.5 text-blue-300" />
+            </div>
           )}
         </motion.button>
       </div>
@@ -462,15 +524,14 @@ export function Copilot() {
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
             transition={{ type: 'spring', damping: 28, stiffness: 260 }}
-            className="fixed right-0 top-0 z-[50] flex h-full w-full flex-col border-l border-white/8 bg-[rgba(5,8,12,0.98)] shadow-[0_0_70px_rgba(0,0,0,0.48)] backdrop-blur-2xl sm:w-[470px]"
+            className="fixed right-0 top-0 z-[50] flex h-full w-full flex-col border-l border-white/8 bg-[rgba(5,8,12,0.98)] shadow-[0_0_70px_rgba(0,0,0,0.48)] backdrop-blur-2xl sm:w-[480px]"
           >
             <div className="border-b border-white/6 px-5 pb-4 pt-5">
               <div className="mb-5 flex items-start justify-between gap-4">
                 <div className="flex items-start gap-3">
-                  <div className="relative flex h-11 w-11 items-center justify-center rounded-2xl border border-blue-400/14 bg-blue-500/12">
-                    <BrainCircuit className="h-5 w-5 text-blue-200" />
-                    <div className="absolute inset-[7px] rounded-[14px] border border-white/10" />
-                  </div>
+                  <OSGlyph tone="blue" size="md">
+                    <BrainCircuit className="h-4.5 w-4.5" />
+                  </OSGlyph>
                   <div>
                     <p className="section-kicker mb-1">Consola operativa</p>
                     <p className="font-display text-xl font-bold tracking-tight text-white">{company?.name || 'Remix OS'} Copilot</p>
@@ -497,27 +558,14 @@ export function Copilot() {
               {metrics && (
                 <div className="mb-4 grid grid-cols-3 gap-2">
                   {[
-                    {
-                      label: 'Ingresos',
-                      value: formatCurrency(metrics.revenue),
-                      icon: TrendingUp,
-                      accent: 'text-emerald-300',
-                    },
-                    {
-                      label: 'Pedidos / 7d',
-                      value: String(metrics.ordersThisWeek),
-                      icon: Activity,
-                      accent: 'text-blue-300',
-                    },
-                    {
-                      label: 'Bajo stock',
-                      value: String(metrics.lowStockCount),
-                      icon: Package,
-                      accent: metrics.lowStockCount > 0 ? 'text-red-300' : 'text-neutral-400',
-                    },
+                    { label: 'Ingresos', value: formatCurrency(metrics.revenue), icon: TrendingUp, accent: 'text-emerald-300' },
+                    { label: 'Pedidos / 7d', value: String(metrics.ordersThisWeek), icon: Activity, accent: 'text-blue-300' },
+                    { label: 'Bajo stock', value: String(metrics.lowStockCount), icon: Package, accent: metrics.lowStockCount > 0 ? 'text-red-300' : 'text-neutral-400' },
                   ].map((item) => (
                     <div key={item.label} className="data-tile !rounded-[22px] !p-3">
-                      <item.icon className={cn('mb-2 h-4 w-4', item.accent)} />
+                      <OSGlyph tone={item.accent.includes('red') ? 'red' : item.accent.includes('emerald') ? 'emerald' : 'blue'} size="sm" className="mb-2">
+                        <item.icon className={cn('h-3.5 w-3.5', item.accent)} />
+                      </OSGlyph>
                       <p className="truncate font-mono text-sm font-bold text-white">{item.value}</p>
                       <p className="mt-1 text-[9px] font-black uppercase tracking-[0.18em] text-neutral-500">{item.label}</p>
                     </div>
@@ -534,6 +582,10 @@ export function Copilot() {
                   <Clock3 className="h-3 w-3 text-neutral-300" />
                   Refresco / 2m
                 </span>
+                <span className={cn('telemetry-chip !px-2.5 !py-1', phaseChip.accent)}>
+                  <Zap className="h-3 w-3" />
+                  {phaseChip.label}
+                </span>
                 {activeCommandCount > 0 && (
                   <span className="telemetry-chip !px-2.5 !py-1">
                     <Zap className="h-3 w-3 text-amber-300" />
@@ -542,7 +594,23 @@ export function Copilot() {
                 )}
               </div>
 
-              <div className="flex rounded-2xl border border-white/8 bg-white/[0.03] p-1">
+              {!aiConfigured && (
+                <div className="rounded-[20px] border border-red-400/16 bg-red-500/8 p-4 text-sm text-red-100">
+                  <div className="mb-2 flex items-center gap-2">
+                    <AlertTriangle className="h-4 w-4" />
+                    <span className="font-semibold">IA no configurada</span>
+                  </div>
+                  <p className="leading-relaxed">Define <code>GEMINI_API_KEY</code> en el servidor para habilitar Copilot y los insights IA.</p>
+                </div>
+              )}
+
+              {copilotError && aiConfigured && (
+                <div className="rounded-[20px] border border-amber-400/16 bg-amber-500/8 p-4 text-sm text-amber-100">
+                  {copilotError}
+                </div>
+              )}
+
+              <div className="mt-4 flex rounded-2xl border border-white/8 bg-white/[0.03] p-1">
                 {[
                   { id: 'chat', label: 'Operador IA', icon: MessageSquare },
                   { id: 'intel', label: `Vigilancia IA${unreadInsights > 0 ? ` · ${unreadInsights}` : ''}`, icon: Zap },
@@ -572,13 +640,13 @@ export function Copilot() {
                     {messages.length === 0 && (
                       <div className="flex h-full flex-col items-center justify-center text-center">
                         <div className="surface-elevated max-w-sm p-6">
-                          <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-[24px] border border-blue-400/14 bg-blue-500/10">
-                            <Sparkles className="h-7 w-7 text-blue-300" />
-                          </div>
+                          <OSGlyph tone="blue" size="lg" className="mx-auto mb-5">
+                            <Sparkles className="h-6 w-6" />
+                          </OSGlyph>
                           <p className="section-kicker mb-2">Operador IA</p>
                           <h4 className="mb-3 text-lg font-semibold text-white">Pide un informe operativo real</h4>
                           <p className="mb-6 text-sm leading-relaxed text-neutral-400">
-                            Puedo resumir flujo de ingresos, presión de producto, movimiento de clientes y acciones recomendadas a partir de datos reales del espacio de trabajo.
+                            Puedo resumir flujo de ingresos, presion de producto, movimiento de clientes y acciones recomendadas a partir de datos reales del espacio de trabajo.
                           </p>
 
                           <div className="space-y-2 text-left">
@@ -588,9 +656,9 @@ export function Copilot() {
                                 onClick={() => handleSendMessage(prompt.prompt)}
                                 className="surface-elevated flex w-full items-center gap-3 p-3 transition-all hover:border-blue-400/16 hover:bg-white/[0.035]"
                               >
-                                <div className="flex h-9 w-9 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03]">
-                                  <prompt.icon className="h-4 w-4 text-neutral-300" />
-                                </div>
+                              <OSGlyph tone="neutral" size="sm">
+                                <prompt.icon className="h-4 w-4 text-neutral-300" />
+                              </OSGlyph>
                                 <span className="flex-1 text-sm font-medium text-neutral-300">{prompt.label}</span>
                                 <ChevronRight className="h-4 w-4 text-neutral-600" />
                               </button>
@@ -602,12 +670,14 @@ export function Copilot() {
 
                     {messages.map((m) => (
                       <div key={m.id} className={cn('flex', m.role === 'user' ? 'justify-end' : 'justify-start')}>
-                        <div className={cn(
-                          'max-w-[90%] rounded-[24px] text-[13px] leading-relaxed shadow-[0_12px_34px_rgba(0,0,0,0.24)]',
-                          m.role === 'user'
-                            ? 'border border-blue-300/18 bg-[linear-gradient(180deg,rgba(91,136,255,0.96),rgba(49,92,214,0.96))] px-4 py-3 text-white'
-                            : 'border border-white/8 bg-white/[0.03] px-4 py-3 text-neutral-300'
-                        )}>
+                        <div
+                          className={cn(
+                            'max-w-[90%] rounded-[24px] text-[13px] leading-relaxed shadow-[0_12px_34px_rgba(0,0,0,0.24)]',
+                            m.role === 'user'
+                              ? 'border border-blue-300/18 bg-[linear-gradient(180deg,rgba(91,136,255,0.96),rgba(49,92,214,0.96))] px-4 py-3 text-white'
+                              : 'border border-white/8 bg-white/[0.03] px-4 py-3 text-neutral-300'
+                          )}
+                        >
                           {m.role === 'user' ? (
                             <div>
                               <p>{m.text}</p>
@@ -624,7 +694,7 @@ export function Copilot() {
 
                               <ReactMarkdown
                                 components={{
-                                  p: ({ children }) => <p className="mb-2.5 last:mb-0 text-neutral-300 leading-relaxed">{children}</p>,
+                                  p: ({ children }) => <p className="mb-2.5 last:mb-0 leading-relaxed text-neutral-300">{children}</p>,
                                   strong: ({ children }) => <strong className="font-bold text-white">{children}</strong>,
                                   ul: ({ children }) => <ul className="mb-3 space-y-1.5 last:mb-0">{children}</ul>,
                                   li: ({ children }) => (
@@ -638,9 +708,7 @@ export function Copilot() {
                                 {m.text}
                               </ReactMarkdown>
 
-                              {m.streaming && (
-                                <span className="inline-block h-3.5 w-2 rounded-sm bg-blue-300 align-text-bottom animate-pulse" />
-                              )}
+                              {m.streaming && <span className="inline-block h-3.5 w-2 animate-pulse rounded-sm bg-blue-300 align-text-bottom" />}
 
                               {!m.streaming && m.text.includes('ACTION_REQUIRED:') && (
                                 <div className="mt-4 border-t border-white/6 pt-4">
@@ -653,7 +721,7 @@ export function Copilot() {
                                         VIEW_INVENTORY: { label: 'Inventario', path: '/inventory' },
                                         VIEW_ORDERS: { label: 'Pedidos', path: '/orders' },
                                         VIEW_CUSTOMERS: { label: 'Clientes', path: '/customers' },
-                                        VIEW_INSIGHTS: { label: 'Análisis IA', path: '/insights' },
+                                        VIEW_INSIGHTS: { label: 'Analisis IA', path: '/insights' },
                                       };
                                       const cfg = mapping[action];
                                       if (!cfg) return null;
@@ -680,7 +748,7 @@ export function Copilot() {
                                     <div className="mb-3 flex items-center gap-2">
                                       <Zap className="h-4 w-4 text-blue-300" />
                                       <span className="text-[10px] font-black uppercase tracking-[0.22em] text-blue-200">
-                                        {m.command.isReviewOnly ? 'Revisión lista' : 'Acción lista'} · {m.command.type.replace('_', ' ')}
+                                        {m.command.isReviewOnly ? 'Revision lista' : 'Accion lista'} · {m.command.type.replace('_', ' ')}
                                       </span>
                                     </div>
                                     <div className="flex gap-2">
@@ -706,7 +774,7 @@ export function Copilot() {
                               {!m.streaming && m.command && m.commandStatus === 'executed' && (
                                 <div className="mt-3 flex items-center gap-2 text-emerald-300">
                                   <CheckCircle2 className="h-3.5 w-3.5" />
-                                  <span className="text-[10px] font-black uppercase tracking-[0.2em]">Acción confirmada</span>
+                                  <span className="text-[10px] font-black uppercase tracking-[0.2em]">Accion confirmada</span>
                                 </div>
                               )}
                             </div>
@@ -718,6 +786,7 @@ export function Copilot() {
                     {isTyping && !messages.some((m) => m.streaming) && (
                       <div className="flex justify-start">
                         <div className="rounded-[22px] border border-white/8 bg-white/[0.03] px-4 py-3">
+                          <p className="mb-2 text-[10px] font-black uppercase tracking-[0.18em] text-neutral-500">{phaseLabel || 'Analizando operacion...'}</p>
                           <div className="flex gap-1.5">
                             <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-blue-300/60" />
                             <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-blue-300/60 [animation-delay:0.15s]" />
@@ -739,13 +808,18 @@ export function Copilot() {
                         type="text"
                         value={inputText}
                         onChange={(e) => setInputText(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && !isTyping && handleSendMessage()}
-                        placeholder="Pide un informe, una vigilancia, un resumen o la siguiente acción..."
-                        className="flex-1 rounded-2xl border border-white/10 bg-white/[0.035] px-4 py-3 text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:ring-2 focus:ring-blue-400/25 focus:border-blue-400/30"
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && !isTyping) {
+                            void handleSendMessage();
+                          }
+                        }}
+                        placeholder={aiConfigured ? 'Pide un informe, una vigilancia, un resumen o la siguiente accion...' : 'IA no configurada'}
+                        disabled={!aiConfigured}
+                        className="flex-1 rounded-2xl border border-white/10 bg-white/[0.035] px-4 py-3 text-sm text-white placeholder:text-neutral-600 focus:border-blue-400/30 focus:outline-none focus:ring-2 focus:ring-blue-400/25 disabled:cursor-not-allowed disabled:opacity-50"
                       />
                       <button
-                        onClick={() => handleSendMessage()}
-                        disabled={!inputText.trim() || isTyping}
+                        onClick={() => void handleSendMessage()}
+                        disabled={!inputText.trim() || isTyping || !aiConfigured}
                         className="flex h-12 w-12 items-center justify-center rounded-2xl border border-blue-300/18 bg-[linear-gradient(180deg,rgba(91,136,255,0.96),rgba(49,92,214,0.96))] text-white shadow-[0_16px_34px_rgba(43,88,211,0.28)] transition-all hover:brightness-105 disabled:opacity-30"
                       >
                         <Send className="h-4 w-4" />
@@ -755,11 +829,14 @@ export function Copilot() {
                       <button
                         onClick={() => {
                           setMessages([]);
+                          setCopilotError(null);
+                          setPhase('idle');
+                          setPhaseLabel('');
                           if (company) localStorage.removeItem(`copilot_messages_${company.id}`);
                         }}
                         className="mt-3 w-full text-center text-[10px] font-black uppercase tracking-[0.2em] text-neutral-600 transition-colors hover:text-neutral-400"
                       >
-                        Limpiar sesión del operador
+                        Limpiar sesion del operador
                       </button>
                     )}
                   </div>
@@ -770,21 +847,21 @@ export function Copilot() {
                 <div ref={scrollRef} className="custom-scrollbar flex-1 overflow-y-auto p-5">
                   {insights.length === 0 ? (
                     <div className="flex h-full flex-col items-center justify-center text-center">
-                      <div className="surface-elevated max-w-sm p-6">
-                        <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-[22px] border border-white/10 bg-white/[0.03]">
-                          <Zap className="h-5 w-5 text-neutral-500" />
-                        </div>
+                        <div className="surface-elevated max-w-sm p-6">
+                          <OSGlyph tone="neutral" size="lg" className="mx-auto mb-4">
+                            <Zap className="h-5 w-5 text-neutral-500" />
+                          </OSGlyph>
                         <p className="section-kicker mb-2">Vigilancia IA</p>
-                        <p className="text-base font-semibold text-white">Aún no hay señales del operador</p>
+                        <p className="text-base font-semibold text-white">Aun no hay senales del operador</p>
                         <p className="mt-2 text-sm leading-relaxed text-neutral-400">
-                          Copilot escanea el grafo operativo cada dos minutos y publica aquí las señales relevantes.
+                          Copilot escanea el grafo operativo cada dos minutos y publica aqui las senales relevantes.
                         </p>
                       </div>
                     </div>
                   ) : (
                     <div className="space-y-3">
                       <div className="mb-4 flex items-center justify-between">
-                        <p className="section-kicker">Cola de señales</p>
+                        <p className="section-kicker">Cola de senales</p>
                         <span className="telemetry-chip !px-2.5 !py-1">{insights.length} observaciones</span>
                       </div>
 
@@ -806,15 +883,15 @@ export function Copilot() {
                               </span>
                             </div>
                             <div className="flex gap-3">
-                              <div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border', tone.iconWrap)}>
+                              <OSGlyph tone={ins.priority === 'high' ? 'red' : ins.priority === 'medium' ? 'amber' : 'blue'} size="sm">
                                 <BrainCircuit className="h-4 w-4" />
-                              </div>
+                              </OSGlyph>
                               <div className="min-w-0 flex-1">
                                 <p className="text-sm leading-relaxed text-neutral-200">{ins.text}</p>
                                 <button
                                   onClick={() => {
                                     setActiveTab('chat');
-                                    handleSendMessage(`Cuéntame más sobre esta señal operativa: "${ins.text.slice(0, 100)}"`);
+                                    void handleSendMessage(`Cuentame mas sobre esta senal operativa: "${ins.text.slice(0, 100)}"`);
                                   }}
                                   className="mt-3 inline-flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-blue-200 transition-colors hover:text-blue-100"
                                 >
@@ -835,13 +912,13 @@ export function Copilot() {
                               key={action.label}
                               onClick={() => {
                                 setActiveTab('chat');
-                                handleSendMessage(action.prompt);
+                                void handleSendMessage(action.prompt);
                               }}
                               className="surface-elevated flex w-full items-center gap-3 p-3 text-left transition-all hover:border-blue-400/16 hover:bg-white/[0.035]"
                             >
-                              <div className="flex h-9 w-9 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03]">
+                              <OSGlyph tone="neutral" size="sm">
                                 <action.icon className="h-4 w-4 text-neutral-300" />
-                              </div>
+                              </OSGlyph>
                               <span className="flex-1 text-sm font-medium text-neutral-300">{action.label}</span>
                               <ChevronRight className="h-4 w-4 text-neutral-600" />
                             </button>

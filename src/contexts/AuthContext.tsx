@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import { User, onAuthStateChanged } from 'firebase/auth';
-import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { doc, getDoc, collection, query, where, getDocs, setDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, db, handleFirestoreError, OperationType } from '../lib/firebase';
 
 interface Company {
@@ -8,6 +8,7 @@ interface Company {
   name: string;
   ownerId: string;
   industry: string;
+  vertical?: string;
   logoURL?: string;
   country?: string;
   currency?: string;
@@ -64,6 +65,11 @@ const AuthContext = createContext<AuthContextType>({
   refreshProfile: async () => {},
 });
 
+const normalizeLanguage = (lang?: string | null) => {
+  const base = (lang || 'es').split('-')[0].toLowerCase();
+  return ['en', 'es', 'pt'].includes(base) ? base : 'es';
+};
+
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
@@ -83,6 +89,45 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     } catch (error) {
       console.error("Error fetching user profile:", error);
       handleFirestoreError(error, OperationType.GET, `users/${uid}`);
+    }
+  };
+
+  const ensureUserProfile = async (firebaseUser: User) => {
+    try {
+      const userRef = doc(db, 'users', firebaseUser.uid);
+      const userSnap = await getDoc(userRef);
+      const fallbackName =
+        firebaseUser.displayName ||
+        firebaseUser.email?.split('@')[0] ||
+        'Operador Remix';
+      const fallbackLanguage = normalizeLanguage(firebaseUser.providerData?.[0]?.providerId ? 'es' : 'es');
+
+      if (!userSnap.exists()) {
+        await setDoc(userRef, {
+          uid: firebaseUser.uid,
+          email: firebaseUser.email || '',
+          displayName: fallbackName,
+          photoURL: firebaseUser.photoURL || '',
+          language: fallbackLanguage,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+        return;
+      }
+
+      const current = userSnap.data();
+      const patch: Record<string, unknown> = {};
+
+      if (!current.displayName && fallbackName) patch.displayName = fallbackName;
+      if (!current.photoURL && firebaseUser.photoURL) patch.photoURL = firebaseUser.photoURL;
+      if (!current.email && firebaseUser.email) patch.email = firebaseUser.email;
+      if (!current.language) patch.language = fallbackLanguage;
+
+      if (Object.keys(patch).length > 0) {
+        await setDoc(userRef, { ...patch, updatedAt: serverTimestamp() }, { merge: true });
+      }
+    } catch (error) {
+      console.error('Error ensuring user profile:', error);
     }
   };
 
@@ -136,6 +181,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setUser(user);
       if (user) {
+        await ensureUserProfile(user);
         await Promise.all([
           fetchUserProfile(user.uid),
           fetchUserCompany(user.uid)

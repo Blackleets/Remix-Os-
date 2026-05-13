@@ -6,6 +6,7 @@ import { db } from '../lib/firebase';
 import { doc, setDoc, serverTimestamp, collection, addDoc, query, where, getDocs, updateDoc } from 'firebase/firestore';
 import { motion, AnimatePresence } from 'motion/react';
 import { CheckCircle2, Building2, Plus, ArrowRight } from 'lucide-react';
+import { ImageUpload } from '../components/ImageUpload';
 
 import { useLocale } from '../hooks/useLocale';
 
@@ -18,8 +19,8 @@ interface Invitation {
 }
 
 export function Onboarding() {
-  const { t } = useLocale();
-  const { user, company, refreshCompany } = useAuth();
+  const { t, language } = useLocale();
+  const { user, userProfile, company, refreshCompany } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [onboardingError, setOnboardingError] = useState<string | null>(null);
@@ -28,13 +29,47 @@ export function Onboarding() {
   const [form, setForm] = useState({
     name: '',
     industry: 'Retail',
+    vertical: 'retail',
     country: 'United States',
     currency: 'USD',
+    defaultLanguage: language || 'es',
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
     email: user?.email || '',
     phone: '',
+    logoURL: '',
     useSeedData: true
   });
+
+  const verticalOptions = [
+    { value: 'beauty', label: 'Belleza' },
+    { value: 'restaurant', label: 'Restaurante' },
+    { value: 'retail', label: 'Retail' },
+    { value: 'services', label: 'Servicios' },
+    { value: 'wellness', label: 'Wellness' },
+  ];
+
+  const currencyOptions = [
+    { value: 'USD', label: 'USD ($)' },
+    { value: 'EUR', label: 'EUR (EUR)' },
+    { value: 'MXN', label: 'MXN ($)' },
+    { value: 'COP', label: 'COP ($)' },
+    { value: 'BRL', label: 'BRL (R$)' },
+  ];
+
+  const languageOptions = [
+    { value: 'es', label: 'Espanol' },
+    { value: 'en', label: 'English' },
+    { value: 'pt', label: 'Portugues' },
+  ];
+
+  const handleVerticalChange = (vertical: string) => {
+    const match = verticalOptions.find((option) => option.value === vertical);
+    setForm((prev) => ({
+      ...prev,
+      vertical,
+      industry: match?.label || prev.industry,
+    }));
+  };
 
   useEffect(() => {
     const fetchInvitations = async () => {
@@ -101,11 +136,14 @@ export function Onboarding() {
       batch.set(companyRef, {
         name: form.name,
         industry: form.industry,
+        vertical: form.vertical,
         country: form.country,
         currency: form.currency,
+        defaultLanguage: form.defaultLanguage,
         timezone: form.timezone,
         email: form.email,
         phone: form.phone,
+        logoURL: form.logoURL,
         ownerId: user.uid,
         createdAt: serverTimestamp(),
         onboardingState: {
@@ -211,6 +249,22 @@ export function Onboarding() {
                 <div className="absolute top-0 right-0 p-8 opacity-[0.02] pointer-events-none hidden sm:block">
                   <Building2 className="w-32 h-32 text-white" />
                 </div>
+
+                <div className="relative flex items-center gap-5 rounded-[2rem] border border-white/10 bg-white/[0.02] p-5">
+                  <div className="w-20 shrink-0">
+                    <ImageUpload
+                      value={form.logoURL}
+                      onChange={(url) => setForm({ ...form, logoURL: url })}
+                      path={`companies/pending-${user?.uid}/logo`}
+                      label="Logo"
+                    />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-500">Identidad visual</p>
+                    <p className="mt-2 text-sm font-semibold text-white">Sube tu logo o continua sin el.</p>
+                    <p className="mt-1 text-xs text-neutral-500">Podras cambiarlo despues desde Configuracion.</p>
+                  </div>
+                </div>
                 
                 <div className="space-y-4 relative">
                   <span className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-500 ml-1">{t('onboarding.profile.company_name')}</span>
@@ -224,17 +278,16 @@ export function Onboarding() {
                 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 sm:gap-8 relative">
                   <div className="space-y-4">
-                    <span className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-500 ml-1">{t('onboarding.profile.sector')}</span>
+                    <span className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-500 ml-1">Vertical</span>
                     <div className="relative">
                       <select 
                         className="w-full h-14 sm:h-16 bg-white/[0.03] border border-white/10 rounded-2xl px-6 text-lg font-bold text-white outline-none focus:ring-4 focus:ring-white/5 transition-all appearance-none cursor-pointer"
-                        value={form.industry}
-                        onChange={(e) => setForm({ ...form, industry: e.target.value })}
+                        value={form.vertical}
+                        onChange={(e) => handleVerticalChange(e.target.value)}
                       >
-                        <option className="bg-neutral-900" value="Retail">{t('onboarding.profile.sectors.retail')}</option>
-                        <option className="bg-neutral-900" value="Tech">{t('onboarding.profile.sectors.tech')}</option>
-                        <option className="bg-neutral-900" value="Services">{t('onboarding.profile.sectors.services')}</option>
-                        <option className="bg-neutral-900" value="Manufacturing">{t('onboarding.profile.sectors.manufacturing')}</option>
+                        {verticalOptions.map((option) => (
+                          <option key={option.value} className="bg-neutral-900" value={option.value}>{option.label}</option>
+                        ))}
                       </select>
                     </div>
                   </div>
@@ -255,6 +308,32 @@ export function Onboarding() {
                   </div>
                 </div>
                 
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 sm:gap-8 relative">
+                  <div className="space-y-4">
+                    <span className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-500 ml-1">Pais</span>
+                    <Input
+                      placeholder="Pais de operacion"
+                      className="h-14 sm:h-16 text-lg sm:text-xl font-bold px-6 rounded-2xl bg-white/[0.03] border-white/10 text-white placeholder:text-neutral-700 focus:bg-white/[0.05] focus:border-white/20 transition-all"
+                      value={form.country}
+                      onChange={(e) => setForm({ ...form, country: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-4">
+                    <span className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-500 ml-1">Idioma base</span>
+                    <div className="relative">
+                      <select
+                        className="w-full h-14 sm:h-16 bg-white/[0.03] border border-white/10 rounded-2xl px-6 text-lg font-bold text-white outline-none focus:ring-4 focus:ring-white/5 transition-all appearance-none cursor-pointer"
+                        value={form.defaultLanguage}
+                        onChange={(e) => setForm({ ...form, defaultLanguage: e.target.value })}
+                      >
+                        {languageOptions.map((option) => (
+                          <option key={option.value} className="bg-neutral-900" value={option.value}>{option.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
                 <Button onClick={nextStep} disabled={!form.name?.trim()} className="w-full h-16 sm:h-20 text-lg sm:text-2xl font-black rounded-[2rem] sm:rounded-3xl bg-white text-black hover:bg-neutral-200 shadow-2xl shadow-white/5 transition-all active:scale-[0.98]">
                   {t('common.continue')} <ArrowRight className="ml-4 w-5 h-5 sm:w-7 sm:h-7" />
                 </Button>

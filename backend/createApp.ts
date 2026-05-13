@@ -112,6 +112,14 @@ function getGenAI() {
   return genai;
 }
 
+function sendAiConfigError(res: any) {
+  return res.status(503).json({
+    error: 'AI not configured',
+    code: 'AI_NOT_CONFIGURED',
+    details: 'Set GEMINI_API_KEY to enable Copilot and AI insights.',
+  });
+}
+
 async function requireCompanyAccess(
   req: any,
   res: any,
@@ -1144,7 +1152,7 @@ export function createApp() {
       const access = await requireCompanyAccess(req, res, ['owner', 'admin']);
       if (!access) return;
       const ai = getGenAI();
-      if (!ai) return res.status(503).json({ error: 'AI not configured' });
+      if (!ai) return sendAiConfigError(res);
 
       const db = getDb();
       if (!db) throw new Error('Database not initialized');
@@ -1213,7 +1221,7 @@ No markdown, no preamble.`;
       const access = await requireCompanyAccess(req, res, ['owner', 'admin', 'staff', 'viewer']);
       if (!access) return;
       const ai = getGenAI();
-      if (!ai) return res.status(503).json({ error: 'AI not configured' });
+      if (!ai) return sendAiConfigError(res);
       const { message, history, language } = req.body || {};
       if (typeof message !== 'string' || !message.trim()) {
         return res.status(400).json({ error: 'message required' });
@@ -1287,7 +1295,7 @@ Maintain a professional, efficient, and supportive persona.`;
       const access = await requireCompanyAccess(req, res, ['owner', 'admin', 'staff', 'viewer']);
       if (!access) return;
       const ai = getGenAI();
-      if (!ai) return res.status(503).json({ error: 'AI not configured' });
+      if (!ai) return sendAiConfigError(res);
 
       const db = getDb();
       if (!db) throw new Error('Database not initialized');

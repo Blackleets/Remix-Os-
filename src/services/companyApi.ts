@@ -1,4 +1,5 @@
 import { auth } from '../lib/firebase';
+import { CopilotRequestError } from './gemini';
 
 async function authedFetchJSON(url: string, body: Record<string, unknown>) {
   const token = await auth.currentUser?.getIdToken();
@@ -12,7 +13,22 @@ async function authedFetchJSON(url: string, body: Record<string, unknown>) {
   });
 
   if (!response.ok) {
-    throw new Error(await response.text());
+    const raw = await response.text();
+    let parsed: any = null;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      parsed = null;
+    }
+    if (parsed) {
+      throw new CopilotRequestError(
+        parsed.error || `Request failed (${response.status})`,
+        response.status,
+        parsed.code,
+        parsed.details
+      );
+    }
+    throw new CopilotRequestError(raw || `Request failed (${response.status})`, response.status);
   }
 
   return response.json();

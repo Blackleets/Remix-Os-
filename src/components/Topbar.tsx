@@ -1,7 +1,8 @@
-import { Search, Command, CircleUser, Menu, Inbox, Sparkles } from 'lucide-react';
+import { Search, Command, Menu, Inbox, Sparkles } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useTranslation } from 'react-i18next';
 import { LanguageSwitcher } from './LanguageSwitcher';
+import { OSGlyph } from './Common';
 
 export function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
   const { user, userProfile } = useAuth();
@@ -10,6 +11,12 @@ export function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
   const displayName = userProfile?.displayName || user?.displayName || 'Entidad desconocida';
   const photoURL = userProfile?.photoURL || user?.photoURL;
   const email = userProfile?.email || user?.email;
+  const initials = displayName
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join('') || 'RO';
 
   return (
     <header className="sticky top-0 z-30 w-full px-4 pt-4 md:px-6 xl:px-8">
@@ -51,7 +58,9 @@ export function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
           </div>
 
           <div className="hidden items-center gap-2 rounded-2xl border border-blue-400/10 bg-blue-400/5 px-3 py-2 lg:flex">
-            <Sparkles className="h-4 w-4 text-blue-300" />
+            <OSGlyph tone="blue" size="sm">
+              <Sparkles className="h-3.5 w-3.5" />
+            </OSGlyph>
             <div className="leading-tight">
               <p className="text-[10px] font-black uppercase tracking-[0.22em] text-blue-200">Capa IA</p>
               <p className="font-mono text-[10px] text-neutral-500">Operador listo</p>
@@ -60,8 +69,10 @@ export function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
 
           <LanguageSwitcher />
 
-          <button className="relative hidden rounded-2xl border border-white/8 bg-white/[0.03] p-3 text-neutral-500 transition-colors hover:text-white md:block">
-            <Inbox className="h-4.5 w-4.5" />
+          <button className="relative hidden rounded-2xl border border-white/8 bg-white/[0.03] p-1.5 text-neutral-500 transition-colors hover:text-white md:block">
+            <OSGlyph tone="neutral" size="sm">
+              <Inbox className="h-4 w-4" />
+            </OSGlyph>
             <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-blue-400 shadow-[0_0_14px_rgba(96,165,250,0.7)]" />
           </button>
 
@@ -74,7 +85,7 @@ export function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
               {photoURL ? (
                 <img src={photoURL} alt={displayName} className="h-full w-full object-cover" />
               ) : (
-                <CircleUser className="h-5 w-5 text-neutral-400" />
+                <span className="text-xs font-black uppercase tracking-[0.14em] text-neutral-300">{initials}</span>
               )}
             </div>
           </div>

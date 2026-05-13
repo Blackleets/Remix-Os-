@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Card, Button, Input, Label } from '../components/Common';
 import { Shield, CreditCard, Users, Building, Bell, Check, AlertCircle, Globe, Clock, Calendar, UserRound } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
@@ -7,10 +7,11 @@ import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { motion } from 'motion/react';
 import { useLocale } from '../hooks/useLocale';
 import { ImageUpload } from '../components/ImageUpload';
+import { updateProfile } from 'firebase/auth';
 
 export function Settings() {
   const { company, user, userProfile, refreshCompany, refreshProfile } = useAuth();
-  const { t, setLanguage, language: currentLang } = useLocale();
+  const { t, setLanguage } = useLocale();
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -18,10 +19,11 @@ export function Settings() {
   const [form, setForm] = useState({
     name: company?.name || '',
     industry: company?.industry || '',
+    vertical: (company as any)?.vertical || company?.industry || 'Retail',
     email: company?.email || '',
     phone: company?.phone || '',
     currency: company?.currency || 'USD',
-    defaultLanguage: company?.defaultLanguage || 'en',
+    defaultLanguage: company?.defaultLanguage || 'es',
     timezone: company?.timezone || 'UTC',
     logoURL: company?.logoURL || '',
   });
@@ -34,7 +36,37 @@ export function Settings() {
   const [avatarLoading, setAvatarLoading] = useState(false);
   const [avatarSuccess, setAvatarSuccess] = useState(false);
 
-  const [userLang, setUserLang] = useState(userProfile?.language || 'en');
+  const [userLang, setUserLang] = useState(userProfile?.language || 'es');
+
+  const verticalOptions = [
+    { value: 'Belleza', label: 'Belleza' },
+    { value: 'Restaurante', label: 'Restaurante' },
+    { value: 'Retail', label: 'Retail' },
+    { value: 'Servicios', label: 'Servicios' },
+    { value: 'Wellness', label: 'Wellness' },
+  ];
+
+  useEffect(() => {
+    setForm({
+      name: company?.name || '',
+      industry: company?.industry || '',
+      vertical: (company as any)?.vertical || company?.industry || 'Retail',
+      email: company?.email || '',
+      phone: company?.phone || '',
+      currency: company?.currency || 'USD',
+      defaultLanguage: company?.defaultLanguage || 'es',
+      timezone: company?.timezone || 'UTC',
+      logoURL: company?.logoURL || '',
+    });
+  }, [company?.id, company?.name, company?.industry, company?.currency, company?.defaultLanguage, company?.timezone, company?.logoURL, company?.email, company?.phone]);
+
+  useEffect(() => {
+    setAvatarForm({
+      displayName: userProfile?.displayName || user?.displayName || '',
+      photoURL: userProfile?.photoURL || user?.photoURL || '',
+    });
+    setUserLang(userProfile?.language || 'es');
+  }, [userProfile?.uid, userProfile?.displayName, userProfile?.photoURL, userProfile?.language, user?.displayName, user?.photoURL]);
 
   const handleUserLangChange = async (newLang: string) => {
     setUserLang(newLang);
@@ -55,6 +87,8 @@ export function Settings() {
       const companyRef = doc(db, 'companies', company.id);
       await updateDoc(companyRef, {
         ...form,
+        industry: form.vertical,
+        vertical: form.vertical,
         updatedAt: serverTimestamp(),
       });
       
@@ -75,6 +109,12 @@ export function Settings() {
     setAvatarLoading(true);
     try {
       const userRef = doc(db, 'users', userProfile.uid);
+      if (user) {
+        await updateProfile(user, {
+          displayName: avatarForm.displayName || user.displayName || '',
+          photoURL: avatarForm.photoURL || user.photoURL || '',
+        });
+      }
       await updateDoc(userRef, {
         ...avatarForm,
         updatedAt: serverTimestamp(),
@@ -226,17 +266,15 @@ export function Settings() {
                     />
                     </div>
                     <div className="space-y-2">
-                    <Label>{t('settings.industry')}</Label>
+                    <Label>Vertical</Label>
                     <select 
                         className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition-all appearance-none"
-                        value={form.industry}
-                        onChange={e => setForm({...form, industry: e.target.value})}
+                        value={form.vertical}
+                        onChange={e => setForm({...form, vertical: e.target.value, industry: e.target.value})}
                     >
-                        <option className="bg-neutral-900">{t('common.retail') || 'Retail'}</option>
-                        <option className="bg-neutral-900">{t('common.saas') || 'SaaS'}</option>
-                        <option className="bg-neutral-900">{t('common.manufacturing') || 'Manufacturing'}</option>
-                        <option className="bg-neutral-900">{t('common.services') || 'Services'}</option>
-                        <option className="bg-neutral-900">{t('common.technology') || 'Technology'}</option>
+                        {verticalOptions.map((option) => (
+                          <option key={option.value} className="bg-neutral-900" value={option.value}>{option.label}</option>
+                        ))}
                     </select>
                     </div>
                 </div>
