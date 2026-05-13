@@ -1827,7 +1827,7 @@ Return ONLY a valid JSON array of insight objects. Each must have:
 No markdown, no preamble.`;
 
       const response = await ai.models.generateContent({
-        model: 'gemini-2.0-flash',
+        model: 'gemini-2.5-flash',
         contents: prompt,
       });
       console.info('[AI] Gemini response received', {
@@ -1965,7 +1965,7 @@ STRUCTURE: Use SUMMARY, STATUS REPORT, RECOMMENDATIONS, and [COMMANDS].
 Maintain a professional, efficient, and supportive persona.`;
 
       const chat = ai.chats.create({
-        model: 'gemini-2.0-flash',
+        model: 'gemini-2.5-flash',
         history: Array.isArray(history) ? history : [],
         config: { systemInstruction },
       });
@@ -2064,7 +2064,7 @@ Format: Return ONLY a JSON object with:
 NO markdown, NO preamble, just valid JSON.`;
 
       const response = await ai.models.generateContent({
-        model: 'gemini-2.0-flash',
+        model: 'gemini-2.5-flash',
         contents: prompt,
       });
       console.info('[AI] Gemini response received', {

@@ -644,7 +644,7 @@ export function Copilot() {
         )}
       </AnimatePresence>
 
-      <div className={cn('fixed bottom-6 z-[60]', isPOSRoute ? 'left-6 right-6 sm:right-auto' : 'right-6')}>
+      <div className={cn('fixed bottom-6 z-[60]', isPOSRoute ? 'left-6 right-6 sm:right-auto' : 'right-6', isOpen && 'pointer-events-none opacity-0')}>
         <motion.button
           onClick={() => {
             if (isOpen) setIsOpen(false);
