@@ -121,6 +121,35 @@ function sendAiConfigError(res: any) {
   });
 }
 
+function extractTextFromGeminiResponse(result: any): string {
+  if (!result) return '';
+
+  if (typeof result.text === 'string') return result.text;
+  if (typeof result.text === 'function') {
+    try {
+      const extracted = result.text();
+      if (typeof extracted === 'string') return extracted;
+    } catch { }
+  }
+
+  if (result.response?.text && typeof result.response.text === 'function') {
+    try {
+      const extracted = result.response.text();
+      if (typeof extracted === 'string') return extracted;
+    } catch { }
+  }
+
+  if (result.response?.text && typeof result.response.text === 'string') {
+    return result.response.text;
+  }
+
+  if (result.candidates?.[0]?.content?.parts?.[0]?.text) {
+    return result.candidates[0].content.parts[0].text;
+  }
+
+  return '';
+}
+
 async function requireCompanyAccess(
   req: any,
   res: any,
@@ -1213,7 +1242,8 @@ No markdown, no preamble.`;
         model: 'gemini-2.0-flash',
         contents: prompt,
       });
-      const text = parseJSONPayload(response.text ?? '');
+      const responseText = extractTextFromGeminiResponse(response);
+      const text = parseJSONPayload(responseText);
       if (!text) {
         logAiRequest('/api/ai/insights', access.companyId, startedAt, { empty: true });
         return res.json({ insights: null });
@@ -1228,7 +1258,7 @@ No markdown, no preamble.`;
         return res.json({ insights: null });
       }
     } catch (error: any) {
-      console.error('/api/ai/insights error:', error);
+      console.error('[AI] /api/ai/insights error:', error.message || error);
       res.status(500).json({ error: error.message || 'AI request failed' });
     }
   });
@@ -1301,10 +1331,30 @@ Maintain a professional, efficient, and supportive persona.`;
         config: { systemInstruction },
       });
       const result = await chat.sendMessage({ message });
-      logAiRequest('/api/ai/chat', access.companyId, startedAt, { responseLength: (result.text || '').length });
-      res.json({ text: result.text ?? '' });
+      const responseText = extractTextFromGeminiResponse(result);
+
+      if (!responseText || !responseText.trim()) {
+        console.warn('[AI] /api/ai/chat: Empty response from Gemini', { companyId: access.companyId });
+        logAiRequest('/api/ai/chat', access.companyId, startedAt, { empty: true, error: 'empty_response' });
+        return res.status(502).json({
+          error: 'AI response empty',
+          details: 'Gemini returned an empty response. Please try again.'
+        });
+      }
+
+      logAiRequest('/api/ai/chat', access.companyId, startedAt, { responseLength: responseText.length });
+      res.json({ text: responseText });
     } catch (error: any) {
-      console.error('/api/ai/chat error:', error);
+      console.error('[AI] /api/ai/chat error:', error.message || error);
+
+      if (error.message?.includes('API key')) {
+        return res.status(503).json({
+          error: 'AI not configured',
+          code: 'AI_NOT_CONFIGURED',
+          details: 'La IA no está configurada. Añade GEMINI_API_KEY en variables de entorno.'
+        });
+      }
+
       res.status(500).json({ error: error.message || 'AI request failed' });
     }
   });
@@ -1367,7 +1417,8 @@ NO markdown, NO preamble, just valid JSON.`;
         model: 'gemini-2.0-flash',
         contents: prompt,
       });
-      const text = parseJSONPayload(response.text ?? '');
+      const responseText = extractTextFromGeminiResponse(response);
+      const text = parseJSONPayload(responseText);
       if (!text) {
         logAiRequest('/api/ai/proactive-thoughts', access.companyId, startedAt, { empty: true });
         return res.json({ insights: [] });
@@ -1383,7 +1434,7 @@ NO markdown, NO preamble, just valid JSON.`;
         return res.json({ insights: [] });
       }
     } catch (error: any) {
-      console.error('/api/ai/proactive-thoughts error:', error);
+      console.error('[AI] /api/ai/proactive-thoughts error:', error.message || error);
       res.status(500).json({ error: error.message || 'AI request failed' });
     }
   });
