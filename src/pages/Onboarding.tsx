@@ -78,6 +78,11 @@ export function Onboarding() {
         createdAt: serverTimestamp(),
       });
 
+      batch.set(doc(db, 'users', user.uid), {
+        currentCompanyId: invite.companyId,
+        updatedAt: serverTimestamp(),
+      }, { merge: true });
+
       batch.update(doc(db, 'invitations', invite.id), {
         status: 'accepted',
         acceptedAt: serverTimestamp(),
@@ -147,6 +152,11 @@ export function Onboarding() {
         role: 'owner',
         createdAt: serverTimestamp(),
       });
+
+      batch.set(doc(db, 'users', user.uid), {
+        currentCompanyId: companyRef.id,
+        updatedAt: serverTimestamp(),
+      }, { merge: true });
 
       await batch.commit();
 

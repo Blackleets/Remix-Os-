@@ -176,6 +176,14 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    match /adminAuditLogs/{logId} {
+      allow read: if isPlatformAdmin();
+      allow create: if isPlatformAdmin() &&
+                    request.resource.data.adminUid == request.auth.uid &&
+                    request.resource.data.action is string;
+      allow update, delete: if false;
+    }
+
     // 0.2 Test connection
     match /test/connection {
       allow read: if isSignedIn();

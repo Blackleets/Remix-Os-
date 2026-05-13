@@ -106,6 +106,17 @@ function buildCopilotDiagnostic(message: string, aiConfigured: boolean) {
   ].join('\n');
 }
 
+function hasOperationalData(overview: any) {
+  return (
+    Number(overview?.productsCount || 0) > 0 ||
+    Number(overview?.customersCount || 0) > 0 ||
+    Number(overview?.ordersCount || overview?.salesVelocity?.currentPeriodOrders || 0) > 0 ||
+    Number(overview?.inventoryValue || 0) > 0
+  );
+}
+
+const EMPTY_OPERATIONAL_DATA_MESSAGE = 'Todavía no hay suficientes datos operativos. Añade productos, clientes o pedidos para generar análisis más avanzados.';
+
 export function Copilot() {
   const { company, role } = useAuth();
   const { language, formatCurrency } = useLocale();
@@ -286,7 +297,17 @@ export function Copilot() {
 
     const runMonitoring = async () => {
       try {
+        console.info('[Copilot] Requesting business overview for monitoring.', {
+          companyId: company.id,
+        });
         const overview = await fetchCompanyOverview(company.id);
+        console.info('[Copilot] Business overview loaded for monitoring.', {
+          companyId: company.id,
+          productsCount: overview.productsCount || 0,
+          customersCount: overview.customersCount || 0,
+          ordersCount: overview.ordersCount || 0,
+          inventoryValue: overview.inventoryValue || 0,
+        });
         setMetrics({
           revenue: Number(overview.recentRevenue30d ?? overview.recentRevenue ?? 0),
           ordersThisWeek: overview.salesVelocity?.currentPeriodOrders || 0,
@@ -295,6 +316,14 @@ export function Copilot() {
         });
         setAiConfigured(true);
         setLastScanAt(new Date());
+        setCopilotError(null);
+
+        if (!hasOperationalData(overview)) {
+          console.info('[Copilot] Empty operational context detected during monitoring.', {
+            companyId: company.id,
+          });
+          return;
+        }
 
         try {
           const thoughts = await getProactiveThoughts(overview, language);
@@ -320,7 +349,7 @@ export function Copilot() {
           setCopilotError(message);
         }
       } catch (error) {
-        console.error('Monitoring error:', error);
+        console.error('[Copilot] Monitoring error:', error);
         const message = normalizedCopilotError(error);
         setCopilotError(message);
       }
@@ -352,7 +381,20 @@ export function Copilot() {
     setIsTyping(true);
 
     try {
+      console.info('[Copilot] Requesting business overview for chat.', {
+        companyId: company.id,
+        role,
+      });
       const overview = await fetchCompanyOverview(company.id);
+      const operationalDataAvailable = hasOperationalData(overview);
+      console.info('[Copilot] Business overview loaded for chat.', {
+        companyId: company.id,
+        productsCount: overview.productsCount || 0,
+        customersCount: overview.customersCount || 0,
+        ordersCount: overview.ordersCount || 0,
+        inventoryValue: overview.inventoryValue || 0,
+        operationalDataAvailable,
+      });
       setPhaseLabel('Analizando datos del negocio...');
       setPhase('analyzing');
       setPhaseLabel('Analizando datos del negocio...');
@@ -409,6 +451,9 @@ export function Copilot() {
       setIsTyping(false);
       setPhase('idle');
       setPhaseLabel('');
+      if (!operationalDataAvailable) {
+        setCopilotError(EMPTY_OPERATIONAL_DATA_MESSAGE);
+      }
       simulateStreaming(botMsgId, cleanText);
 
       setOperatorHistory((prev) => [{
@@ -417,7 +462,7 @@ export function Copilot() {
         timestamp: new Date(),
       }, ...prev].slice(0, 10));
     } catch (error) {
-      console.error('Chat error:', error);
+      console.error('[Copilot] Chat error:', error);
       const message = normalizedCopilotError(error);
       const diagnostic = buildCopilotDiagnostic(
         message,

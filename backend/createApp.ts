@@ -23,6 +23,8 @@ interface CompanyOverview {
   planId: PlanId;
   customersCount: number;
   productsCount: number;
+  ordersCount: number;
+  inventoryValue: number;
   recentRevenue: number;
   recentRevenue30d: number;
   previousRevenue30d: number;
@@ -121,6 +123,45 @@ function sendAiConfigError(res: any) {
   });
 }
 
+function logMembership(message: string, extra?: Record<string, unknown>) {
+  console.info('[Membership]', message, extra || {});
+}
+
+function logCompanyOverview(message: string, extra?: Record<string, unknown>) {
+  console.info('[CompanyOverview]', message, extra || {});
+}
+
+function buildEmptyCompanyOverview(companyId: string, companyData?: AnyRecord): CompanyOverview {
+  return {
+    companyId,
+    companyName: companyData?.name || 'Remix OS',
+    industry: companyData?.industry || 'General',
+    onboardingCompleted: false,
+    planId: getPlanDefinition(companyData?.subscription?.planId).id,
+    customersCount: 0,
+    productsCount: 0,
+    ordersCount: 0,
+    inventoryValue: 0,
+    recentRevenue: 0,
+    recentRevenue30d: 0,
+    previousRevenue30d: 0,
+    growth: 0,
+    lowStockCount: 0,
+    topProducts: [],
+    lowStockItems: [],
+    topCustomers: [],
+    inventoryStatus: [],
+    pendingReminders: [],
+    recentCommunications: [],
+    recentActivities: [],
+    salesVelocity: {
+      currentPeriodOrders: 0,
+      previousPeriodOrders: 0,
+      trend: 'up',
+    },
+  };
+}
+
 function extractTextFromGeminiResponse(result: any): string {
   if (!result) return '';
 
@@ -182,16 +223,66 @@ async function requireCompanyAccess(
     return null;
   }
 
-  const membershipSnap = await db.collection('memberships').doc(`${decoded.uid}_${companyId}`).get();
-  if (!membershipSnap.exists || !allowedRoles.includes(membershipSnap.data()?.role)) {
-    res.status(403).json({ error: 'Forbidden' });
+  const expectedMembershipId = `${decoded.uid}_${companyId}`;
+  let membershipSnap = await db.collection('memberships').doc(expectedMembershipId).get();
+
+  if (!membershipSnap.exists) {
+    logMembership('Expected membership doc not found, falling back to query lookup.', {
+      uid: decoded.uid,
+      companyId,
+      expectedMembershipId,
+    });
+
+    const fallbackMemberships = await db
+      .collection('memberships')
+      .where('userId', '==', decoded.uid)
+      .where('companyId', '==', companyId)
+      .limit(1)
+      .get();
+
+    if (!fallbackMemberships.empty) {
+      membershipSnap = fallbackMemberships.docs[0];
+      logMembership('Recovered membership through query fallback.', {
+        uid: decoded.uid,
+        companyId,
+        membershipDocId: membershipSnap.id,
+        role: membershipSnap.data()?.role,
+      });
+    }
+  }
+
+  if (!membershipSnap.exists) {
+    logMembership('No membership found for company access.', {
+      uid: decoded.uid,
+      companyId,
+      expectedMembershipId,
+    });
+    res.status(403).json({ error: 'Forbidden', code: 'MEMBERSHIP_NOT_FOUND' });
     return null;
   }
 
+  if (!allowedRoles.includes(membershipSnap.data()?.role)) {
+    logMembership('Membership role is not allowed for this route.', {
+      uid: decoded.uid,
+      companyId,
+      membershipDocId: membershipSnap.id,
+      role: membershipSnap.data()?.role,
+      allowedRoles,
+    });
+    res.status(403).json({ error: 'Forbidden', code: 'MEMBERSHIP_ROLE_FORBIDDEN' });
+    return null;
+  }
+
+  logMembership('Company access granted.', {
+    uid: decoded.uid,
+    companyId,
+    membershipDocId: membershipSnap.id,
+    role: membershipSnap.data()?.role,
+  });
   return { uid: decoded.uid, companyId };
 }
 
-async function requirePlatformAdmin(req: any, res: any): Promise<{ uid: string } | null> {
+async function requirePlatformAdmin(req: any, res: any): Promise<{ uid: string; email: string } | null> {
   const authHeader = req.headers.authorization || '';
   const match = authHeader.match(/^Bearer\s+(.+)$/i);
   if (!match) {
@@ -208,7 +299,7 @@ async function requirePlatformAdmin(req: any, res: any): Promise<{ uid: string }
   }
 
   if (decoded.superAdmin === true) {
-    return { uid: decoded.uid };
+    return { uid: decoded.uid, email: decoded.email || '' };
   }
 
   const db = getDb();
@@ -224,7 +315,7 @@ async function requirePlatformAdmin(req: any, res: any): Promise<{ uid: string }
     return null;
   }
 
-  return { uid: decoded.uid };
+  return { uid: decoded.uid, email: decoded.email || '' };
 }
 
 function getPeriodEndMs(sub: any): number {
@@ -413,6 +504,11 @@ async function buildCompanyOverview(db: Firestore, companyId: string): Promise<C
   const companySnap = await db.collection('companies').doc(companyId).get();
   const company = companySnap.data() || {};
 
+  if (!companySnap.exists) {
+    logCompanyOverview('Company document missing. Returning empty overview.', { companyId });
+    return buildEmptyCompanyOverview(companyId);
+  }
+
   const [productsSnap, ordersSnap, customersSnap, remindersSnap, messagesSnap, activitiesSnap] = await Promise.all([
     db.collection('products').where('companyId', '==', companyId).get(),
     db.collection('orders').where('companyId', '==', companyId).get(),
@@ -489,6 +585,10 @@ async function buildCompanyOverview(db: Firestore, companyId: string): Promise<C
     }))
     .filter((product) => product.stock <= 10)
     .sort((a, b) => a.stock - b.stock);
+  const inventoryValue = productsSnap.docs.reduce((sum, entry) => {
+    const data = entry.data();
+    return sum + ((data.stockLevel ?? 0) * (data.price ?? 0));
+  }, 0);
 
   const growth = previousRevenue30d > 0
     ? ((recentRevenue30d - previousRevenue30d) / previousRevenue30d) * 100
@@ -509,6 +609,8 @@ async function buildCompanyOverview(db: Firestore, companyId: string): Promise<C
     planId: getPlanDefinition(company.subscription?.planId).id,
     customersCount: customersSnap.size,
     productsCount: productsSnap.size,
+    ordersCount: ordersSnap.size,
+    inventoryValue,
     recentRevenue: recentRevenue30d,
     recentRevenue30d,
     previousRevenue30d,
@@ -567,6 +669,168 @@ async function buildCompanyUsage(db: Firestore, companyId: string) {
   };
 }
 
+function resolvePrimaryMembershipForUser(user: AnyRecord, memberships: AnyRecord[]) {
+  if (!memberships.length) return null;
+  if (user.currentCompanyId) {
+    const currentCompanyMembership = memberships.find((entry) => entry.companyId === user.currentCompanyId);
+    if (currentCompanyMembership) return currentCompanyMembership;
+  }
+  const ownerMembership = memberships.find((entry) => entry.role === 'owner');
+  return ownerMembership || memberships[0];
+}
+
+async function buildPlatformSupportView(
+  db: Firestore,
+  companyId: string,
+  targetUserId?: string | null
+) {
+  const [
+    companySnap,
+    companyStatsSnap,
+    companyBillingSnap,
+    membershipsSnap,
+    activitiesSnap,
+  ] = await Promise.all([
+    db.collection('companies').doc(companyId).get(),
+    db.collection('companyStats').doc(companyId).get(),
+    db.collection('companyBillingStats').doc(companyId).get(),
+    db.collection('memberships').where('companyId', '==', companyId).get(),
+    db.collection('activities').where('companyId', '==', companyId).orderBy('createdAt', 'desc').limit(10).get().catch(() => ({
+      docs: [],
+    })),
+  ]);
+
+  const companyData = companySnap.exists ? companySnap.data() || {} : {};
+  const companyStats = companyStatsSnap.exists ? companyStatsSnap.data() || {} : {};
+  const companyBilling = companyBillingSnap.exists ? companyBillingSnap.data() || {} : {};
+  const memberships = membershipsSnap.docs.map((entry) => ({ id: entry.id, ...entry.data() })) as AnyRecord[];
+  const ownerMembership = (memberships.find((entry: AnyRecord) => entry.role === 'owner') || null) as AnyRecord | null;
+  const membershipUserIds = [...new Set(memberships.map((entry) => entry.userId).filter(Boolean))];
+  if (targetUserId && !membershipUserIds.includes(targetUserId)) {
+    membershipUserIds.push(targetUserId);
+  }
+  const userDocs = await Promise.all(
+    membershipUserIds.map(async (uid) => {
+      const userSnap = await db.collection('users').doc(uid).get();
+      return userSnap.exists ? { id: userSnap.id, ...userSnap.data() } : null;
+    })
+  );
+  const users = userDocs.filter(Boolean) as AnyRecord[];
+  const usersById = new Map(users.map((entry) => [entry.id, entry]));
+  const targetUser =
+    (targetUserId ? usersById.get(targetUserId) : null) ||
+    (ownerMembership ? usersById.get(ownerMembership.userId) : null) ||
+    users[0] ||
+    null;
+  const targetMembership = targetUser
+    ? memberships.find((entry: AnyRecord) => entry.userId === targetUser.id && entry.companyId === companyId) || null
+    : ownerMembership;
+  const ownerUser = ownerMembership ? usersById.get(ownerMembership.userId) : null;
+
+  const issues: Array<{ severity: 'info' | 'warning' | 'error'; code: string; message: string }> = [];
+  if (!companySnap.exists) {
+    issues.push({
+      severity: 'error',
+      code: 'COMPANY_MISSING',
+      message: 'The company document does not exist.',
+    });
+  }
+  if (!memberships.length) {
+    issues.push({
+      severity: 'error',
+      code: 'MEMBERSHIPS_MISSING',
+      message: 'The company has no memberships.',
+    });
+  }
+  if (!ownerMembership) {
+    issues.push({
+      severity: 'warning',
+      code: 'OWNER_MEMBERSHIP_MISSING',
+      message: 'No owner membership was found for this company.',
+    });
+  }
+  if (targetUser && targetUser.currentCompanyId !== companyId) {
+    issues.push({
+      severity: 'warning',
+      code: 'CURRENT_COMPANY_MISMATCH',
+      message: 'The selected user currentCompanyId does not match this company.',
+    });
+  }
+  if (!companyData?.onboardingState?.isComplete) {
+    issues.push({
+      severity: 'info',
+      code: 'ONBOARDING_INCOMPLETE',
+      message: 'Onboarding is not marked as complete yet.',
+    });
+  }
+  if ((companyStats.ordersCount || 0) === 0 && (companyStats.productsCount || 0) === 0 && (companyStats.customersCount || 0) === 0) {
+    issues.push({
+      severity: 'info',
+      code: 'NO_OPERATIONAL_DATA',
+      message: 'The company has no operational data yet.',
+    });
+  }
+
+  return {
+    mode: 'support',
+    company: {
+      id: companyId,
+      name: companyData?.name || 'Unnamed company',
+      industry: companyData?.industry || 'Unknown industry',
+      ownerId: companyData?.ownerId || ownerMembership?.userId || null,
+      ownerEmail: ownerUser?.email || 'No owner email',
+      subscriptionStatus: companyBilling.subscriptionStatus || companyData?.subscription?.status || 'trialing',
+      planId: companyBilling.planId || companyData?.subscription?.planId || 'starter',
+      stripeCustomerId: companyData?.stripeCustomerId || null,
+      currentCompanyId: targetUser?.currentCompanyId || null,
+      onboardingComplete: Boolean(companyData?.onboardingState?.isComplete),
+      onboardingStep: companyData?.onboardingState?.step || 1,
+      createdAt: companyData?.createdAt || null,
+      totals: {
+        users: memberships.length,
+        products: companyStats.productsCount || 0,
+        customers: companyStats.customersCount || 0,
+        orders: companyStats.ordersCount || 0,
+        revenue: companyStats.lifetimeRevenue || 0,
+      },
+    },
+    targetUser: targetUser
+      ? {
+          uid: targetUser.id,
+          email: targetUser.email || 'No email',
+          displayName: targetUser.displayName || 'Unnamed user',
+          photoURL: targetUser.photoURL || null,
+          currentCompanyId: targetUser.currentCompanyId || null,
+          createdAt: targetUser.createdAt || null,
+        }
+      : null,
+    membership: targetMembership
+      ? {
+          id: targetMembership.id,
+          userId: targetMembership.userId,
+          companyId: targetMembership.companyId,
+          role: targetMembership.role,
+          createdAt: targetMembership.createdAt || null,
+        }
+      : null,
+    memberships: memberships.map((entry) => ({
+      id: entry.id,
+      userId: entry.userId,
+      companyId: entry.companyId,
+      role: entry.role,
+      email: usersById.get(entry.userId)?.email || 'No email',
+      displayName: usersById.get(entry.userId)?.displayName || 'Unnamed user',
+    })),
+    activity: {
+      recentActivities: (activitiesSnap as any).docs?.map((entry: any) => ({
+        id: entry.id,
+        ...entry.data(),
+      })) || [],
+    },
+    issues,
+  };
+}
+
 async function buildPlatformOverview(db: Firestore) {
   const [
     companiesSnap,
@@ -598,13 +862,19 @@ async function buildPlatformOverview(db: Firestore) {
   ) as Record<string, AnyRecord>;
 
   const companyNameById = new Map(companies.map((company: AnyRecord) => [company.id, company.name || 'Unknown company']));
+  const companiesById = new Map(companies.map((company: AnyRecord) => [company.id, company]));
   const usersById = new Map(users.map((user: AnyRecord) => [user.id, user]));
   const membershipsByCompany = new Map<string, AnyRecord[]>();
+  const membershipsByUser = new Map<string, AnyRecord[]>();
 
   memberships.forEach((membership: AnyRecord) => {
     membershipsByCompany.set(
       membership.companyId,
       [...(membershipsByCompany.get(membership.companyId) || []), membership]
+    );
+    membershipsByUser.set(
+      membership.userId,
+      [...(membershipsByUser.get(membership.userId) || []), membership]
     );
   });
 
@@ -642,13 +912,26 @@ async function buildPlatformOverview(db: Firestore) {
   });
 
   const usersTable = users.map((user: AnyRecord) => {
-    const membership = memberships.find((entry: AnyRecord) => entry.userId === user.id) as AnyRecord | undefined;
+    const candidateMemberships = membershipsByUser.get(user.id) || [];
+    const membership = resolvePrimaryMembershipForUser(user, candidateMemberships) as AnyRecord | null;
+    const resolvedCompanyId = membership?.companyId || user.currentCompanyId || null;
+    const company = resolvedCompanyId ? companiesById.get(resolvedCompanyId) : null;
+    const stats = resolvedCompanyId ? companyStats[resolvedCompanyId] || {} : {};
+    const billing = resolvedCompanyId ? companyBillingStats[resolvedCompanyId] || {} : {};
     return {
       id: user.id,
       email: user.email || 'No email',
       displayName: user.displayName || 'Unnamed user',
-      companyName: membership ? companyNameById.get(membership.companyId) || 'Unknown company' : 'No company',
+      photoURL: user.photoURL || null,
+      companyId: resolvedCompanyId,
+      companyName: resolvedCompanyId ? companyNameById.get(resolvedCompanyId) || 'Unknown company' : 'No company',
       role: membership?.role || 'unassigned',
+      currentCompanyId: user.currentCompanyId || null,
+      subscriptionStatus: billing.subscriptionStatus || company?.subscription?.status || 'no_company',
+      onboardingStatus: company?.onboardingState?.isComplete ? 'complete' : (resolvedCompanyId ? 'pending' : 'not_started'),
+      products: stats.productsCount || 0,
+      customers: stats.customersCount || 0,
+      orders: stats.ordersCount || 0,
       createdAt: user.createdAt,
     };
   });
@@ -773,13 +1056,24 @@ export function createApp() {
 
   app.post('/api/company/overview', async (req, res) => {
     try {
+      logCompanyOverview('Overview request received.', {
+        companyId: req.body?.companyId,
+      });
       const access = await requireCompanyAccess(req, res, ['owner', 'admin', 'staff', 'viewer']);
       if (!access) return;
       const db = getDb();
       if (!db) throw new Error('Database not initialized');
       const overview = await buildCompanyOverview(db, access.companyId);
+      logCompanyOverview('Overview response ready.', {
+        companyId: access.companyId,
+        productsCount: overview.productsCount,
+        customersCount: overview.customersCount,
+        ordersCount: overview.ordersCount,
+        inventoryValue: overview.inventoryValue,
+      });
       res.json(overview);
     } catch (error: any) {
+      console.error('[CompanyOverview] Failed to load company overview:', error.message || error);
       res.status(500).json({ error: error.message || 'Failed to load company overview' });
     }
   });
@@ -1260,6 +1554,34 @@ No markdown, no preamble.`;
     } catch (error: any) {
       console.error('[AI] /api/ai/insights error:', error.message || error);
       res.status(500).json({ error: error.message || 'AI request failed' });
+    }
+  });
+
+  app.post('/api/platform/support/view', async (req, res) => {
+    try {
+      const access = await requirePlatformAdmin(req, res);
+      if (!access) return;
+      const db = getDb();
+      if (!db) throw new Error('Database not initialized');
+      const companyId = typeof req.body?.companyId === 'string' ? req.body.companyId.trim() : '';
+      const targetUserId = typeof req.body?.targetUserId === 'string' ? req.body.targetUserId.trim() : '';
+      if (!companyId) {
+        return res.status(400).json({ error: 'companyId is required' });
+      }
+
+      const supportView = await buildPlatformSupportView(db, companyId, targetUserId || null);
+      await db.collection('adminAuditLogs').add({
+        adminUid: access.uid,
+        adminEmail: access.email,
+        targetCompanyId: companyId,
+        targetUserId: targetUserId || null,
+        action: 'support_view_opened',
+        createdAt: FieldValue.serverTimestamp(),
+      });
+      res.json(supportView);
+    } catch (error: any) {
+      console.error('Platform support view failed:', error);
+      res.status(500).json({ error: error.message || 'Failed to load support view' });
     }
   });
 

@@ -7,6 +7,7 @@ import {
   CreditCard,
   DollarSign,
   Flame,
+  LifeBuoy,
   Layers3,
   Loader2,
   Radar,
@@ -17,6 +18,7 @@ import {
   Sparkles,
   TrendingUp,
   Users,
+  X,
 } from 'lucide-react';
 import { addDoc, collection, doc, serverTimestamp, setDoc } from 'firebase/firestore';
 import type { ComponentType } from 'react';
@@ -24,7 +26,7 @@ import { Button, Card, cn, Input, Label } from '../components/Common';
 import { db } from '../lib/firebase';
 import { useLocale } from '../hooks/useLocale';
 import { usePlatformAdmin } from '../hooks/usePlatformAdmin';
-import { fetchPlatformOverview, syncPlatformBilling, syncPlatformStats } from '../services/companyApi';
+import { fetchPlatformOverview, fetchPlatformSupportView, syncPlatformBilling, syncPlatformStats } from '../services/companyApi';
 
 interface CompanyDoc {
   id: string;
@@ -180,9 +182,79 @@ interface UserRow {
   id: string;
   email: string;
   displayName: string;
+  photoURL?: string | null;
+  companyId?: string | null;
   companyName: string;
   role: string;
+  currentCompanyId?: string | null;
+  subscriptionStatus?: string;
+  onboardingStatus?: string;
+  products?: number;
+  customers?: number;
+  orders?: number;
   createdAt?: any;
+}
+
+interface SupportViewPayload {
+  mode: 'support';
+  company: {
+    id: string;
+    name: string;
+    industry: string;
+    ownerId?: string | null;
+    ownerEmail: string;
+    subscriptionStatus: string;
+    planId: string;
+    stripeCustomerId?: string | null;
+    currentCompanyId?: string | null;
+    onboardingComplete: boolean;
+    onboardingStep: number;
+    createdAt?: any;
+    totals: {
+      users: number;
+      products: number;
+      customers: number;
+      orders: number;
+      revenue: number;
+    };
+  };
+  targetUser: {
+    uid: string;
+    email: string;
+    displayName: string;
+    photoURL?: string | null;
+    currentCompanyId?: string | null;
+    createdAt?: any;
+  } | null;
+  membership: {
+    id: string;
+    userId: string;
+    companyId: string;
+    role: string;
+    createdAt?: any;
+  } | null;
+  memberships: Array<{
+    id: string;
+    userId: string;
+    companyId: string;
+    role: string;
+    email: string;
+    displayName: string;
+  }>;
+  activity: {
+    recentActivities: Array<{
+      id: string;
+      type?: string;
+      title?: string;
+      subtitle?: string;
+      createdAt?: any;
+    }>;
+  };
+  issues: Array<{
+    severity: 'info' | 'warning' | 'error';
+    code: string;
+    message: string;
+  }>;
 }
 
 interface PlatformAlert {
@@ -336,6 +408,9 @@ export function SuperAdmin() {
   const [syncingStats, setSyncingStats] = useState(false);
   const [syncingBilling, setSyncingBilling] = useState(false);
   const [controlFeedback, setControlFeedback] = useState<string | null>(null);
+  const [supportView, setSupportView] = useState<SupportViewPayload | null>(null);
+  const [loadingSupport, setLoadingSupport] = useState(false);
+  const [supportError, setSupportError] = useState<string | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -378,6 +453,24 @@ export function SuperAdmin() {
       isMounted = false;
     };
   }, [refreshKey, t]);
+
+  const openSupportView = async (companyId?: string | null, targetUserId?: string | null) => {
+    if (!companyId) {
+      setSupportError('No hay empresa asociada para esta vista de soporte.');
+      return;
+    }
+    setLoadingSupport(true);
+    setSupportError(null);
+    try {
+      const payload = await fetchPlatformSupportView(companyId, targetUserId);
+      setSupportView(payload as SupportViewPayload);
+    } catch (viewError) {
+      console.error('Failed to load support view:', viewError);
+      setSupportError('No se pudo cargar la vista de soporte.');
+    } finally {
+      setLoadingSupport(false);
+    }
+  };
 
   const alerts = useMemo<PlatformAlert[]>(() => {
     const items: PlatformAlert[] = [];
@@ -1020,6 +1113,7 @@ export function SuperAdmin() {
                       <th className="table-header">{t('super_admin.tables.orders')}</th>
                       <th className="table-header">{t('super_admin.tables.revenue')}</th>
                       <th className="table-header">{t('super_admin.tables.created_at')}</th>
+                      <th className="table-header">Support</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1042,6 +1136,18 @@ export function SuperAdmin() {
                         <td className="table-cell text-neutral-300">{company.orders}</td>
                         <td className="table-cell text-white font-mono">{formatCurrency(company.revenue)}</td>
                         <td className="table-cell text-neutral-400">{toDate(company.createdAt)?.toLocaleDateString() || '-'}</td>
+                        <td className="table-cell">
+                          <Button
+                            variant="secondary"
+                            className="border-white/10 bg-black/30 px-3 py-2 text-xs"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void openSupportView(company.id, company.ownerId || null);
+                            }}
+                          >
+                            Abrir soporte
+                          </Button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -1056,17 +1162,29 @@ export function SuperAdmin() {
                     <p className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-600">{t('super_admin.company_panel.label')}</p>
                     <h2 className="mt-2 text-lg font-bold text-white">{t('super_admin.company_panel.title')}</h2>
                   </div>
-                  <div
-                    className={cn(
-                      'rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.22em]',
-                      selectedCompanyHealth === 'healthy'
-                        ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-300'
-                        : selectedCompanyHealth === 'risk'
-                          ? 'border-red-500/20 bg-red-500/10 text-red-300'
-                          : 'border-amber-500/20 bg-amber-500/10 text-amber-300'
-                    )}
-                  >
-                    {t(`super_admin.company_panel.health.${selectedCompanyHealth}`)}
+                  <div className="flex items-center gap-2">
+                    {selectedCompany ? (
+                      <Button
+                        variant="secondary"
+                        className="border-white/10 bg-black/30 px-3 py-2 text-xs"
+                        onClick={() => void openSupportView(selectedCompany.id, selectedCompany.ownerId || null)}
+                      >
+                        <LifeBuoy className="h-4 w-4" />
+                        Abrir vista soporte
+                      </Button>
+                    ) : null}
+                    <div
+                      className={cn(
+                        'rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.22em]',
+                        selectedCompanyHealth === 'healthy'
+                          ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-300'
+                          : selectedCompanyHealth === 'risk'
+                            ? 'border-red-500/20 bg-red-500/10 text-red-300'
+                            : 'border-amber-500/20 bg-amber-500/10 text-amber-300'
+                      )}
+                    >
+                      {t(`super_admin.company_panel.health.${selectedCompanyHealth}`)}
+                    </div>
                   </div>
                 </div>
 
@@ -1375,27 +1493,207 @@ export function SuperAdmin() {
                 <table className="w-full border-collapse">
                   <thead>
                     <tr>
+                      <th className="table-header">UID</th>
                       <th className="table-header">{t('super_admin.tables.user_email')}</th>
                       <th className="table-header">{t('super_admin.tables.user_name')}</th>
                       <th className="table-header">{t('super_admin.tables.company')}</th>
+                      <th className="table-header">Current Company</th>
                       <th className="table-header">{t('super_admin.tables.user_role')}</th>
+                      <th className="table-header">Subscription</th>
+                      <th className="table-header">Onboarding</th>
+                      <th className="table-header">Totals</th>
                       <th className="table-header">{t('super_admin.tables.registered_at')}</th>
+                      <th className="table-header">Support</th>
                     </tr>
                   </thead>
                   <tbody>
                     {usersTable.slice(0, 12).map((user) => (
                       <tr key={user.id} className="border-t border-white/[0.04]">
+                        <td className="table-cell font-mono text-[11px] text-neutral-400">{user.id}</td>
                         <td className="table-cell text-white">{user.email}</td>
-                        <td className="table-cell text-neutral-300">{user.displayName}</td>
-                        <td className="table-cell text-neutral-300">{user.companyName}</td>
+                        <td className="table-cell text-neutral-300">
+                          <div className="flex items-center gap-3">
+                            {user.photoURL ? (
+                              <img src={user.photoURL} alt={user.displayName} className="h-8 w-8 rounded-full object-cover" />
+                            ) : (
+                              <div className="flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/[0.03] text-[10px] font-bold text-neutral-400">
+                                {(user.displayName || user.email || '?').slice(0, 1).toUpperCase()}
+                              </div>
+                            )}
+                            <span>{user.displayName}</span>
+                          </div>
+                        </td>
+                        <td className="table-cell text-neutral-300">
+                          <div>{user.companyName}</div>
+                          <div className="mt-1 font-mono text-[10px] text-neutral-500">{user.companyId || '-'}</div>
+                        </td>
+                        <td className="table-cell font-mono text-[11px] text-neutral-500">{user.currentCompanyId || '-'}</td>
                         <td className="table-cell uppercase text-neutral-300">{user.role}</td>
+                        <td className="table-cell uppercase text-neutral-300">{user.subscriptionStatus || '-'}</td>
+                        <td className="table-cell uppercase text-neutral-300">{user.onboardingStatus || '-'}</td>
+                        <td className="table-cell text-[11px] text-neutral-400">
+                          P:{user.products || 0} C:{user.customers || 0} O:{user.orders || 0}
+                        </td>
                         <td className="table-cell text-neutral-400">{toDate(user.createdAt)?.toLocaleDateString() || '-'}</td>
+                        <td className="table-cell">
+                          <Button
+                            variant="secondary"
+                            className="border-white/10 bg-black/30 px-3 py-2 text-xs"
+                            disabled={loadingSupport || !(user.companyId || user.currentCompanyId)}
+                            onClick={() => void openSupportView(user.companyId || user.currentCompanyId || null, user.id)}
+                          >
+                            Soporte
+                          </Button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
             </Card>
+
+            <div className="space-y-4">
+              <Card className="border-white/5 bg-neutral-900/40 p-5">
+                <div className="mb-4 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-600">Support View</p>
+                    <h2 className="mt-2 text-lg font-bold text-white">Vista readonly de soporte</h2>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {loadingSupport ? <Loader2 className="h-4 w-4 animate-spin text-blue-300" /> : null}
+                    {supportView ? (
+                      <Button
+                        variant="secondary"
+                        className="border-white/10 bg-black/30 px-3 py-2 text-xs"
+                        onClick={() => {
+                          setSupportView(null);
+                          setSupportError(null);
+                        }}
+                      >
+                        <X className="h-4 w-4" />
+                        Cerrar
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
+
+                {supportError ? (
+                  <div className="rounded-2xl border border-red-500/20 bg-red-500/[0.08] px-4 py-3 text-sm text-red-200">
+                    {supportError}
+                  </div>
+                ) : null}
+
+                {supportView ? (
+                  <div className="space-y-4">
+                    <div className="rounded-2xl border border-amber-500/20 bg-amber-500/[0.08] px-4 py-3">
+                      <p className="text-[11px] font-black uppercase tracking-[0.22em] text-amber-300">Modo soporte activo</p>
+                      <p className="mt-1 text-sm text-neutral-200">
+                        Vista readonly como platform admin. No cambia la sesión ni la autenticación del usuario real.
+                      </p>
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                        <p className="text-[10px] font-black uppercase tracking-[0.22em] text-neutral-600">Usuario</p>
+                        {supportView.targetUser ? (
+                          <div className="mt-3 space-y-2 text-sm text-neutral-300">
+                            <p className="font-semibold text-white">{supportView.targetUser.displayName}</p>
+                            <p>{supportView.targetUser.email}</p>
+                            <p className="font-mono text-[11px] text-neutral-500">{supportView.targetUser.uid}</p>
+                            <p>currentCompanyId: <span className="font-mono text-[11px]">{supportView.targetUser.currentCompanyId || '-'}</span></p>
+                            <p>Creado: {toDate(supportView.targetUser.createdAt)?.toLocaleString() || '-'}</p>
+                          </div>
+                        ) : (
+                          <p className="mt-3 text-sm text-neutral-500">No se encontró usuario objetivo.</p>
+                        )}
+                      </div>
+
+                      <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                        <p className="text-[10px] font-black uppercase tracking-[0.22em] text-neutral-600">Empresa</p>
+                        <div className="mt-3 space-y-2 text-sm text-neutral-300">
+                          <p className="font-semibold text-white">{supportView.company.name}</p>
+                          <p>{supportView.company.industry}</p>
+                          <p className="font-mono text-[11px] text-neutral-500">{supportView.company.id}</p>
+                          <p>Plan: <span className="uppercase">{supportView.company.planId}</span></p>
+                          <p>Subscription: <span className="uppercase">{supportView.company.subscriptionStatus}</span></p>
+                          <p>Owner: {supportView.company.ownerEmail}</p>
+                          <p>Onboarding: {supportView.company.onboardingComplete ? 'complete' : `step ${supportView.company.onboardingStep}`}</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-3">
+                      <div className="rounded-2xl border border-white/10 bg-black/30 p-4 text-sm text-neutral-300">
+                        <p className="text-[10px] font-black uppercase tracking-[0.22em] text-neutral-600">Totales</p>
+                        <p className="mt-3">Users: <span className="font-semibold text-white">{supportView.company.totals.users}</span></p>
+                        <p>Products: <span className="font-semibold text-white">{supportView.company.totals.products}</span></p>
+                        <p>Customers: <span className="font-semibold text-white">{supportView.company.totals.customers}</span></p>
+                        <p>Orders: <span className="font-semibold text-white">{supportView.company.totals.orders}</span></p>
+                        <p>Revenue: <span className="font-semibold text-white">{formatCurrency(supportView.company.totals.revenue)}</span></p>
+                      </div>
+
+                      <div className="rounded-2xl border border-white/10 bg-black/30 p-4 text-sm text-neutral-300">
+                        <p className="text-[10px] font-black uppercase tracking-[0.22em] text-neutral-600">Membership objetivo</p>
+                        {supportView.membership ? (
+                          <div className="mt-3 space-y-1">
+                            <p>Role: <span className="font-semibold uppercase text-white">{supportView.membership.role}</span></p>
+                            <p>User: <span className="font-mono text-[11px]">{supportView.membership.userId}</span></p>
+                            <p>Company: <span className="font-mono text-[11px]">{supportView.membership.companyId}</span></p>
+                          </div>
+                        ) : (
+                          <p className="mt-3 text-neutral-500">No hay membership enlazada.</p>
+                        )}
+                      </div>
+
+                      <div className="rounded-2xl border border-white/10 bg-black/30 p-4 text-sm text-neutral-300">
+                        <p className="text-[10px] font-black uppercase tracking-[0.22em] text-neutral-600">Checks</p>
+                        <div className="mt-3 space-y-2">
+                          {supportView.issues.length > 0 ? supportView.issues.map((issue) => (
+                            <div
+                              key={issue.code}
+                              className={cn(
+                                'rounded-xl border px-3 py-2 text-xs',
+                                issue.severity === 'error'
+                                  ? 'border-red-500/20 bg-red-500/[0.08] text-red-200'
+                                  : issue.severity === 'warning'
+                                    ? 'border-amber-500/20 bg-amber-500/[0.08] text-amber-200'
+                                    : 'border-blue-500/20 bg-blue-500/[0.08] text-blue-200'
+                              )}
+                            >
+                              <p className="font-mono">{issue.code}</p>
+                              <p className="mt-1">{issue.message}</p>
+                            </div>
+                          )) : (
+                            <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/[0.08] px-3 py-2 text-xs text-emerald-200">
+                              Sin inconsistencias críticas detectadas.
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                      <p className="text-[10px] font-black uppercase tracking-[0.22em] text-neutral-600">Actividad reciente</p>
+                      <div className="mt-3 space-y-2">
+                        {supportView.activity.recentActivities.length > 0 ? supportView.activity.recentActivities.map((item) => (
+                          <div key={item.id} className="rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2 text-xs text-neutral-300">
+                            <p className="font-semibold text-white">{item.title || item.type || 'Activity'}</p>
+                            <p className="mt-1 text-neutral-400">{item.subtitle || '-'}</p>
+                            <p className="mt-1 text-neutral-500">{toDate(item.createdAt)?.toLocaleString() || '-'}</p>
+                          </div>
+                        )) : (
+                          <p className="text-sm text-neutral-500">No hay actividad registrada todavía.</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-8 text-center text-sm text-neutral-500">
+                    Abre una empresa o usuario desde Super Admin para inspección readonly.
+                  </div>
+                )}
+              </Card>
+            </div>
 
             <div className="space-y-4">
               <Card className="border-white/5 bg-neutral-900/40 p-5">

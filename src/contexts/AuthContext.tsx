@@ -203,6 +203,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const fetchUserCompany = async (userId: string) => {
     try {
+      console.info('[Membership] Resolving company for user.', { userId });
       const membershipsRef = collection(db, 'memberships');
       const q = query(membershipsRef, where('userId', '==', userId));
       let querySnapshot;
@@ -214,8 +215,24 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       }
       
       if (!querySnapshot.empty) {
-        const membershipDoc = querySnapshot.docs[0];
+        const userProfileSnap = await getDoc(doc(db, 'users', userId)).catch(() => null);
+        const preferredCompanyId = userProfileSnap?.exists() ? userProfileSnap.data()?.currentCompanyId : null;
+        const membershipDocs = querySnapshot.docs;
+        const preferredMembership =
+          membershipDocs.find((entry) => entry.data().companyId === preferredCompanyId) ||
+          membershipDocs.find((entry) => entry.data().role === 'owner') ||
+          membershipDocs[0];
+
+        const membershipDoc = preferredMembership;
         const membershipData = membershipDoc.data();
+        console.info('[Membership] Membership selected for active company.', {
+          userId,
+          preferredCompanyId,
+          membershipDocId: membershipDoc.id,
+          companyId: membershipData.companyId,
+          role: membershipData.role,
+          membershipCount: membershipDocs.length,
+        });
         setRole(membershipData.role);
         
         try {
@@ -229,11 +246,26 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             );
             setCompany(normalizedCompany || rawCompany);
             await syncCurrentCompanyId(userId, membershipData.companyId);
+            console.info('[Membership] Company loaded for user.', {
+              userId,
+              companyId: membershipData.companyId,
+              role: membershipData.role,
+            });
+          } else {
+            console.warn('[Membership] Membership points to missing company document.', {
+              userId,
+              companyId: membershipData.companyId,
+              membershipDocId: membershipDoc.id,
+            });
+            setCompany(null);
+            setRole(null);
+            await syncCurrentCompanyId(userId, null);
           }
         } catch (e) {
           handleFirestoreError(e, OperationType.GET, `companies/${membershipData.companyId}`);
         }
       } else {
+        console.info('[Membership] No memberships found for user.', { userId });
         setCompany(null);
         setRole(null);
         await syncCurrentCompanyId(userId, null);

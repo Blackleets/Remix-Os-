@@ -35,11 +35,31 @@ async function authedFetchJSON(url: string, body: Record<string, unknown>) {
 }
 
 export async function fetchCompanyOverview(companyId: string) {
-  return authedFetchJSON('/api/company/overview', { companyId });
+  try {
+    console.info('[CompanyOverview] Fetching company overview.', { companyId });
+    const overview = await authedFetchJSON('/api/company/overview', { companyId });
+    console.info('[CompanyOverview] Company overview loaded.', {
+      companyId,
+      productsCount: overview?.productsCount ?? 0,
+      customersCount: overview?.customersCount ?? 0,
+      ordersCount: overview?.ordersCount ?? 0,
+    });
+    return overview;
+  } catch (error) {
+    console.error('[CompanyOverview] Failed to fetch company overview.', { companyId, error });
+    throw error;
+  }
 }
 
 export async function fetchPlatformOverview() {
   return authedFetchJSON('/api/platform/overview', {});
+}
+
+export async function fetchPlatformSupportView(companyId: string, targetUserId?: string | null) {
+  return authedFetchJSON('/api/platform/support/view', {
+    companyId,
+    targetUserId: targetUserId || null,
+  });
 }
 
 export async function syncPlatformStats() {
