@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Card, Button, Input, Label, cn } from '../components/Common';
-import { Layers, Plus, Search, Receipt, CreditCard, ChevronRight, Trash2, AlertCircle, Download, Radar, Activity, Sparkles, Wallet } from 'lucide-react';
+import { Layers, Plus, Search, Receipt, CreditCard, ChevronRight, Trash2, AlertCircle, Download, Radar, Activity, Sparkles, Wallet, FileText } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useLocale } from '../hooks/useLocale';
 import { usePermissions } from '../hooks/usePermissions';
@@ -224,6 +224,40 @@ export function Orders() {
   const pendingCount = orders.filter((o) => o.status === 'pending').length;
   const totalVolume = filteredOrders.reduce((sum, order) => sum + getOrderTotal(order), 0);
 
+  // Build a prefill payload for Invoices using the items snapshot embedded
+  // in the order document. We deliberately keep tax/discount empty so the
+  // user picks the country profile + tax explicitly inside the form.
+  const handleCreateInvoiceFromOrder = (order: Order) => {
+    const raw = order as unknown as { items?: any[]; itemsSnapshot?: any[]; customer?: any };
+    const sourceItems: any[] = Array.isArray(raw.itemsSnapshot)
+      ? raw.itemsSnapshot
+      : Array.isArray(raw.items)
+        ? raw.items
+        : [];
+    const items = sourceItems.map((it) => ({
+      productId: it.productId,
+      name: it.productName || it.name || 'Concepto',
+      quantity: Number(it.quantity) || 1,
+      unitPrice: Number(it.price ?? it.unitPrice) || 0,
+      discountRate: 0,
+      taxRate: 0,
+    }));
+    navigate('/invoices', {
+      state: {
+        fromOrder: {
+          orderId: order.id,
+          customerId: order.customerId,
+          customerName: order.customerName,
+          customerEmail: raw.customer?.email,
+          customerTaxId: raw.customer?.taxId || raw.customer?.nif || raw.customer?.rfc,
+          customerAddress: raw.customer?.address,
+          customerCountry: raw.customer?.country,
+          items,
+        },
+      },
+    });
+  };
+
   const getStatusClasses = (status: string) => {
     switch (status) {
       case 'completed':
@@ -411,6 +445,19 @@ export function Orders() {
                     <div className="flex items-center justify-end gap-3 text-neutral-500 transition-colors group-hover:text-blue-300">
                       <CreditCard className="w-3.5 h-3.5" />
                       <span className="text-[10px] font-bold uppercase tracking-widest">{order.paymentMethod}</span>
+                      {canEditOrders && (
+                        <button
+                          type="button"
+                          title="Crear factura desde este pedido"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleCreateInvoiceFromOrder(order);
+                          }}
+                          className="ml-1 rounded-xl border border-white/10 bg-white/[0.03] p-1.5 text-neutral-400 transition-colors hover:border-blue-400/30 hover:text-blue-200"
+                        >
+                          <FileText className="h-3.5 w-3.5" />
+                        </button>
+                      )}
                       <ChevronRight className="ml-1 w-4 h-4 translate-x-[-4px] opacity-0 transition-all group-hover:translate-x-0 group-hover:opacity-100" />
                     </div>
                   </td>
@@ -450,6 +497,19 @@ export function Orders() {
                   </span>
                 </div>
               </div>
+              {canEditOrders && (
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    handleCreateInvoiceFromOrder(order);
+                  }}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-[11px] font-bold uppercase tracking-[0.18em] text-neutral-300 transition-colors active:border-blue-400/30 active:text-blue-200"
+                >
+                  <FileText className="h-3.5 w-3.5" />
+                  Crear factura
+                </button>
+              )}
             </motion.div>
           ))}
         </div>

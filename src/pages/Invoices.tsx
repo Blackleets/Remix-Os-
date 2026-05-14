@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
 import {
   Receipt,
@@ -25,6 +26,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { Button, Card, OSGlyph, cn } from '../components/Common';
 import { EmptyStatePanel } from '../components/EmptyStatePanel';
 import { InvoiceForm, type InvoiceFormValues } from '../components/invoices/InvoiceForm';
+import type { InvoiceItemInput } from '../../shared/invoices';
 import { InvoiceStatusBadge, invoiceStatusLabel } from '../components/invoices/InvoiceStatusBadge';
 import {
   cancelInvoice,
@@ -69,8 +71,21 @@ interface ProductLite {
   description?: string;
 }
 
+interface OrderPrefill {
+  orderId: string;
+  customerId?: string;
+  customerName?: string;
+  customerEmail?: string;
+  customerTaxId?: string;
+  customerAddress?: string;
+  customerCountry?: string;
+  items: InvoiceItemInput[];
+}
+
 export function Invoices() {
   const { user, company, role } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<StatusFilter>('all');
@@ -79,11 +94,25 @@ export function Invoices() {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Invoice | null>(null);
   const [defaultType, setDefaultType] = useState<InvoiceType>('invoice');
+  const [prefill, setPrefill] = useState<OrderPrefill | null>(null);
   const [saving, setSaving] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionBusyId, setActionBusyId] = useState<string | null>(null);
 
   const canManage = role === 'owner' || role === 'admin' || role === 'staff';
+
+  // Accept "Crear factura desde pedido" deep links from Orders. We consume
+  // the navigation state once, then strip it so a back/refresh doesn't
+  // reopen the form unexpectedly.
+  useEffect(() => {
+    const fromOrder = (location.state as { fromOrder?: OrderPrefill } | null)?.fromOrder;
+    if (!fromOrder) return;
+    setPrefill(fromOrder);
+    setEditing(null);
+    setDefaultType('invoice');
+    setFormOpen(true);
+    navigate(location.pathname, { replace: true, state: null });
+  }, [location.state, location.pathname, navigate]);
 
   useEffect(() => {
     if (!company) return;
@@ -178,6 +207,7 @@ export function Invoices() {
   const closeForm = () => {
     setFormOpen(false);
     setEditing(null);
+    setPrefill(null);
   };
 
   const buildDraftInput = (values: InvoiceFormValues) => ({
@@ -549,7 +579,20 @@ export function Invoices() {
                 terms: editing.terms,
                 orderId: editing.orderId,
               }
-            : { type: defaultType, countryProfile: 'ES' }
+            : prefill
+              ? {
+                  type: defaultType,
+                  countryProfile: 'ES',
+                  customerId: prefill.customerId,
+                  customerName: prefill.customerName || '',
+                  customerEmail: prefill.customerEmail,
+                  customerTaxId: prefill.customerTaxId,
+                  customerAddress: prefill.customerAddress,
+                  customerCountry: prefill.customerCountry,
+                  orderId: prefill.orderId,
+                  items: prefill.items,
+                }
+              : { type: defaultType, countryProfile: 'ES' }
         }
         saving={saving}
         readOnly={!!editing && editing.status !== 'draft'}

@@ -53,6 +53,15 @@ interface CompanyOverview {
     promising: number;
     topAtRiskCustomers: Array<{ name: string; daysSinceLastOrder: number }>;
   };
+  invoicesSummary?: {
+    invoicesCount: number;
+    issuedCount: number;
+    paidCount: number;
+    overdueCount: number;
+    draftCount: number;
+    unpaidInvoicesTotal: number;
+    paidInvoicesTotal: number;
+  };
 }
 
 type RFMTier = 'champion' | 'loyal' | 'at_risk' | 'lost' | 'promising' | 'new';
@@ -280,6 +289,15 @@ function buildEmptyCompanyOverview(companyId: string, companyData?: AnyRecord): 
       currentPeriodOrders: 0,
       previousPeriodOrders: 0,
       trend: 'up',
+    },
+    invoicesSummary: {
+      invoicesCount: 0,
+      issuedCount: 0,
+      paidCount: 0,
+      overdueCount: 0,
+      draftCount: 0,
+      unpaidInvoicesTotal: 0,
+      paidInvoicesTotal: 0,
     },
   };
 }
@@ -695,7 +713,7 @@ async function buildCompanyOverview(db: Firestore, companyId: string): Promise<C
     return buildEmptyCompanyOverview(companyId);
   }
 
-  const [productsSnap, ordersSnap, customersSnap, remindersSnap, messagesSnap, activitiesSnap] = await Promise.all([
+  const [productsSnap, ordersSnap, customersSnap, remindersSnap, messagesSnap, activitiesSnap, invoicesSnap] = await Promise.all([
     db.collection('products').where('companyId', '==', companyId).get(),
     db.collection('orders').where('companyId', '==', companyId).get(),
     db.collection('customers').where('companyId', '==', companyId).get(),
@@ -706,6 +724,12 @@ async function buildCompanyOverview(db: Firestore, companyId: string): Promise<C
     })),
     db.collection('activities').where('companyId', '==', companyId).orderBy('createdAt', 'desc').limit(10).get().catch(() => ({
       docs: [],
+      size: 0,
+    })),
+    // Invoices are optional — companies that pre-date the module simply
+    // produce an empty aggregate. Never let this query block the overview.
+    db.collection('invoices').where('companyId', '==', companyId).get().catch(() => ({
+      docs: [] as any[],
       size: 0,
     })),
   ]);
@@ -784,6 +808,58 @@ async function buildCompanyOverview(db: Firestore, companyId: string): Promise<C
   const growth = previousRevenue30d > 0
     ? ((recentRevenue30d - previousRevenue30d) / previousRevenue30d) * 100
     : recentRevenue30d > 0 ? 100 : 0;
+
+  // Commercial invoicing aggregates. Document statuses live in shared/invoices.ts:
+  // draft | issued | sent | paid | overdue | cancelled. Unpaid = issued+sent+overdue.
+  const invoicesDocs = (invoicesSnap as any).docs || [];
+  let invoicesCount = 0;
+  let issuedCount = 0;
+  let paidCount = 0;
+  let overdueCount = 0;
+  let draftCount = 0;
+  let unpaidInvoicesTotal = 0;
+  let paidInvoicesTotal = 0;
+  for (const entry of invoicesDocs) {
+    const data = (entry && typeof entry.data === 'function') ? entry.data() : entry?.data || {};
+    if (!data || data.status === 'cancelled') continue;
+    invoicesCount += 1;
+    const total = Number(data.total) || 0;
+    const amountDue = Number(data.amountDue);
+    const dueValue = Number.isFinite(amountDue) ? amountDue : total;
+    switch (data.status) {
+      case 'draft':
+        draftCount += 1;
+        break;
+      case 'issued':
+        issuedCount += 1;
+        unpaidInvoicesTotal += dueValue;
+        break;
+      case 'sent':
+        issuedCount += 1;
+        unpaidInvoicesTotal += dueValue;
+        break;
+      case 'overdue':
+        overdueCount += 1;
+        unpaidInvoicesTotal += dueValue;
+        break;
+      case 'paid':
+        paidCount += 1;
+        paidInvoicesTotal += total;
+        break;
+      default:
+        break;
+    }
+  }
+  const invoicesSummary = {
+    invoicesCount,
+    issuedCount,
+    paidCount,
+    overdueCount,
+    draftCount,
+    unpaidInvoicesTotal: Math.round(unpaidInvoicesTotal * 100) / 100,
+    paidInvoicesTotal: Math.round(paidInvoicesTotal * 100) / 100,
+  };
+
   const onboardingChecklist = {
     profile: true,
     product: productsSnap.size > 0,
@@ -875,6 +951,7 @@ async function buildCompanyOverview(db: Firestore, companyId: string): Promise<C
       trend: recentOrders.length >= previousOrders.length ? 'up' : 'down',
     },
     customerRFMSummary: rfmSummary,
+    invoicesSummary,
   };
 }
 
