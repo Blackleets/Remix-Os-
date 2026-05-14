@@ -14,6 +14,7 @@ import { PLANS, isLimitReached, getCompanyUsage } from '../lib/plans';
 import { exportToCSV } from '../lib/exportUtils';
 import { createSaleTransaction } from '../services/sales';
 import { getOrderTotal } from '../../shared/orders';
+import { EmptyStatePanel } from '../components/EmptyStatePanel';
 
 interface OrderItem {
   productId: string;
@@ -454,19 +455,17 @@ export function Orders() {
         </div>
 
         {filteredOrders.length === 0 && (
-          <div className="py-24 text-center">
-            <div className="mx-auto flex max-w-md flex-col items-center gap-6 p-6 text-neutral-600">
-              <div className="flex h-20 w-20 items-center justify-center rounded-[28px] border border-dashed border-white/10 bg-white/[0.01]">
-                <Receipt className="w-10 h-10 opacity-20" />
-              </div>
-              <div className="space-y-2">
-                <p className="text-lg font-bold text-neutral-200">{t('orders.empty.title')}</p>
-                <p className="px-4 text-xs leading-relaxed text-neutral-500">{t('orders.empty.subtitle')}</p>
-              </div>
-              <Button onClick={() => { handleCreateNew(); setError(null); }} className="h-12 gap-2 px-8">
-                <Plus className="w-4 h-4" /> {t('orders.empty.button')}
-              </Button>
-            </div>
+          <div className="px-4 py-16 sm:px-6">
+            <EmptyStatePanel
+              eyebrow="Operación comercial"
+              title="Tus pedidos aparecerán aquí."
+              description="Registra ventas, controla pagos y consulta el historial comercial desde un solo centro."
+              icon={<Receipt className="h-7 w-7" />}
+              primaryActionLabel={canEditOrders ? 'Crear pedido' : undefined}
+              onPrimaryAction={canEditOrders ? () => { handleCreateNew(); setError(null); } : undefined}
+              secondaryActionLabel="Ver productos"
+              onSecondaryAction={() => navigate('/products')}
+            />
           </div>
         )}
       </Card>

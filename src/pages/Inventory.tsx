@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Card, Button, Input, Label, cn } from '../components/Common';
 import { Move, ArrowDownLeft, ArrowUpRight, History, Download, ShieldAlert, Boxes, Radar, Sparkles } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
@@ -8,6 +9,7 @@ import { db } from '../lib/firebase';
 import { collection, query, where, serverTimestamp, orderBy, doc, increment, runTransaction, onSnapshot } from 'firebase/firestore';
 import { format } from 'date-fns';
 import { exportToCSV } from '../lib/exportUtils';
+import { EmptyStatePanel } from '../components/EmptyStatePanel';
 
 interface Movement {
   id: string;
@@ -21,6 +23,7 @@ interface Movement {
 export function Inventory() {
   const { company } = useAuth();
   const { t } = useLocale();
+  const navigate = useNavigate();
   const [movements, setMovements] = useState<Movement[]>([]);
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -342,16 +345,30 @@ export function Inventory() {
           </div>
 
           {movements.length === 0 && (
-            <div className="py-24 text-center">
-              <div className="mx-auto flex max-w-md flex-col items-center gap-6 p-6 text-neutral-600">
-                <div className="flex h-20 w-20 items-center justify-center rounded-[28px] border border-dashed border-white/10 bg-white/[0.01]">
-                  <Boxes className="w-10 h-10 opacity-20" />
-                </div>
-                <div className="space-y-2">
-                  <p className="text-lg font-bold text-neutral-200">{t('inventory.empty.title')}</p>
-                  <p className="px-4 text-xs leading-relaxed text-neutral-500">{t('inventory.empty.subtitle')}</p>
-                </div>
-              </div>
+            <div className="px-4 py-16 sm:px-6">
+              {products.length === 0 ? (
+                <EmptyStatePanel
+                  eyebrow="Inventario"
+                  title="Necesitas productos para activar el inventario."
+                  description="Crea tu catálogo primero. Después podrás registrar movimientos y activar alertas de reposición."
+                  icon={<Boxes className="h-7 w-7" />}
+                  primaryActionLabel="Añadir producto"
+                  onPrimaryAction={() => navigate('/products')}
+                  secondaryActionLabel="Ver catálogo"
+                  onSecondaryAction={() => navigate('/products')}
+                />
+              ) : (
+                <EmptyStatePanel
+                  eyebrow="Inventario"
+                  title="Controla tu stock desde aquí."
+                  description="Gestiona existencias, detecta faltantes y activa alertas de reposición."
+                  icon={<Boxes className="h-7 w-7" />}
+                  primaryActionLabel={canEditInventory ? 'Registrar movimiento' : undefined}
+                  onPrimaryAction={canEditInventory ? () => window.scrollTo({ top: 0, behavior: 'smooth' }) : undefined}
+                  secondaryActionLabel="Ver catálogo"
+                  onSecondaryAction={() => navigate('/products')}
+                />
+              )}
             </div>
           )}
         </Card>

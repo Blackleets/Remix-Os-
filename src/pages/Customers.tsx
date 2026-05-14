@@ -50,6 +50,7 @@ import { exportToCSV } from '../lib/exportUtils';
 import { format } from 'date-fns';
 import { ImageUpload } from '../components/ImageUpload';
 import { CustomerImportRow, ImportPreview, buildCustomerImportPreview, chunkArray, downloadCsvTemplate, normalizePhone, readImportFile, withImportFileName } from '../lib/importUtils';
+import { EmptyStatePanel } from '../components/EmptyStatePanel';
 
 interface ImportResultSummary {
   created: number;
@@ -822,21 +823,17 @@ export function Customers() {
         </div>
 
         {filtered.length === 0 && (
-          <div className="py-24 text-center">
-            <div className="flex flex-col items-center gap-6 text-neutral-600 max-w-md mx-auto p-6">
-              <div className="w-20 h-20 rounded-[28px] border border-dashed border-white/10 flex items-center justify-center bg-white/[0.01]">
-                <Contact className="w-10 h-10 opacity-20" />
-              </div>
-              <div className="space-y-2">
-                <p className="text-lg font-bold text-neutral-200">{t('customers.empty.title')}</p>
-                <p className="text-xs leading-relaxed text-neutral-500 px-4">{t('customers.empty.subtitle')}</p>
-              </div>
-              {canEditCustomers && (
-                <Button onClick={handleCreateNew} className="gap-2 px-8 h-12">
-                  <Plus className="w-4 h-4" /> {t('customers.add')}
-                </Button>
-              )}
-            </div>
+          <div className="px-4 py-16 sm:px-6">
+            <EmptyStatePanel
+              eyebrow="CRM operativo"
+              title="Tus clientes aparecerán aquí."
+              description="Centraliza contactos, seguimiento y oportunidades comerciales."
+              icon={<Contact className="h-7 w-7" />}
+              primaryActionLabel={canEditCustomers ? 'Añadir cliente' : undefined}
+              onPrimaryAction={canEditCustomers ? handleCreateNew : undefined}
+              secondaryActionLabel="Importar clientes"
+              onSecondaryAction={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+            />
           </div>
         )}
       </Card>

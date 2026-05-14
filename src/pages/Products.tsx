@@ -13,6 +13,7 @@ import { PLANS, isLimitReached, getCompanyUsage } from '../lib/plans';
 import { exportToCSV } from '../lib/exportUtils';
 import { ImageUpload } from '../components/ImageUpload';
 import { ImportPreview, ProductImportRow, buildProductImportPreview, chunkArray, downloadCsvTemplate, readImportFile, withImportFileName } from '../lib/importUtils';
+import { EmptyStatePanel } from '../components/EmptyStatePanel';
 
 interface ImportResultSummary {
   created: number;
@@ -638,21 +639,17 @@ export function Products() {
         </div>
 
         {filtered.length === 0 && (
-          <div className="py-24 text-center">
-            <div className="mx-auto flex max-w-md flex-col items-center gap-6 p-6 text-neutral-600">
-              <div className="flex h-20 w-20 items-center justify-center rounded-[28px] border border-dashed border-white/10 bg-white/[0.01]">
-                <Box className="w-10 h-10 opacity-20" />
-              </div>
-              <div className="space-y-2">
-                <p className="text-lg font-bold text-neutral-200">{t('products.empty.title') || 'Initialize your Manifest.'}</p>
-                <p className="px-4 text-xs leading-relaxed text-neutral-500">{t('products.empty.subtitle') || 'Register your first product to begin tracking inventory and generating sales telemetry.'}</p>
-              </div>
-              {canEditProducts && (
-                <Button onClick={handleCreateNew} className="h-12 gap-2 px-8">
-                  <Plus className="w-4 h-4" /> {t('products.add')}
-                </Button>
-              )}
-            </div>
+          <div className="px-4 py-16 sm:px-6">
+            <EmptyStatePanel
+              eyebrow="Catálogo"
+              title="Tu catálogo empieza aquí."
+              description="Añade productos para activar inventario, ventas y análisis de IA."
+              icon={<Box className="h-7 w-7" />}
+              primaryActionLabel={canEditProducts ? 'Añadir producto' : undefined}
+              onPrimaryAction={canEditProducts ? handleCreateNew : undefined}
+              secondaryActionLabel="Importar CSV"
+              onSecondaryAction={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+            />
           </div>
         )}
       </Card>
