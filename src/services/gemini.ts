@@ -132,7 +132,20 @@ export async function chatCopilotStream(
   }
 
   if (!response.ok) {
-    onError(new Error(`Stream request failed (${response.status})`));
+    let parsedError: { error?: string; code?: string; details?: string } | null = null;
+    try {
+      const raw = await response.text();
+      parsedError = raw ? JSON.parse(raw) : null;
+    } catch {
+      parsedError = null;
+    }
+    const err = new CopilotRequestError(
+      parsedError?.error || `Stream request failed (${response.status})`,
+      response.status,
+      parsedError?.code,
+      parsedError?.details
+    );
+    onError(err);
     return;
   }
 

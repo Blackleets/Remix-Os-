@@ -19,9 +19,34 @@ import {
   Clock3,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { chatCopilot, chatCopilotStream, getProactiveThoughts, getDailyBriefing, loadPeppyConversation, savePeppyConversation } from '../services/gemini';
+import { chatCopilot, chatCopilotStream, CopilotRequestError, getProactiveThoughts, getDailyBriefing, loadPeppyConversation, savePeppyConversation } from '../services/gemini';
 import { executeAgentAction } from '../services/agentActions';
 import { cn } from './Common';
+
+function describeCopilotError(err: unknown): string {
+  if (err instanceof CopilotRequestError) {
+    if (err.code === 'AI_NOT_CONFIGURED' || err.status === 503) {
+      return 'La IA no está configurada en el backend. Añade GEMINI_API_KEY en Vercel y vuelve a desplegar.';
+    }
+    if (err.code === 'AI_RATE_LIMIT' || err.status === 429) {
+      return 'Has alcanzado el límite de consultas a Peppy. Espera unos segundos e inténtalo de nuevo.';
+    }
+    if (err.code === 'FIREBASE_ADMIN_NOT_CONFIGURED') {
+      return 'Firebase Admin no está configurado en el runtime. Revisa FIREBASE_SERVICE_ACCOUNT.';
+    }
+    if (err.code === 'MEMBERSHIP_NOT_FOUND' || err.code === 'MEMBERSHIP_ROLE_FORBIDDEN' || err.status === 403) {
+      return 'No tienes permisos para consultar a Peppy con esta cuenta.';
+    }
+    if (err.status === 401) {
+      return 'Tu sesión expiró. Vuelve a iniciar sesión.';
+    }
+    return `No pude conectarme a Peppy: ${err.message}`;
+  }
+  const msg = err instanceof Error ? err.message : String(err || '');
+  return msg
+    ? `No pude conectarme a Peppy. Detalle: ${msg}`
+    : 'No pude conectarme a Peppy. Inténtalo de nuevo.';
+}
 import { useLocation, useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import { useLocale } from '../hooks/useLocale';
@@ -336,10 +361,11 @@ export function Copilot() {
             setMessages((prev) =>
               prev.map((m) => m.id === botMsgId ? { ...m, text, streaming: false } : m)
             );
-          }).catch(() => {
+          }).catch((fallbackErr) => {
+            const errToShow = fallbackErr instanceof CopilotRequestError ? fallbackErr : err;
             setMessages((prev) =>
               prev.map((m) => m.id === botMsgId
-                ? { ...m, text: 'No pude conectarme al servicio de datos del negocio. Inténtalo de nuevo.', streaming: false }
+                ? { ...m, text: describeCopilotError(errToShow), streaming: false }
                 : m)
             );
           });
@@ -351,7 +377,7 @@ export function Copilot() {
       setMessages((prev) => [...prev, {
         id: `err-${Date.now()}`,
         role: 'model',
-        text: 'No pude conectarme al servicio de datos del negocio. Inténtalo de nuevo.',
+        text: describeCopilotError(error),
         timestamp: new Date(),
       }]);
     }

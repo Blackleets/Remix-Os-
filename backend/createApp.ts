@@ -2177,10 +2177,11 @@ STRUCTURE: Use SUMMARY, STATUS REPORT, RECOMMENDATIONS, and [COMMANDS].`;
 
   app.post('/api/ai/chat/stream', async (req, res) => {
     try {
+      if (!enforceAiRateLimit(req, res)) return;
       const access = await requireCompanyAccess(req, res, ['owner', 'admin', 'staff', 'viewer']);
       if (!access) return;
       const ai = getGenAI();
-      if (!ai) return res.status(503).json({ error: 'AI not configured' });
+      if (!ai) return sendAiConfigError(res);
       const { message, history, language } = req.body || {};
       if (typeof message !== 'string' || !message.trim()) {
         return res.status(400).json({ error: 'message required' });
@@ -2200,7 +2201,7 @@ STRUCTURE: Use SUMMARY, STATUS REPORT, RECOMMENDATIONS, and [COMMANDS].`;
       req.on('close', () => { disconnected = true; });
 
       const chat = ai.chats.create({
-        model: 'gemini-2.0-flash',
+        model: 'gemini-2.5-flash',
         history: Array.isArray(history) ? history : [],
         config: { systemInstruction },
       });
@@ -2215,8 +2216,11 @@ STRUCTURE: Use SUMMARY, STATUS REPORT, RECOMMENDATIONS, and [COMMANDS].`;
           res.write(`data: ${JSON.stringify({ text })}\n\n`);
         }
       } catch (streamErr: any) {
+        const errorMsg = isGeminiQuotaError(streamErr)
+          ? 'AI quota exceeded. Please retry shortly.'
+          : streamErr.message || 'Stream failed';
         if (!res.writableEnded) {
-          res.write(`data: ${JSON.stringify({ error: streamErr.message })}\n\n`);
+          res.write(`data: ${JSON.stringify({ error: errorMsg })}\n\n`);
         }
       }
 
@@ -2227,7 +2231,10 @@ STRUCTURE: Use SUMMARY, STATUS REPORT, RECOMMENDATIONS, and [COMMANDS].`;
       }
     } catch (error: any) {
       console.error('/api/ai/chat/stream error:', error);
-      if (!res.headersSent) res.status(500).json({ error: error.message || 'Stream failed' });
+      if (!res.headersSent) {
+        if (isGeminiQuotaError(error)) return sendAiQuotaError(res);
+        res.status(500).json({ error: error.message || 'Stream failed' });
+      }
       else if (!res.writableEnded) res.end();
     }
   });
