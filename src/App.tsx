@@ -25,6 +25,7 @@ import { usePlatformAdmin } from './hooks/usePlatformAdmin';
 const Billing = lazy(() => import('./pages/Billing').then((module) => ({ default: module.Billing })));
 const POS = lazy(() => import('./pages/POS').then((module) => ({ default: module.POS })));
 const Insights = lazy(() => import('./pages/Insights').then((module) => ({ default: module.Insights })));
+const Invoices = lazy(() => import('./pages/Invoices').then((module) => ({ default: module.Invoices })));
 const SuperAdmin = lazy(() => import('./pages/SuperAdmin').then((module) => ({ default: module.SuperAdmin })));
 
 const RouteLoading = () => (
@@ -163,6 +164,7 @@ export default function App() {
             <Route path="/products" element={<ProtectedRoute><AppLayout><Products /></AppLayout></ProtectedRoute>} />
             <Route path="/inventory" element={<ProtectedRoute><AppLayout><Inventory /></AppLayout></ProtectedRoute>} />
             <Route path="/orders" element={<ProtectedRoute><AppLayout><Orders /></AppLayout></ProtectedRoute>} />
+            <Route path="/invoices" element={<ProtectedRoute><AppLayout><LazyRoute><Invoices /></LazyRoute></AppLayout></ProtectedRoute>} />
             <Route path="/pos" element={<ProtectedRoute><AppLayout><LazyRoute><POS /></LazyRoute></AppLayout></ProtectedRoute>} />
             <Route
               path="/insights"

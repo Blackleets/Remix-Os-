@@ -433,6 +433,71 @@ service cloud.firestore {
       allow delete: if hasRole(existing().companyId, ['owner', 'admin']);
     }
 
+    // Invoices — commercial-grade billing documents. Numbering, status
+    // transitions and immutability of company/invoiceNumber are enforced here
+    // so the document remains trustworthy once issued.
+    match /invoices/{invoiceId} {
+      allow get: if isPlatformAdmin() || isMember(resource.data.companyId);
+      allow list: if isPlatformAdmin() ||
+                  (isSignedIn() && exists(/databases/$(database)/documents/memberships/$(request.auth.uid + '_' + resource.data.companyId)));
+
+      // Drafts only at creation. Server / transaction promotes to "issued"
+      // afterwards. Company members with edit privileges can create.
+      allow create: if hasRole(incoming().companyId, ['owner', 'admin', 'staff']) &&
+                    incoming().companyId is string &&
+                    incoming().status == 'draft' &&
+                    incoming().type in ['invoice', 'quote', 'receipt', 'sales_note'] &&
+                    incoming().createdBy == request.auth.uid;
+
+      // Updates: companyId never moves. Once a doc leaves "draft", line items
+      // and totals are frozen — only payment + status transitions and notes
+      // can be touched. Cancellation is allowed from any non-terminal state.
+      allow update: if hasRole(existing().companyId, ['owner', 'admin', 'staff']) &&
+                    incoming().companyId == existing().companyId &&
+                    incoming().createdBy == existing().createdBy &&
+                    (
+                      // Draft → free edits, but never change createdAt.
+                      existing().status == 'draft'
+                      ||
+                      // Issued / sent / overdue → restricted: only status,
+                      // payment fields, notes/terms, pdfUrl/pdfPath and
+                      // updatedAt may change. invoiceNumber/series/items
+                      // remain locked.
+                      (
+                        existing().status in ['issued', 'sent', 'overdue'] &&
+                        incoming().invoiceNumber == existing().invoiceNumber &&
+                        incoming().series == existing().series &&
+                        incoming().sequentialNumber == existing().sequentialNumber &&
+                        incoming().total == existing().total &&
+                        incoming().subtotal == existing().subtotal &&
+                        incoming().taxTotal == existing().taxTotal &&
+                        incoming().status in ['issued', 'sent', 'paid', 'overdue', 'cancelled']
+                      )
+                    );
+
+      // Only drafts can be deleted, and only by owner/admin.
+      allow delete: if existing().status == 'draft' &&
+                    hasRole(existing().companyId, ['owner', 'admin']);
+    }
+
+    // Invoice numbering counters — read by company members for visibility,
+    // written by company staff via Firestore transactions during "issue".
+    // The counter doc id is `${companyId}_${series}` and must keep that link.
+    match /invoiceCounters/{counterId} {
+      allow read: if isPlatformAdmin() ||
+                  (resource != null && isMember(resource.data.companyId));
+      allow create: if hasRole(incoming().companyId, ['owner', 'admin', 'staff']) &&
+                    counterId == incoming().companyId + '_' + incoming().series &&
+                    incoming().nextNumber is number &&
+                    incoming().nextNumber >= 1;
+      allow update: if hasRole(existing().companyId, ['owner', 'admin', 'staff']) &&
+                    incoming().companyId == existing().companyId &&
+                    incoming().series == existing().series &&
+                    incoming().nextNumber is number &&
+                    incoming().nextNumber > existing().nextNumber;
+      allow delete: if false;
+    }
+
     match /agentConversations/{conversationId} {
       allow read: if isSignedIn() && (
         isPlatformAdmin() ||
