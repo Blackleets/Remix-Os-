@@ -55,6 +55,7 @@ export function Orders() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'completed' | 'pending' | 'cancelled'>('all');
   const [paymentFilter, setPaymentFilter] = useState<'all' | 'Card' | 'Cash' | 'Transfer'>('all');
+  const [invoicedOrderIds, setInvoicedOrderIds] = useState<Set<string>>(new Set());
 
   const { canEditOrders } = usePermissions();
 
@@ -127,10 +128,32 @@ export function Orders() {
       setProducts(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Product)));
     });
 
+    // Track which orders already have a non-cancelled invoice so we can
+    // surface a "Facturada" chip on each row. Best-effort: if the listener
+    // errors (legacy companies without the collection), the chip simply
+    // never appears and the rest of Orders keeps working.
+    const qInv = query(collection(db, 'invoices'), where('companyId', '==', company.id));
+    const unsubscribeInvoices = onSnapshot(
+      qInv,
+      (snap) => {
+        const linked = new Set<string>();
+        snap.forEach((d) => {
+          const data = d.data() as any;
+          if (!data?.orderId || data?.status === 'cancelled') return;
+          linked.add(String(data.orderId));
+        });
+        setInvoicedOrderIds(linked);
+      },
+      (error) => {
+        console.warn('Orders invoices listener error (non-fatal):', error);
+      }
+    );
+
     return () => {
       unsubscribeOrders();
       unsubscribeCustomers();
       unsubscribeProducts();
+      unsubscribeInvoices();
     };
   }, [company]);
 
@@ -437,9 +460,17 @@ export function Orders() {
                     ${getOrderTotal(order).toFixed(2)}
                   </td>
                   <td className="table-cell">
-                    <span className={cn('inline-flex rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.16em]', getStatusClasses(order.status))}>
-                      {order.status}
-                    </span>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className={cn('inline-flex rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.16em]', getStatusClasses(order.status))}>
+                        {order.status}
+                      </span>
+                      {invoicedOrderIds.has(order.id) && (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-blue-400/20 bg-blue-500/[0.10] px-2 py-1 text-[9px] font-bold uppercase tracking-[0.16em] text-blue-200">
+                          <FileText className="h-3 w-3" />
+                          Facturada
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="table-cell text-right">
                     <div className="flex items-center justify-end gap-3 text-neutral-500 transition-colors group-hover:text-blue-300">
@@ -492,9 +523,17 @@ export function Orders() {
                 </div>
                 <div className="text-right">
                   <p className="font-mono text-base font-bold text-blue-300">${getOrderTotal(order).toFixed(2)}</p>
-                  <span className={cn('mt-1 inline-flex rounded-full border px-2.5 py-1 text-[9px] font-black uppercase tracking-[0.15em]', getStatusClasses(order.status))}>
-                    {order.status}
-                  </span>
+                  <div className="mt-1 flex flex-wrap items-center justify-end gap-1.5">
+                    <span className={cn('inline-flex rounded-full border px-2.5 py-1 text-[9px] font-black uppercase tracking-[0.15em]', getStatusClasses(order.status))}>
+                      {order.status}
+                    </span>
+                    {invoicedOrderIds.has(order.id) && (
+                      <span className="inline-flex items-center gap-1 rounded-full border border-blue-400/20 bg-blue-500/[0.10] px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.15em] text-blue-200">
+                        <FileText className="h-3 w-3" />
+                        Facturada
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
               {canEditOrders && (

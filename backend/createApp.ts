@@ -10,6 +10,7 @@ import { FieldValue, Timestamp, getFirestore } from 'firebase-admin/firestore';
 import type { Firestore } from 'firebase-admin/firestore';
 import { BILLING_CURRENCY, PLAN_DEFINITIONS, PLAN_IDS, PlanId, getBillingPriceMap, getPlanDefinition } from '../shared/plans.js';
 import { getOrderTotal, getOrderItems } from '../shared/orders.js';
+import { formatInvoiceNumber } from '../shared/invoices.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1478,6 +1479,94 @@ export function createApp() {
     } catch (error: any) {
       console.error('[CompanyOverview] Failed to load company overview:', error.message || error);
       res.status(500).json({ error: error.message || 'Failed to load company overview' });
+    }
+  });
+
+  // Issue an invoice with monotonic numbering. Runs the counter increment +
+  // invoice promotion inside a single firestore transaction so concurrent
+  // issuers in the same company can never collide. Idempotent: re-issuing
+  // an already-issued invoice returns the existing number instead of
+  // burning a new one.
+  app.post('/api/invoices/issue', async (req, res) => {
+    try {
+      const access = await requireCompanyAccess(req, res, ['owner', 'admin', 'staff']);
+      if (!access) return;
+
+      const invoiceId = req.body?.invoiceId;
+      if (!invoiceId || typeof invoiceId !== 'string') {
+        res.status(400).json({ error: 'invoiceId is required' });
+        return;
+      }
+
+      const db = getDb();
+      if (!db) throw new Error('Database not initialized');
+
+      const result = await db.runTransaction(async (tx) => {
+        const invRef = db.collection('invoices').doc(invoiceId);
+        const invSnap = await tx.get(invRef);
+        if (!invSnap.exists) {
+          return { status: 404 as const, error: 'Invoice not found' };
+        }
+        const invoice = invSnap.data() || {};
+        if (invoice.companyId !== access.companyId) {
+          return { status: 403 as const, error: 'Invoice belongs to a different company' };
+        }
+
+        // Idempotency: if already issued, return what's there.
+        if (invoice.status && invoice.status !== 'draft') {
+          return {
+            status: 200 as const,
+            invoiceNumber: invoice.invoiceNumber || '',
+            sequentialNumber: invoice.sequentialNumber || 0,
+            alreadyIssued: true,
+          };
+        }
+
+        const series = String(invoice.series || 'A').toUpperCase();
+        const counterRef = db.collection('invoiceCounters').doc(`${access.companyId}_${series}`);
+        const counterSnap = await tx.get(counterRef);
+        const current = counterSnap.exists ? Number(counterSnap.data()?.nextNumber || 1) : 1;
+        const invoiceNumber = formatInvoiceNumber(series, current);
+
+        tx.set(
+          counterRef,
+          {
+            companyId: access.companyId,
+            series,
+            nextNumber: current + 1,
+            updatedAt: FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
+
+        tx.update(invRef, {
+          status: 'issued',
+          invoiceNumber,
+          sequentialNumber: current,
+          issuedAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+
+        return {
+          status: 200 as const,
+          invoiceNumber,
+          sequentialNumber: current,
+          alreadyIssued: false,
+        };
+      });
+
+      if (result.status !== 200) {
+        res.status(result.status).json({ error: result.error });
+        return;
+      }
+      res.json({
+        invoiceNumber: result.invoiceNumber,
+        sequentialNumber: result.sequentialNumber,
+        alreadyIssued: result.alreadyIssued,
+      });
+    } catch (error: any) {
+      console.error('[Invoices] Failed to issue invoice:', error?.message || error);
+      res.status(500).json({ error: error?.message || 'Failed to issue invoice' });
     }
   });
 

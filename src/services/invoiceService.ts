@@ -13,7 +13,7 @@ import {
   deleteDoc,
   setDoc,
 } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { auth, db } from '../lib/firebase';
 import type {
   Invoice,
   InvoiceLineItem,
@@ -169,28 +169,40 @@ export async function updateInvoiceDraft(invoiceId: string, input: InvoiceDraftI
   } as any);
 }
 
-// Issue a draft → assign a sequential number atomically using a Firestore
-// transaction on invoiceCounters/{companyId}_{series}. This keeps numbering
-// monotonic even with concurrent issuers in the same company.
+// Issue a draft → assign a sequential number atomically. Prefer the backend
+// endpoint POST /api/invoices/issue (server-side firebase-admin tx, hardened
+// against client tampering). Fall back to a client-side Firestore tx if the
+// backend isn't reachable yet (404 / network error). This makes the SaaS
+// safely deployable in stages.
 export async function issueInvoice(invoiceId: string): Promise<{ invoiceNumber: string; sequentialNumber: number }> {
+  const invRef = doc(db, INVOICES_COLLECTION, invoiceId);
+  const invSnap = await getDoc(invRef);
+  if (!invSnap.exists()) throw new Error('Factura no encontrada');
+  const invoice = invSnap.data() as Invoice;
+  if (invoice.status !== 'draft') {
+    throw new Error('Solo borradores pueden emitirse.');
+  }
+
+  const serverResult = await tryIssueOnServer(invoice.companyId, invoiceId);
+  if (serverResult) return serverResult;
+
   return await runTransaction(db, async (tx) => {
-    const invRef = doc(db, INVOICES_COLLECTION, invoiceId);
-    const invSnap = await tx.get(invRef);
-    if (!invSnap.exists()) throw new Error('Factura no encontrada');
-    const invoice = invSnap.data() as Invoice;
-    if (invoice.status !== 'draft') {
+    const freshSnap = await tx.get(invRef);
+    if (!freshSnap.exists()) throw new Error('Factura no encontrada');
+    const fresh = freshSnap.data() as Invoice;
+    if (fresh.status !== 'draft') {
       throw new Error('Solo borradores pueden emitirse.');
     }
 
-    const ctrRef = doc(db, COUNTERS_COLLECTION, counterId(invoice.companyId, invoice.series));
+    const ctrRef = doc(db, COUNTERS_COLLECTION, counterId(fresh.companyId, fresh.series));
     const ctrSnap = await tx.get(ctrRef);
     const current = ctrSnap.exists() ? Number(ctrSnap.data().nextNumber || 1) : 1;
 
-    const invoiceNumber = formatInvoiceNumber(invoice.series, current);
+    const invoiceNumber = formatInvoiceNumber(fresh.series, current);
 
     tx.set(ctrRef, {
-      companyId: invoice.companyId,
-      series: invoice.series,
+      companyId: fresh.companyId,
+      series: fresh.series,
       nextNumber: current + 1,
       updatedAt: serverTimestamp(),
     }, { merge: true });
@@ -204,6 +216,47 @@ export async function issueInvoice(invoiceId: string): Promise<{ invoiceNumber: 
 
     return { invoiceNumber, sequentialNumber: current };
   });
+}
+
+async function tryIssueOnServer(
+  companyId: string,
+  invoiceId: string
+): Promise<{ invoiceNumber: string; sequentialNumber: number } | null> {
+  try {
+    const token = await auth.currentUser?.getIdToken();
+    if (!token) return null;
+    const response = await fetch('/api/invoices/issue', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ companyId, invoiceId }),
+    });
+    // 404 / 405 → endpoint not deployed yet, fall back silently.
+    if (response.status === 404 || response.status === 405) return null;
+    if (!response.ok) {
+      let message = `Issue failed (${response.status})`;
+      try {
+        const body = await response.json();
+        if (body?.error) message = body.error;
+      } catch {
+        /* ignore */
+      }
+      throw new Error(message);
+    }
+    const payload = await response.json();
+    return {
+      invoiceNumber: String(payload.invoiceNumber || ''),
+      sequentialNumber: Number(payload.sequentialNumber || 0),
+    };
+  } catch (err: any) {
+    // Network/CORS/typeerror → backend unreachable. Fall back to client tx.
+    if (err instanceof Error && err.message && !err.message.toLowerCase().includes('failed to fetch')) {
+      throw err;
+    }
+    return null;
+  }
 }
 
 export async function markInvoicePaid(invoiceId: string, amountPaid?: number): Promise<void> {

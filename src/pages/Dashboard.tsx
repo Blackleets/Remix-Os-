@@ -15,6 +15,7 @@ import {
   Activity,
   Fingerprint,
   Receipt,
+  FileText,
   UserPlus,
   Database,
   History,
@@ -64,6 +65,11 @@ export function Dashboard() {
   const [activities, setActivities] = useState<ActivityItem[]>([]);
   const [exporting, setExporting] = useState(false);
   const [stockAlerts, setStockAlerts] = useState<{ id: string; name: string; stockLevel: number; daysLeft: number | null; velocity: number }[]>([]);
+  const [invoiceMetrics, setInvoiceMetrics] = useState({
+    unpaidTotal: 0,
+    overdueCount: 0,
+    invoicesCount: 0,
+  });
   const [dailyGoal, setDailyGoal] = useState<number>(() => {
     const stored = localStorage.getItem(`remix_daily_goal_${window.location.hostname}`);
     return stored ? Number(stored) : 0;
@@ -170,11 +176,39 @@ export function Dashboard() {
       console.error('Dashboard activities listener error:', error);
     });
 
+    // Invoice metrics for the Dashboard "Facturación" tile. Tolerant to
+    // companies that never created invoices — the listener is best-effort.
+    const invoicesQ = query(collection(db, 'invoices'), where('companyId', '==', company.id));
+    const unsubscribeInvoices = onSnapshot(
+      invoicesQ,
+      (snapshot) => {
+        let unpaidTotal = 0;
+        let overdueCount = 0;
+        let invoicesCount = 0;
+        snapshot.forEach((d) => {
+          const data = d.data() as any;
+          if (data?.status === 'cancelled') return;
+          invoicesCount += 1;
+          if (data?.status === 'issued' || data?.status === 'sent' || data?.status === 'overdue') {
+            const due = Number(data?.amountDue);
+            const total = Number(data?.total) || 0;
+            unpaidTotal += Number.isFinite(due) ? due : total;
+          }
+          if (data?.status === 'overdue') overdueCount += 1;
+        });
+        setInvoiceMetrics({ unpaidTotal, overdueCount, invoicesCount });
+      },
+      (error) => {
+        console.error('Dashboard invoices listener error:', error);
+      }
+    );
+
     return () => {
       unsubscribeOrders();
       unsubscribeCustomers();
       unsubscribeProducts();
       unsubscribeActivity();
+      unsubscribeInvoices();
     };
   }, [company]);
 
@@ -874,6 +908,51 @@ export function Dashboard() {
               ))}
             </div>
           </Card>
+
+          {invoiceMetrics.invoicesCount > 0 && (
+            <Card className={cn(
+              'overflow-hidden',
+              invoiceMetrics.overdueCount > 0
+                ? 'border-amber-400/16 bg-[linear-gradient(180deg,rgba(92,60,10,0.22),rgba(8,11,16,0.96))]'
+                : 'border-blue-400/14 bg-[linear-gradient(180deg,rgba(28,43,90,0.32),rgba(8,11,16,0.96))]'
+            )}>
+              <div className="mb-5 flex items-center justify-between gap-3">
+                <div>
+                  <p className="section-kicker mb-2 !text-neutral-500">Facturación</p>
+                  <h3 className="section-title text-xl">Cobro pendiente</h3>
+                </div>
+                <div className={cn(
+                  'flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border',
+                  invoiceMetrics.overdueCount > 0
+                    ? 'border-amber-400/20 bg-amber-500/10 text-amber-200'
+                    : 'border-blue-400/20 bg-blue-500/10 text-blue-200'
+                )}>
+                  <FileText className="h-5 w-5" />
+                </div>
+              </div>
+
+              <p className="font-mono text-3xl font-bold text-white">{formatCurrency(invoiceMetrics.unpaidTotal)}</p>
+              <p className="mt-1 text-xs text-neutral-400">
+                {invoiceMetrics.invoicesCount} documento{invoiceMetrics.invoicesCount === 1 ? '' : 's'} ·{' '}
+                {invoiceMetrics.overdueCount > 0
+                  ? `${invoiceMetrics.overdueCount} vencida${invoiceMetrics.overdueCount === 1 ? '' : 's'}`
+                  : 'Sin vencimientos'}
+              </p>
+
+              <button
+                onClick={() => navigate('/invoices')}
+                className={cn(
+                  'mt-4 flex w-full items-center justify-center gap-2 rounded-2xl border py-2.5 text-[11px] font-black uppercase tracking-[0.2em] transition-all',
+                  invoiceMetrics.overdueCount > 0
+                    ? 'border-amber-400/16 text-amber-200/80 hover:border-amber-400/25 hover:bg-amber-500/8'
+                    : 'border-blue-400/16 text-blue-200/80 hover:border-blue-400/25 hover:bg-blue-500/8'
+                )}
+              >
+                Abrir facturación
+                <ChevronRight className="h-3.5 w-3.5" />
+              </button>
+            </Card>
+          )}
 
           {stockAlerts.length > 0 && (
             <Card className="border-amber-400/14 bg-[linear-gradient(180deg,rgba(92,60,10,0.28),rgba(8,11,16,0.96))]">
