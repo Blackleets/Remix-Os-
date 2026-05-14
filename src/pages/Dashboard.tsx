@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Button, cn, OSGlyph } from '../components/Common';
+import { Card, Button, cn } from '../components/Common';
 import {
   Contact,
   Shapes,
@@ -21,6 +21,9 @@ import {
   Plus,
   Sparkles,
   AlertTriangle,
+  Target,
+  Pencil,
+  Check,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../lib/firebase';
@@ -30,7 +33,6 @@ import { motion } from 'motion/react';
 import { format, subDays, startOfDay, eachDayOfInterval, isSameDay } from 'date-fns';
 import { exportDashboardToPDF } from '../lib/exportUtils';
 import { useLocale } from '../hooks/useLocale';
-import { getOrderTotal } from '../../shared/orders';
 
 interface ActivityItem {
   id: string;
@@ -61,6 +63,13 @@ export function Dashboard() {
   const [chartData, setChartData] = useState<{ name: string; sales: number }[]>([]);
   const [activities, setActivities] = useState<ActivityItem[]>([]);
   const [exporting, setExporting] = useState(false);
+  const [stockAlerts, setStockAlerts] = useState<{ id: string; name: string; stockLevel: number; daysLeft: number | null; velocity: number }[]>([]);
+  const [dailyGoal, setDailyGoal] = useState<number>(() => {
+    const stored = localStorage.getItem(`remix_daily_goal_${window.location.hostname}`);
+    return stored ? Number(stored) : 0;
+  });
+  const [isGoalEditing, setIsGoalEditing] = useState(false);
+  const [goalInput, setGoalInput] = useState('');
 
   useEffect(() => {
     if (!company) return;
@@ -82,7 +91,7 @@ export function Dashboard() {
       const fourteenDaysAgo = subDays(startOfDay(now), 13);
 
       snapshot.forEach((doc) => {
-        const total = getOrderTotal(doc.data());
+        const total = doc.data().total || 0;
         totalRev += total;
         const date = doc.data().createdAt?.toDate?.();
         if (date) {
@@ -113,7 +122,7 @@ export function Dashboard() {
             const date = entry.data().createdAt?.toDate();
             return date && isSameDay(date, day);
           })
-          .reduce((sum, entry) => sum + getOrderTotal(entry.data()), 0);
+          .reduce((sum, entry) => sum + (entry.data().total || 0), 0);
 
         return {
           name: format(day, 'EEE'),
@@ -169,6 +178,56 @@ export function Dashboard() {
     };
   }, [company]);
 
+  useEffect(() => {
+    if (!company) return;
+    let cancelled = false;
+
+    async function computeStockAlerts() {
+      const LOOKBACK_DAYS = 14;
+      const cutoff = subDays(new Date(), LOOKBACK_DAYS);
+
+      const [productsSnap, ordersSnap] = await Promise.all([
+        getDocs(query(collection(db, 'products'), where('companyId', '==', company!.id), where('status', '==', 'active'))),
+        getDocs(query(collection(db, 'orders'), where('companyId', '==', company!.id), where('status', '==', 'completed'))),
+      ]);
+
+      if (cancelled) return;
+
+      // Count units sold per product in last 14 days
+      const unitsSold = new Map<string, number>();
+      ordersSnap.docs.forEach(d => {
+        const createdAt = d.data().createdAt?.toDate?.();
+        if (!createdAt || createdAt < cutoff) return;
+        const items: { productId: string; quantity: number }[] = d.data().itemsSnapshot || [];
+        items.forEach(item => {
+          unitsSold.set(item.productId, (unitsSold.get(item.productId) || 0) + item.quantity);
+        });
+      });
+
+      const alerts = productsSnap.docs
+        .map(d => {
+          const stockLevel = d.data().stockLevel ?? 0;
+          const sold = unitsSold.get(d.id) || 0;
+          const velocity = sold / LOOKBACK_DAYS; // units/day
+          const daysLeft = velocity > 0 ? Math.floor(stockLevel / velocity) : null;
+          return { id: d.id, name: d.data().name, stockLevel, daysLeft, velocity };
+        })
+        .filter(p => p.stockLevel >= 0 && (p.stockLevel <= 5 || (p.daysLeft !== null && p.daysLeft <= 14)))
+        .sort((a, b) => {
+          if (a.daysLeft === null && b.daysLeft === null) return a.stockLevel - b.stockLevel;
+          if (a.daysLeft === null) return 1;
+          if (b.daysLeft === null) return -1;
+          return a.daysLeft - b.daysLeft;
+        })
+        .slice(0, 6);
+
+      setStockAlerts(alerts);
+    }
+
+    computeStockAlerts().catch(console.error);
+    return () => { cancelled = true; };
+  }, [company]);
+
   const showChecklist = stats.products === 0 || stats.customers === 0 || stats.orders === 0;
   const allSystemsReady = stats.products > 0 && stats.customers > 0 && stats.orders > 0;
 
@@ -203,16 +262,27 @@ export function Dashboard() {
 
   const operatingBrief = useMemo(() => {
     if (!stats.orders && !stats.customers && !stats.products) {
-      return 'Agrega los datos base para activar metricas e IA.';
+      return 'Remix OS está en espera. Completa la secuencia de activación para desbloquear inteligencia operativa en vivo.';
     }
     if (stats.orders > 0 && stats.revenue > 0) {
-      return `${stats.orders} pedidos y ${formatCurrency(stats.revenue)} en ingresos acumulados.`;
+      return `Los ingresos en vivo se sitúan en ${formatCurrency(stats.revenue)} con ${stats.orders} transacciones ejecutadas en la ventana operativa actual.`;
     }
     if (stats.products > 0 || stats.customers > 0) {
-      return 'Ventas, clientes e inventario sincronizados en un solo centro.';
+      return `El grafo comercial está en línea con ${stats.products} nodos de producto y ${stats.customers} registros de clientes. El sistema está listo para operar.`;
     }
-    return 'Los datos operativos se estan sincronizando.';
+    return 'Los datos operativos se están sincronizando en todo el espacio de trabajo.';
   }, [formatCurrency, stats]);
+
+  const todayRevenue = chartData.length > 0 ? (chartData[chartData.length - 1]?.sales ?? 0) : 0;
+  const goalProgress = dailyGoal > 0 ? Math.min(100, (todayRevenue / dailyGoal) * 100) : 0;
+  const goalMet = dailyGoal > 0 && todayRevenue >= dailyGoal;
+
+  const saveGoal = () => {
+    const val = Math.max(0, parseFloat(goalInput) || 0);
+    setDailyGoal(val);
+    localStorage.setItem(`remix_daily_goal_${window.location.hostname}`, String(val));
+    setIsGoalEditing(false);
+  };
 
   const handleExportPDF = async () => {
     if (!company) return;
@@ -239,7 +309,7 @@ export function Dashboard() {
           data: recentOrdersSnap.docs.map((d) => ({
             ID: d.id.slice(-6).toUpperCase(),
             Customer: d.data().customerName,
-            Total: `${getOrderTotal(d.data()).toFixed(2)}`,
+            Total: `${d.data().total}`,
             Status: d.data().status,
             Date: d.data().createdAt,
           })),
@@ -299,7 +369,7 @@ export function Dashboard() {
 
   const statCards = [
     {
-      label: 'Ingresos',
+      label: t('dashboard.revenue'),
       value: formatCurrency(stats.revenue),
       change: formatChangeValue(stats.revenueChange),
       signal: stats.revenueChange.startsWith('+') || stats.revenueChange === 'NEW' ? 'Expansión' : 'Estable',
@@ -308,28 +378,28 @@ export function Dashboard() {
       ring: 'border-blue-400/14 from-blue-500/14 to-transparent',
     },
     {
-      label: 'Clientes',
+      label: t('dashboard.customers'),
       value: stats.customers.toString(),
       change: stats.customers > 0 ? 'Activo' : 'En espera',
-      signal: 'CRM',
+      signal: 'Grafo relacional',
       icon: Contact,
       accent: 'text-violet-300',
       ring: 'border-violet-400/14 from-violet-500/14 to-transparent',
     },
     {
-      label: 'Stock',
+      label: t('dashboard.inventory'),
       value: stats.products.toString(),
-      change: stats.products > 0 ? 'Listo' : 'Pendiente',
-      signal: 'Inventario',
+      change: stats.products > 0 ? 'Indexado' : 'Pendiente',
+      signal: 'Tejido de activos',
       icon: Shapes,
       accent: 'text-emerald-300',
       ring: 'border-emerald-400/14 from-emerald-500/14 to-transparent',
     },
     {
-      label: 'Pedidos',
+      label: t('dashboard.orders'),
       value: stats.orders.toString(),
       change: stats.orders > 0 ? 'Activo' : 'Inactivo',
-      signal: 'Ventas',
+      signal: 'Flujo transaccional',
       icon: Layers,
       accent: 'text-amber-300',
       ring: 'border-amber-400/14 from-amber-500/14 to-transparent',
@@ -338,27 +408,27 @@ export function Dashboard() {
 
   const systemModules = [
     {
-      label: 'Inventario',
-      status: stats.products > 0 ? 'Listo' : 'Pendiente',
+      label: t('dashboard.ops_status.inventory'),
+      status: stats.products > 0 ? 'Indexado' : 'Pendiente',
       icon: Shapes,
       good: stats.products > 0,
     },
     {
-      label: 'Pedidos',
-      status: stats.orders > 0 ? 'Activo' : 'Inactivo',
+      label: t('dashboard.ops_status.orders'),
+      status: stats.orders > 0 ? 'En flujo' : 'Inactivo',
       icon: Receipt,
       good: stats.orders > 0,
     },
     {
-      label: 'Clientes',
-      status: stats.customers > 0 ? 'Activo' : 'Pendiente',
+      label: t('dashboard.ops_status.customers'),
+      status: stats.customers > 0 ? 'Sincronizado' : 'Pendiente',
       icon: Contact,
       good: stats.customers > 0,
     },
   ];
 
   return (
-    <div className="space-y-6 overflow-x-hidden md:space-y-8">
+    <div className="space-y-6 md:space-y-8">
       <motion.section
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
@@ -370,16 +440,16 @@ export function Dashboard() {
             <div className="mb-4 flex flex-wrap items-center gap-2">
               <span className="operator-badge">
                 <span className="status-dot pulse-live bg-emerald-400 text-emerald-400" />
-                En vivo
+                Estado operativo en vivo
               </span>
               <span className="telemetry-chip">
                 <Fingerprint className="h-3.5 w-3.5 text-blue-300" />
-                IA activa
+                Núcleo operativo IA
               </span>
             </div>
 
             <h1 className="section-title glow-text max-w-3xl text-3xl leading-none md:text-4xl xl:text-5xl">
-              {company?.name || 'Remix OS'} esta listo para operar.
+              {company?.name || 'Remix OS'} opera ahora como un centro operativo vivo.
             </h1>
             <p className="mt-4 max-w-2xl text-base leading-relaxed text-neutral-300 md:text-lg">
               {operatingBrief}
@@ -415,17 +485,17 @@ export function Dashboard() {
 
           <div className="grid gap-4 sm:grid-cols-3 xl:grid-cols-1">
             <div className="data-tile">
-              <p className="section-kicker mb-2 !text-neutral-400">Integridad</p>
-              <div className="flex items-start justify-between gap-4">
-                <div className="min-w-0">
-                  <p className="text-2xl font-bold text-white md:text-3xl">{allSystemsReady ? '98%' : '71%'}</p>
+              <p className="section-kicker mb-2 !text-neutral-400">Integridad del sistema</p>
+              <div className="flex items-end justify-between gap-4">
+                <div>
+                  <p className="text-3xl font-bold text-white">{allSystemsReady ? '98%' : '71%'}</p>
                   <p className="mt-1 text-sm text-neutral-400">
-                    Sistema activo
+                    {allSystemsReady ? 'Los módulos principales responden con normalidad.' : 'La activación sigue en curso en los módulos comerciales.'}
                   </p>
                 </div>
-                <OSGlyph tone="blue" size="md">
-                  <Sparkles className="h-4.5 w-4.5" />
-                </OSGlyph>
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-blue-400/14 bg-blue-500/10">
+                  <Sparkles className="h-5 w-5 text-blue-300" />
+                </div>
               </div>
             </div>
 
@@ -433,26 +503,71 @@ export function Dashboard() {
               <p className="section-kicker mb-2 !text-neutral-400">Pulso comercial</p>
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-sm text-neutral-300">
-                  <span>Estado</span>
+                  <span>Delta de ingresos</span>
                   <span className="font-mono text-blue-300">{formatChangeValue(stats.revenueChange)}</span>
                 </div>
                 <div className="flex items-center justify-between text-sm text-neutral-300">
-                  <span>Pedidos</span>
+                  <span>Transacciones</span>
                   <span className="font-mono text-white">{stats.orders}</span>
                 </div>
               </div>
             </div>
 
             <div className="data-tile">
-              <p className="section-kicker mb-2 !text-neutral-400">IA</p>
-              <div className="flex items-start justify-between gap-4">
-                <p className="text-sm leading-relaxed text-neutral-300">
-                  Activa y analizando la operacion.
-                </p>
-                <OSGlyph tone="emerald" size="md">
-                  <Zap className="h-4.5 w-4.5" />
-                </OSGlyph>
+              <div className="mb-2 flex items-center justify-between">
+                <p className="section-kicker !text-neutral-400">Meta diaria</p>
+                <button
+                  onClick={() => { setGoalInput(dailyGoal > 0 ? String(dailyGoal) : ''); setIsGoalEditing(true); }}
+                  className="flex items-center gap-1 rounded-lg border border-white/8 bg-white/[0.03] px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-neutral-500 transition-colors hover:text-white"
+                >
+                  <Pencil className="h-3 w-3" />
+                  Editar
+                </button>
               </div>
+              {isGoalEditing ? (
+                <div className="flex gap-2">
+                  <input
+                    autoFocus
+                    type="number"
+                    min="0"
+                    value={goalInput}
+                    onChange={e => setGoalInput(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') saveGoal(); if (e.key === 'Escape') setIsGoalEditing(false); }}
+                    className="flex-1 rounded-xl border border-white/12 bg-white/[0.04] px-3 py-2 text-sm text-white placeholder-neutral-600 focus:border-blue-400/40 focus:outline-none"
+                    placeholder="Ej. 1000"
+                  />
+                  <button onClick={saveGoal} className="flex h-10 w-10 items-center justify-center rounded-xl border border-emerald-400/20 bg-emerald-500/10 text-emerald-300">
+                    <Check className="h-4 w-4" />
+                  </button>
+                </div>
+              ) : dailyGoal > 0 ? (
+                <div className="space-y-2">
+                  <div className="flex items-end justify-between">
+                    <div>
+                      <p className="text-2xl font-bold text-white">{formatCurrency(todayRevenue)}</p>
+                      <p className="text-xs text-neutral-500">de {formatCurrency(dailyGoal)} hoy</p>
+                    </div>
+                    {goalMet && <span className="rounded-full border border-emerald-400/20 bg-emerald-500/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-emerald-300">¡Meta!</span>}
+                  </div>
+                  <div className="h-2 overflow-hidden rounded-full bg-white/8">
+                    <motion.div
+                      initial={{ width: 0 }}
+                      animate={{ width: `${goalProgress}%` }}
+                      transition={{ duration: 0.8, ease: 'easeOut' }}
+                      className={cn('h-full rounded-full', goalMet ? 'bg-emerald-400' : goalProgress > 60 ? 'bg-blue-400' : goalProgress > 30 ? 'bg-amber-400' : 'bg-red-400')}
+                    />
+                  </div>
+                  <p className="text-xs text-neutral-500">{goalProgress.toFixed(0)}% completado</p>
+                </div>
+              ) : (
+                <div className="flex items-start gap-3">
+                  <Target className="mt-0.5 h-8 w-8 shrink-0 text-neutral-700" />
+                  <div>
+                    <p className="text-sm font-medium text-neutral-400">Sin meta configurada</p>
+                    <p className="mt-0.5 text-xs text-neutral-600">Toca "Editar" para fijar tu objetivo diario de ventas.</p>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -463,30 +578,30 @@ export function Dashboard() {
           <Card className="overflow-hidden border-blue-400/14 bg-[linear-gradient(180deg,rgba(32,67,138,0.18),rgba(12,16,24,0.96))]">
             <div className="grid gap-6 lg:grid-cols-[0.8fr_1.2fr]">
               <div>
-                <p className="section-kicker mb-3">Activacion</p>
-                <h2 className="section-title text-2xl md:text-3xl">Completa tu operacion.</h2>
-                <p className="mt-3 section-subtitle">Agrega los datos base para activar metricas e IA.</p>
+                <p className="section-kicker mb-3">Secuencia de activación</p>
+                <h2 className="section-title text-2xl md:text-3xl">{t('dashboard.setup.title')}</h2>
+                <p className="mt-3 section-subtitle">{t('dashboard.setup.description')}</p>
               </div>
 
               <div className="grid gap-4 md:grid-cols-3">
                 {[
                   {
-                    label: 'Producto',
-                    desc: 'Anade inventario.',
+                    label: t('dashboard.setup.register_product'),
+                    desc: t('dashboard.setup.register_product_desc'),
                     done: stats.products > 0,
                     link: '/products',
                     icon: <Database className="h-5 w-5" />,
                   },
                   {
-                    label: 'Cliente',
-                    desc: 'Inicia tu CRM.',
+                    label: t('dashboard.setup.add_customer'),
+                    desc: t('dashboard.setup.add_customer_desc'),
                     done: stats.customers > 0,
                     link: '/customers',
                     icon: <UserPlus className="h-5 w-5" />,
                   },
                   {
-                    label: 'Venta',
-                    desc: 'Registra un pedido.',
+                    label: t('dashboard.setup.log_sale'),
+                    desc: t('dashboard.setup.log_sale_desc'),
                     done: stats.orders > 0,
                     link: '/orders',
                     icon: <Receipt className="h-5 w-5" />,
@@ -501,9 +616,14 @@ export function Dashboard() {
                     )}
                   >
                     <div className="mb-4 flex items-center justify-between">
-                      <OSGlyph tone={item.done ? 'emerald' : 'neutral'} size="md">
-                        {item.done ? <CheckCircle2 className="h-4.5 w-4.5" /> : item.icon}
-                      </OSGlyph>
+                      <div className={cn(
+                        'flex h-11 w-11 items-center justify-center rounded-2xl border',
+                        item.done
+                          ? 'border-emerald-400/18 bg-emerald-500/10 text-emerald-300'
+                          : 'border-white/10 bg-white/[0.03] text-neutral-300'
+                      )}>
+                        {item.done ? <CheckCircle2 className="h-5 w-5" /> : item.icon}
+                      </div>
                       <ChevronRight className="h-4 w-4 text-neutral-600" />
                     </div>
                     <p className="text-sm font-semibold text-white">{item.label}</p>
@@ -518,7 +638,7 @@ export function Dashboard() {
 
       <div className="grid gap-6 xl:grid-cols-[1.3fr_0.7fr]">
         <div className="space-y-6">
-          <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-4">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             {statCards.map((stat, index) => (
               <motion.div
                 key={stat.label}
@@ -526,21 +646,21 @@ export function Dashboard() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.05 + index * 0.05 }}
               >
-                <Card className={cn('relative min-w-0 overflow-hidden bg-[rgba(9,12,18,0.94)]', stat.ring)}>
+                <Card className={cn('relative overflow-hidden bg-[rgba(9,12,18,0.94)]', stat.ring)}>
                   <div className={cn('absolute inset-x-0 top-0 h-20 bg-gradient-to-b opacity-80', stat.ring)} />
-                  <div className="relative min-w-0">
+                  <div className="relative">
                     <div className="mb-5 flex items-start justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <p className="section-kicker mb-2 truncate !text-neutral-500">{stat.signal}</p>
+                      <div>
+                        <p className="section-kicker mb-2 !text-neutral-500">{stat.signal}</p>
                         <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-neutral-400">{stat.label}</p>
                       </div>
-                      <OSGlyph tone={stat.accent.includes('violet') ? 'violet' : stat.accent.includes('emerald') ? 'emerald' : stat.accent.includes('amber') ? 'amber' : 'blue'} size="md">
-                        <stat.icon className="h-4.5 w-4.5" />
-                      </OSGlyph>
+                      <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03]">
+                        <stat.icon className={cn('h-5 w-5', stat.accent)} />
+                      </div>
                     </div>
-                    <p className="truncate text-2xl font-bold tracking-tight text-white md:text-3xl">{stat.value}</p>
-                    <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-xs">
-                      <span className="font-mono uppercase tracking-[0.18em] text-neutral-500">Estado</span>
+                    <p className="text-3xl font-bold tracking-tight text-white">{stat.value}</p>
+                    <div className="mt-4 flex items-center justify-between text-xs">
+                      <span className="font-mono uppercase tracking-[0.18em] text-neutral-500">Señal</span>
                       <span className="font-mono text-blue-200">{stat.change}</span>
                     </div>
                   </div>
@@ -553,21 +673,21 @@ export function Dashboard() {
             <Card className="overflow-hidden">
               <div className="mb-6 flex items-center justify-between gap-4">
                 <div>
-                  <p className="section-kicker mb-2">Ingresos</p>
-                  <h3 className="section-title text-2xl">Vista financiera</h3>
-                  <p className="section-subtitle mt-2">Ultimos 7 dias.</p>
+                  <p className="section-kicker mb-2">Telemetría financiera</p>
+                  <h3 className="section-title text-2xl">{t('dashboard.financial_intelligence')}</h3>
+                  <p className="section-subtitle mt-2">{t('dashboard.revenue_optimization')}</p>
                 </div>
-                <OSGlyph tone="blue" size="md">
-                  <TrendingUp className="h-4.5 w-4.5" />
-                </OSGlyph>
+                <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-blue-400/14 bg-blue-500/10">
+                  <TrendingUp className="h-5 w-5 text-blue-300" />
+                </div>
               </div>
 
               <div className="mb-5 flex flex-wrap gap-2">
                 <span className="telemetry-chip">
                   <span className="status-dot bg-blue-400 text-blue-400" />
-                  Ingresos
+                  Flujo de ingresos
                 </span>
-                <span className="telemetry-chip">7 dias</span>
+                <span className="telemetry-chip">Señal 7 días</span>
               </div>
 
               <div className="h-[290px] rounded-[24px] border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.01))] p-3">
@@ -605,8 +725,8 @@ export function Dashboard() {
                 ) : (
                   <div className="flex h-full flex-col items-center justify-center rounded-[20px] border border-dashed border-white/8 bg-white/[0.02] text-center">
                     <Activity className="mb-4 h-8 w-8 text-neutral-700" />
-                    <p className="text-sm font-semibold text-neutral-400">Aun no hay ingresos</p>
-                    <p className="mt-1 text-xs text-neutral-600">La metrica aparecera cuando entren pedidos completados.</p>
+                    <p className="text-sm font-semibold text-neutral-400">Aún no hay señal de ingresos</p>
+                    <p className="mt-1 text-xs text-neutral-600">La telemetría financiera aparecerá cuando empiecen a fluir pedidos completados.</p>
                   </div>
                 )}
               </div>
@@ -615,21 +735,21 @@ export function Dashboard() {
             <Card className="overflow-hidden">
               <div className="mb-6 flex items-center justify-between gap-4">
                 <div>
-                  <p className="section-kicker mb-2">Actividad</p>
-                  <h3 className="section-title text-2xl">Actividad reciente</h3>
-                  <p className="section-subtitle mt-2">Eventos recientes del negocio.</p>
+                  <p className="section-kicker mb-2">Flujo operativo</p>
+                  <h3 className="section-title text-2xl">{t('dashboard.system_log')}</h3>
+                  <p className="section-subtitle mt-2">Eventos en vivo priorizados por relevancia operativa.</p>
                 </div>
-                <OSGlyph tone="amber" size="md">
-                  <History className="h-4.5 w-4.5" />
-                </OSGlyph>
+                <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-amber-400/14 bg-amber-500/10">
+                  <History className="h-5 w-5 text-amber-300" />
+                </div>
               </div>
 
               <div className="max-h-[360px] space-y-3 overflow-y-auto pr-1 custom-scrollbar">
                 {activityMeta.length === 0 ? (
                   <div className="flex min-h-[260px] flex-col items-center justify-center rounded-[24px] border border-dashed border-white/8 bg-white/[0.02] text-center">
                     <History className="mb-4 h-8 w-8 text-neutral-700" />
-                    <p className="text-sm font-semibold text-neutral-400">Aun no hay actividad</p>
-                    <p className="mt-1 max-w-xs text-xs text-neutral-600">Aqui veras pedidos, clientes e inventario en cuanto haya movimiento.</p>
+                    <p className="text-sm font-semibold text-neutral-400">El flujo operativo está en espera</p>
+                    <p className="mt-1 max-w-xs text-xs text-neutral-600">Aquí aparecerán pedidos, clientes, inventario y acciones del sistema a medida que el negocio entre en movimiento.</p>
                   </div>
                 ) : (
                   activityMeta.map((item, index) => (
@@ -667,9 +787,9 @@ export function Dashboard() {
         <div className="space-y-6">
           <Card className="overflow-hidden border-blue-400/14 bg-[linear-gradient(180deg,rgba(28,43,90,0.52),rgba(8,11,16,0.96))]">
             <div className="mb-5 flex items-center gap-3">
-              <OSGlyph tone="blue" size="md">
-                <Cpu className="h-4.5 w-4.5" />
-              </OSGlyph>
+              <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-blue-300/16 bg-blue-500/12">
+                <Cpu className="h-5 w-5 text-blue-200" />
+              </div>
               <div>
                 <p className="section-kicker">Informe operativo</p>
                 <h3 className="section-title text-xl">{t('dashboard.business_briefing')}</h3>
@@ -695,16 +815,16 @@ export function Dashboard() {
 
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="data-tile">
-                  <p className="section-kicker mb-2 !text-neutral-500">Riesgo</p>
-                  <p className="text-lg font-semibold text-white">{allSystemsReady ? 'Estable' : 'En activacion'}</p>
+                  <p className="section-kicker mb-2 !text-neutral-500">Perfil de riesgo</p>
+                  <p className="text-lg font-semibold text-white">{allSystemsReady ? 'Estable' : 'Activación en vigilancia'}</p>
                   <p className="mt-1 text-sm text-neutral-400">
-                    {allSystemsReady ? 'Sin alertas criticas.' : 'Completa la activacion base.'}
+                    {allSystemsReady ? 'No se detectan incidencias críticas en la señal actual.' : 'Completa la secuencia de activación para estabilizar el grafo operativo.'}
                   </p>
                 </div>
                 <div className="data-tile">
-                  <p className="section-kicker mb-2 !text-neutral-500">Sync</p>
+                  <p className="section-kicker mb-2 !text-neutral-500">Sincronización de datos</p>
                   <p className="text-lg font-semibold text-white">En vivo</p>
-                  <p className="mt-1 text-sm text-neutral-400">Ventas y datos entrando al panel.</p>
+                  <p className="mt-1 text-sm text-neutral-400">La telemetría comercial está entrando al panel en tiempo real.</p>
                 </div>
               </div>
 
@@ -721,24 +841,27 @@ export function Dashboard() {
           <Card>
             <div className="mb-5 flex items-center justify-between">
               <div>
-                <p className="section-kicker mb-2 !text-neutral-500">Modulos</p>
-                <h3 className="section-title text-xl">Estado del sistema</h3>
+                <p className="section-kicker mb-2 !text-neutral-500">Módulos del sistema</p>
+                <h3 className="section-title text-xl">{t('dashboard.ops_status.title')}</h3>
               </div>
-              <OSGlyph tone="neutral" size="sm">
-                <Fingerprint className="h-4 w-4 text-neutral-300" />
-              </OSGlyph>
+              <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03]">
+                <Fingerprint className="h-4.5 w-4.5 text-neutral-300" />
+              </div>
             </div>
 
             <div className="space-y-3">
               {systemModules.map((item) => (
                 <div key={item.label} className="surface-elevated flex items-center justify-between gap-4 p-4">
                   <div className="flex min-w-0 items-center gap-3">
-                    <OSGlyph tone={item.good ? 'emerald' : 'amber'} size="sm">
+                    <div className={cn(
+                      'flex h-10 w-10 items-center justify-center rounded-2xl border',
+                      item.good ? 'border-emerald-400/14 bg-emerald-500/8 text-emerald-300' : 'border-amber-400/14 bg-amber-500/8 text-amber-300'
+                    )}>
                       <item.icon className="h-4 w-4" />
-                    </OSGlyph>
+                    </div>
                     <div className="min-w-0">
                       <p className="text-sm font-semibold text-white">{item.label}</p>
-                      <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-neutral-500">Estado</p>
+                      <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-neutral-500">Salud del módulo</p>
                     </div>
                   </div>
                   <span className={cn(
@@ -752,11 +875,69 @@ export function Dashboard() {
             </div>
           </Card>
 
+          {stockAlerts.length > 0 && (
+            <Card className="border-amber-400/14 bg-[linear-gradient(180deg,rgba(92,60,10,0.28),rgba(8,11,16,0.96))]">
+              <div className="mb-5 flex items-center justify-between gap-3">
+                <div>
+                  <p className="section-kicker mb-2 !text-amber-400/70">Presión de inventario</p>
+                  <h3 className="section-title text-xl">Predicción de rotura de stock</h3>
+                  <p className="section-subtitle mt-1">Basado en velocidad de ventas de los últimos 14 días.</p>
+                </div>
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-amber-400/20 bg-amber-500/10">
+                  <AlertTriangle className="h-5 w-5 text-amber-300" />
+                </div>
+              </div>
+              <div className="space-y-2">
+                {stockAlerts.map(alert => {
+                  const isUrgent = alert.daysLeft !== null && alert.daysLeft <= 3;
+                  const isCritical = alert.stockLevel === 0;
+                  return (
+                    <button
+                      key={alert.id}
+                      onClick={() => navigate('/inventory')}
+                      className={cn(
+                        'surface-elevated block w-full p-3 text-left transition-all',
+                        isCritical ? 'border-red-400/20 bg-red-500/5 hover:border-red-400/30' :
+                        isUrgent ? 'border-amber-400/20 bg-amber-500/5 hover:border-amber-400/30' :
+                        'hover:border-white/10'
+                      )}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="truncate text-sm font-semibold text-white">{alert.name}</p>
+                        <span className={cn(
+                          'shrink-0 rounded-full border px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-wider',
+                          isCritical ? 'border-red-400/20 bg-red-500/10 text-red-300' :
+                          isUrgent ? 'border-amber-400/20 bg-amber-500/10 text-amber-300' :
+                          'border-white/10 bg-white/5 text-neutral-400'
+                        )}>
+                          {isCritical ? 'Sin stock' :
+                           alert.daysLeft !== null ? `~${alert.daysLeft}d` : `${alert.stockLevel} u.`}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-xs text-neutral-500">
+                        {isCritical ? 'Agotado — reabastecer ahora' :
+                         alert.daysLeft !== null ? `${alert.stockLevel} u. restantes · ${alert.velocity.toFixed(1)} u/día` :
+                         `${alert.stockLevel} unidades · sin ventas recientes`}
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
+              <button
+                onClick={() => navigate('/inventory')}
+                className="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl border border-amber-400/14 py-2.5 text-[11px] font-black uppercase tracking-[0.2em] text-amber-300/80 transition-all hover:border-amber-400/25 hover:bg-amber-500/8"
+              >
+                Ver inventario completo
+                <ChevronRight className="h-3.5 w-3.5" />
+              </button>
+            </Card>
+          )}
+
           <Card>
             <div className="mb-5 flex items-center justify-between">
               <div>
-                <p className="section-kicker mb-2 !text-neutral-500">Siguientes pasos</p>
-                <h3 className="section-title text-xl">Acciones sugeridas</h3>
+                <p className="section-kicker mb-2 !text-neutral-500">Playbooks IA</p>
+                <h3 className="section-title text-xl">Siguientes movimientos sugeridos</h3>
               </div>
               <AlertTriangle className="h-4.5 w-4.5 text-neutral-500" />
             </div>
@@ -764,18 +945,18 @@ export function Dashboard() {
             <div className="space-y-3">
               {[
                 {
-                  label: 'Revisar stock',
-                  detail: 'Abre inventario y revisa cobertura.',
+                  label: 'Revisar presión por bajo stock',
+                  detail: 'Abre la inteligencia de inventario e inspecciona cobertura antes de que la demanda aumente.',
                   action: () => navigate('/inventory'),
                 },
                 {
-                  label: 'Revisar pedidos',
-                  detail: 'Inspecciona ventas recientes y puntos de friccion.',
+                  label: 'Inspeccionar flujo transaccional',
+                  detail: 'Revisa pedidos recientes y detecta fricciones de conversión antes de que escalen.',
                   action: () => navigate('/orders'),
                 },
                 {
-                  label: 'Abrir Copilot',
-                  detail: 'Genera un resumen ejecutivo de la operacion.',
+                  label: 'Pedir un informe ejecutivo al operador IA',
+                  detail: 'Genera un resumen de ingresos, movimiento de clientes y riesgos operativos.',
                   action: () => window.dispatchEvent(new CustomEvent('open-copilot')),
                 },
               ].map((item) => (

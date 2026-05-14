@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Card, Button } from '../components/Common';
 import { Check, Zap, Crown, Shield, ArrowRight, CreditCard, Activity, Package, Users, ShoppingBag, Loader2 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { useToast } from '../contexts/ToastContext';
 import { useLocale } from '../hooks/useLocale';
 import { auth, db } from '../lib/firebase';
 import { collection, query, where, getDocs } from 'firebase/firestore';
@@ -79,6 +80,7 @@ const PLANS = [
 
 export function Billing() {
   const { company, user, refreshCompany, role } = useAuth();
+  const toast = useToast();
   const { t } = useLocale();
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -199,10 +201,10 @@ export function Billing() {
       
       await refreshCompany();
       setSearchParams({}); // Clear params
-      alert("Billing protocol synchronized successfully.");
+      toast("Billing protocol synchronized successfully.", 'success');
     } catch (err) {
       console.error(err);
-      alert("Status synchronization failed. Please contact engineering support.");
+      toast("Status synchronization failed. Please contact engineering support.", 'error');
     } finally {
       setSyncing(false);
     }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   AlertCircle,
@@ -12,6 +12,7 @@ import {
   Package,
   Plus,
   Printer,
+  QrCode,
   ReceiptText,
   Search,
   ShoppingCart,
@@ -57,6 +58,11 @@ interface Product {
 interface Customer {
   id: string;
   name: string;
+  phone?: string;
+  totalOrders?: number;
+  totalSpent?: number;
+  rfmTier?: string;
+  lastOrderAt?: any;
 }
 
 interface CartItem {
@@ -151,6 +157,7 @@ export function POS() {
   const [customerId, setCustomerId] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<(typeof PAYMENT_METHODS)[number]>('Cash');
   const [discountInput, setDiscountInput] = useState('0');
+  const [discountType, setDiscountType] = useState<'fixed' | 'pct'>('fixed');
   const [taxInput, setTaxInput] = useState('0');
   const [saleError, setSaleError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -164,6 +171,11 @@ export function POS() {
   const [isCashLoading, setIsCashLoading] = useState(false);
   const [isCommandBarOpen, setIsCommandBarOpen] = useState(false);
   const [selectedProductIndex, setSelectedProductIndex] = useState(0);
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [scannerError, setScannerError] = useState<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const scanIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     if (!company) return;
@@ -181,6 +193,11 @@ export function POS() {
       setCustomers(snapshot.docs.map((entry) => ({
         id: entry.id,
         name: entry.data().name || 'Unknown',
+        phone: entry.data().phone,
+        totalOrders: entry.data().totalOrders,
+        totalSpent: entry.data().totalSpent,
+        rfmTier: entry.data().rfmTier,
+        lastOrderAt: entry.data().lastOrderAt,
       })));
     });
 
@@ -295,9 +312,10 @@ export function POS() {
     return customers.find((customer) => customer.id === customerId)?.name || t('orders.guest') || 'Guest';
   }, [customerId, customers, t]);
 
-  const discount = Math.max(0, parseFloat(discountInput) || 0);
-  const tax = Math.max(0, parseFloat(taxInput) || 0);
   const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  const discountRaw = Math.max(0, parseFloat(discountInput) || 0);
+  const discount = discountType === 'pct' ? Math.min(subtotal, subtotal * (discountRaw / 100)) : Math.min(subtotal, discountRaw);
+  const tax = Math.max(0, parseFloat(taxInput) || 0);
   const total = Math.max(0, subtotal - discount + tax);
 
   const sortedCashSessions = useMemo(
@@ -346,6 +364,7 @@ export function POS() {
   const clearCart = () => {
     setCart([]);
     setDiscountInput('0');
+    setDiscountType('fixed');
     setTaxInput('0');
     setSaleError(null);
   };
@@ -414,12 +433,62 @@ export function POS() {
 
   const applyQuickDiscount = () => {
     if (subtotal <= 0) return;
-    setDiscountInput((subtotal * QUICK_DISCOUNT_RATE).toFixed(2));
+    setDiscountType('pct');
+    setDiscountInput((QUICK_DISCOUNT_RATE * 100).toFixed(0));
   };
 
   const setGuestCheckout = () => {
     setCustomerId('');
   };
+
+  const closeScanner = useCallback(() => {
+    if (scanIntervalRef.current) { clearInterval(scanIntervalRef.current); scanIntervalRef.current = null; }
+    if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; }
+    setIsScannerOpen(false);
+    setScannerError(null);
+  }, []);
+
+  const openScanner = useCallback(async () => {
+    setScannerError(null);
+    setIsScannerOpen(true);
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const BarcodeDetectorAPI = (window as any).BarcodeDetector;
+      if (!BarcodeDetectorAPI) {
+        setScannerError('Barcode scanning is not supported in this browser. Try Chrome on Android.');
+        return;
+      }
+      const detector = new BarcodeDetectorAPI({ formats: ['ean_13', 'ean_8', 'qr_code', 'code_128', 'code_39', 'upc_a', 'upc_e'] });
+
+      scanIntervalRef.current = setInterval(async () => {
+        if (!videoRef.current || videoRef.current.readyState < 2) return;
+        try {
+          const barcodes = await detector.detect(videoRef.current);
+          if (barcodes.length === 0) return;
+          const code = barcodes[0].rawValue;
+          const match = activeProducts.find(p => p.sku === code || p.id === code);
+          if (match) {
+            addToCart(match);
+            closeScanner();
+          } else {
+            setScannerError(`No product found for barcode: ${code}`);
+          }
+        } catch { /* frame not ready */ }
+      }, 300);
+    } catch (err: any) {
+      setScannerError(err?.message || 'Camera access denied.');
+    }
+  }, [activeProducts, addToCart, closeScanner]);
+
+  useEffect(() => () => closeScanner(), [closeScanner]);
 
   const loadOrderItems = async (order: OrderDoc) => {
     if (order.itemsSnapshot?.length) {
@@ -1063,14 +1132,23 @@ export function POS() {
                 {t('pos.catalog.live', { count: activeProducts.length })}
               </div>
             </div>
-            <div className="relative">
-              <Search className="w-4 h-4 text-neutral-600 absolute left-3 top-1/2 -translate-y-1/2" />
-              <Input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder={t('pos.catalog.search_placeholder')}
-                className="pl-10 h-11 bg-black/40 border-white/10"
-              />
+            <div className="relative flex gap-2">
+              <div className="relative flex-1">
+                <Search className="w-4 h-4 text-neutral-600 absolute left-3 top-1/2 -translate-y-1/2" />
+                <Input
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder={t('pos.catalog.search_placeholder')}
+                  className="pl-10 h-11 bg-black/40 border-white/10"
+                />
+              </div>
+              <button
+                onClick={openScanner}
+                title="Scan barcode"
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-black/40 text-neutral-500 transition-colors hover:border-blue-400/30 hover:text-blue-300 active:scale-95"
+              >
+                <QrCode className="h-4 w-4" />
+              </button>
             </div>
           </div>
 
@@ -1429,6 +1507,57 @@ export function POS() {
                   ))}
                 </select>
               </div>
+              {customerId && (() => {
+                const c = customers.find(x => x.id === customerId);
+                if (!c) return null;
+                const RFM_COLORS: Record<string, string> = {
+                  champion: 'border-violet-400/20 bg-violet-500/10 text-violet-300',
+                  loyal: 'border-blue-400/20 bg-blue-500/10 text-blue-300',
+                  at_risk: 'border-amber-400/20 bg-amber-500/10 text-amber-300',
+                  promising: 'border-emerald-400/20 bg-emerald-500/10 text-emerald-300',
+                  lost: 'border-red-400/20 bg-red-500/10 text-red-300',
+                  new: 'border-sky-400/20 bg-sky-500/10 text-sky-300',
+                };
+                const lastOrder = c.lastOrderAt?.toDate ? c.lastOrderAt.toDate() : (c.lastOrderAt ? new Date(c.lastOrderAt) : null);
+                const daysSince = lastOrder ? Math.floor((Date.now() - lastOrder.getTime()) / 86400000) : null;
+                return (
+                  <div className="rounded-2xl border border-white/8 bg-white/[0.02] p-3 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs font-semibold text-white truncate">{c.name}</p>
+                      {c.rfmTier && (
+                        <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[9px] font-black uppercase tracking-wider ${RFM_COLORS[c.rfmTier] || 'border-white/10 bg-white/5 text-neutral-400'}`}>
+                          {c.rfmTier}
+                        </span>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 text-center">
+                      <div className="rounded-xl bg-white/[0.03] px-2 py-2">
+                        <p className="text-[10px] text-neutral-500">Pedidos</p>
+                        <p className="text-sm font-bold text-white">{c.totalOrders ?? '—'}</p>
+                      </div>
+                      <div className="rounded-xl bg-white/[0.03] px-2 py-2">
+                        <p className="text-[10px] text-neutral-500">Gastado</p>
+                        <p className="text-sm font-bold text-white">{c.totalSpent != null ? formatCurrency(c.totalSpent) : '—'}</p>
+                      </div>
+                      <div className="rounded-xl bg-white/[0.03] px-2 py-2">
+                        <p className="text-[10px] text-neutral-500">Último</p>
+                        <p className="text-sm font-bold text-white">{daysSince !== null ? `${daysSince}d` : '—'}</p>
+                      </div>
+                    </div>
+                    {c.phone && (
+                      <a
+                        href={`https://wa.me/${c.phone.replace(/\D/g, '')}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex items-center justify-center gap-1.5 rounded-xl border border-emerald-400/15 bg-emerald-500/8 py-1.5 text-[10px] font-bold uppercase tracking-wider text-emerald-300 transition-colors hover:bg-emerald-500/14"
+                      >
+                        <svg width="12" height="12" fill="currentColor" viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+                        WhatsApp
+                      </a>
+                    )}
+                  </div>
+                );
+              })()}
               <p className="text-[11px] text-neutral-500">{t('pos.checkout.current_customer', { customerName })}</p>
             </div>
 
@@ -1453,16 +1582,54 @@ export function POS() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-3">
               <div className="space-y-2">
-                <Label>{t('pos.summary.discount')}</Label>
+                <div className="flex items-center justify-between">
+                  <Label>{t('pos.summary.discount')}</Label>
+                  <div className="flex rounded-xl border border-white/10 bg-black/30 p-0.5">
+                    {(['fixed', 'pct'] as const).map(type => (
+                      <button
+                        key={type}
+                        onClick={() => { setDiscountType(type); setDiscountInput('0'); }}
+                        className={cn(
+                          'rounded-[9px] px-3 py-1 text-[10px] font-bold uppercase tracking-wide transition-all',
+                          discountType === type
+                            ? 'bg-white/10 text-white'
+                            : 'text-neutral-600 hover:text-neutral-400'
+                        )}
+                      >
+                        {type === 'fixed' ? '$' : '%'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex gap-1.5">
+                  {discountType === 'pct'
+                    ? [5, 10, 15, 20].map(pct => (
+                        <button
+                          key={pct}
+                          onClick={() => setDiscountInput(String(pct))}
+                          className={cn(
+                            'flex-1 rounded-xl border py-2 text-[11px] font-bold transition-all',
+                            discountInput === String(pct)
+                              ? 'border-blue-400/30 bg-blue-500/15 text-blue-200'
+                              : 'border-white/8 bg-white/[0.03] text-neutral-500 hover:text-white'
+                          )}
+                        >
+                          {pct}%
+                        </button>
+                      ))
+                    : null}
+                </div>
                 <Input
                   type="number"
                   min="0"
-                  step="0.01"
+                  step={discountType === 'pct' ? '1' : '0.01'}
+                  max={discountType === 'pct' ? '100' : undefined}
                   value={discountInput}
                   onChange={(event) => setDiscountInput(event.target.value)}
-                  placeholder="0.00"
+                  placeholder={discountType === 'pct' ? '0' : '0.00'}
+                  className="h-11 bg-black/40 border-white/10"
                 />
               </div>
               <div className="space-y-2">
@@ -1474,6 +1641,7 @@ export function POS() {
                   value={taxInput}
                   onChange={(event) => setTaxInput(event.target.value)}
                   placeholder="0.00"
+                  className="h-11 bg-black/40 border-white/10"
                 />
               </div>
             </div>
@@ -1493,8 +1661,13 @@ export function POS() {
                 <span className="text-white font-mono">{formatCurrency(subtotal)}</span>
               </div>
               <div className="flex items-center justify-between text-sm">
-                <span className="text-neutral-500">{t('pos.summary.discount')}</span>
-                <span className="text-white font-mono">- {formatCurrency(discount)}</span>
+                <span className="text-neutral-500">
+                  {t('pos.summary.discount')}
+                  {discountType === 'pct' && discountRaw > 0 && <span className="ml-1 text-[10px] text-neutral-600">({discountRaw}%)</span>}
+                </span>
+                <span className={cn('font-mono', discount > 0 ? 'text-emerald-300' : 'text-white')}>
+                  {discount > 0 ? `- ${formatCurrency(discount)}` : formatCurrency(0)}
+                </span>
               </div>
               <div className="flex items-center justify-between text-sm">
                 <span className="text-neutral-500">{t('pos.summary.tax')}</span>
@@ -1547,6 +1720,64 @@ export function POS() {
           </Card>
         </div>
       </div>
+
+      {/* Barcode Scanner Modal */}
+      <AnimatePresence>
+        {isScannerOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[80] flex items-center justify-center bg-black/80 backdrop-blur-lg p-4"
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="relative w-full max-w-sm rounded-3xl border border-white/10 bg-[rgba(6,8,12,0.97)] p-5 shadow-2xl"
+            >
+              <div className="mb-4 flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-bold text-white">Escanear código</p>
+                  <p className="text-xs text-neutral-500">Apunta la cámara al código de barras del producto</p>
+                </div>
+                <button onClick={closeScanner} className="flex h-8 w-8 items-center justify-center rounded-xl border border-white/10 text-neutral-500 hover:text-white">
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-black" style={{ aspectRatio: '4/3' }}>
+                <video ref={videoRef} className="h-full w-full object-cover" playsInline muted />
+                {/* Scanning frame overlay */}
+                <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                  <div className="relative h-40 w-64">
+                    <div className="absolute left-0 top-0 h-6 w-6 rounded-tl-lg border-l-2 border-t-2 border-blue-400" />
+                    <div className="absolute right-0 top-0 h-6 w-6 rounded-tr-lg border-r-2 border-t-2 border-blue-400" />
+                    <div className="absolute bottom-0 left-0 h-6 w-6 rounded-bl-lg border-b-2 border-l-2 border-blue-400" />
+                    <div className="absolute bottom-0 right-0 h-6 w-6 rounded-br-lg border-b-2 border-r-2 border-blue-400" />
+                    <motion.div
+                      animate={{ y: [0, 112, 0] }}
+                      transition={{ repeat: Infinity, duration: 2, ease: 'easeInOut' }}
+                      className="absolute inset-x-0 h-[2px] bg-blue-400/70 shadow-[0_0_8px_rgba(96,165,250,0.8)]"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {scannerError && (
+                <div className="mt-3 flex items-start gap-2 rounded-xl border border-red-400/20 bg-red-500/10 px-3 py-2">
+                  <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-400" />
+                  <p className="text-xs text-red-300">{scannerError}</p>
+                </div>
+              )}
+
+              <p className="mt-3 text-center text-[10px] text-neutral-600">
+                Se requiere permiso de cámara · Busca por SKU o ID de producto
+              </p>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

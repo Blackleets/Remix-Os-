@@ -1,6 +1,7 @@
 import { Suspense, lazy, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { ToastProvider } from './contexts/ToastContext';
 import { Sidebar } from './components/Sidebar';
 import { Topbar } from './components/Topbar';
 import { BetaFeedbackButton } from './components/BetaFeedbackButton';
@@ -15,6 +16,7 @@ import { Orders } from './pages/Orders';
 import { Settings } from './pages/Settings';
 import { Team } from './pages/Team';
 import { Copilot } from './components/Copilot';
+import { BottomNav } from './components/BottomNav';
 import { TrialBanner } from './components/TrialBanner';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { AnimatePresence, motion } from 'motion/react';
@@ -105,13 +107,14 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
       <div className="relative z-10 flex min-h-screen flex-1 flex-col">
         <TrialBanner />
         <Topbar onMenuClick={() => setIsSidebarOpen(true)} />
-        <main className="flex-1 px-4 pb-6 pt-4 md:px-6 md:pb-8 md:pt-5 xl:px-8">
+        <main className="flex-1 px-4 pb-[90px] pt-4 md:px-6 md:pb-8 md:pt-5 lg:pb-8 xl:px-8">
           <div className="mx-auto max-w-[1540px]">
             {children}
           </div>
         </main>
         {pathname !== '/pos' && <BetaFeedbackButton />}
         {pathname !== '/pos' && <Copilot />}
+        <BottomNav />
       </div>
     </div>
   );
@@ -148,6 +151,7 @@ export default function App() {
   return (
     <ErrorBoundary>
       <AuthProvider>
+        <ToastProvider>
         <BrowserRouter>
           <Routes>
             <Route path="/" element={<Landing />} />
@@ -182,6 +186,7 @@ export default function App() {
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </BrowserRouter>
+        </ToastProvider>
       </AuthProvider>
     </ErrorBoundary>
   );
