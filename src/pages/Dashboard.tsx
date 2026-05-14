@@ -21,6 +21,9 @@ import {
   Plus,
   Sparkles,
   AlertTriangle,
+  Target,
+  Pencil,
+  Check,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../lib/firebase';
@@ -61,6 +64,12 @@ export function Dashboard() {
   const [activities, setActivities] = useState<ActivityItem[]>([]);
   const [exporting, setExporting] = useState(false);
   const [stockAlerts, setStockAlerts] = useState<{ id: string; name: string; stockLevel: number; daysLeft: number | null; velocity: number }[]>([]);
+  const [dailyGoal, setDailyGoal] = useState<number>(() => {
+    const stored = localStorage.getItem(`remix_daily_goal_${window.location.hostname}`);
+    return stored ? Number(stored) : 0;
+  });
+  const [isGoalEditing, setIsGoalEditing] = useState(false);
+  const [goalInput, setGoalInput] = useState('');
 
   useEffect(() => {
     if (!company) return;
@@ -263,6 +272,17 @@ export function Dashboard() {
     }
     return 'Los datos operativos se están sincronizando en todo el espacio de trabajo.';
   }, [formatCurrency, stats]);
+
+  const todayRevenue = chartData.length > 0 ? (chartData[chartData.length - 1]?.sales ?? 0) : 0;
+  const goalProgress = dailyGoal > 0 ? Math.min(100, (todayRevenue / dailyGoal) * 100) : 0;
+  const goalMet = dailyGoal > 0 && todayRevenue >= dailyGoal;
+
+  const saveGoal = () => {
+    const val = Math.max(0, parseFloat(goalInput) || 0);
+    setDailyGoal(val);
+    localStorage.setItem(`remix_daily_goal_${window.location.hostname}`, String(val));
+    setIsGoalEditing(false);
+  };
 
   const handleExportPDF = async () => {
     if (!company) return;
@@ -494,15 +514,60 @@ export function Dashboard() {
             </div>
 
             <div className="data-tile">
-              <p className="section-kicker mb-2 !text-neutral-400">Vigilancia IA</p>
-              <div className="flex items-start justify-between gap-4">
-                <p className="text-sm leading-relaxed text-neutral-300">
-                  Copilot observa ingresos, flujo operativo y riesgo comercial en tiempo real.
-                </p>
-                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-emerald-400/14 bg-emerald-500/8">
-                  <Zap className="h-4.5 w-4.5 text-emerald-300" />
-                </div>
+              <div className="mb-2 flex items-center justify-between">
+                <p className="section-kicker !text-neutral-400">Meta diaria</p>
+                <button
+                  onClick={() => { setGoalInput(dailyGoal > 0 ? String(dailyGoal) : ''); setIsGoalEditing(true); }}
+                  className="flex items-center gap-1 rounded-lg border border-white/8 bg-white/[0.03] px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-neutral-500 transition-colors hover:text-white"
+                >
+                  <Pencil className="h-3 w-3" />
+                  Editar
+                </button>
               </div>
+              {isGoalEditing ? (
+                <div className="flex gap-2">
+                  <input
+                    autoFocus
+                    type="number"
+                    min="0"
+                    value={goalInput}
+                    onChange={e => setGoalInput(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') saveGoal(); if (e.key === 'Escape') setIsGoalEditing(false); }}
+                    className="flex-1 rounded-xl border border-white/12 bg-white/[0.04] px-3 py-2 text-sm text-white placeholder-neutral-600 focus:border-blue-400/40 focus:outline-none"
+                    placeholder="Ej. 1000"
+                  />
+                  <button onClick={saveGoal} className="flex h-10 w-10 items-center justify-center rounded-xl border border-emerald-400/20 bg-emerald-500/10 text-emerald-300">
+                    <Check className="h-4 w-4" />
+                  </button>
+                </div>
+              ) : dailyGoal > 0 ? (
+                <div className="space-y-2">
+                  <div className="flex items-end justify-between">
+                    <div>
+                      <p className="text-2xl font-bold text-white">{formatCurrency(todayRevenue)}</p>
+                      <p className="text-xs text-neutral-500">de {formatCurrency(dailyGoal)} hoy</p>
+                    </div>
+                    {goalMet && <span className="rounded-full border border-emerald-400/20 bg-emerald-500/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-emerald-300">¡Meta!</span>}
+                  </div>
+                  <div className="h-2 overflow-hidden rounded-full bg-white/8">
+                    <motion.div
+                      initial={{ width: 0 }}
+                      animate={{ width: `${goalProgress}%` }}
+                      transition={{ duration: 0.8, ease: 'easeOut' }}
+                      className={cn('h-full rounded-full', goalMet ? 'bg-emerald-400' : goalProgress > 60 ? 'bg-blue-400' : goalProgress > 30 ? 'bg-amber-400' : 'bg-red-400')}
+                    />
+                  </div>
+                  <p className="text-xs text-neutral-500">{goalProgress.toFixed(0)}% completado</p>
+                </div>
+              ) : (
+                <div className="flex items-start gap-3">
+                  <Target className="mt-0.5 h-8 w-8 shrink-0 text-neutral-700" />
+                  <div>
+                    <p className="text-sm font-medium text-neutral-400">Sin meta configurada</p>
+                    <p className="mt-0.5 text-xs text-neutral-600">Toca "Editar" para fijar tu objetivo diario de ventas.</p>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>

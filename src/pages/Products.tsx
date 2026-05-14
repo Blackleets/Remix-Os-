@@ -12,6 +12,7 @@ import { UpgradeModal } from '../components/UpgradeModal';
 import { PLANS, isLimitReached, getCompanyUsage } from '../lib/plans';
 import { exportToCSV } from '../lib/exportUtils';
 import { ImageUpload } from '../components/ImageUpload';
+import { SkeletonProductGrid } from '../components/Skeleton';
 
 interface Product {
   id: string;
@@ -36,6 +37,7 @@ export function Products() {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(false);
+  const [listLoading, setListLoading] = useState(true);
   const [formError, setFormError] = useState<string | null>(null);
   const { canEditProducts } = usePermissions();
 
@@ -90,10 +92,12 @@ export function Products() {
 
   const fetchProducts = async () => {
     if (!company) return;
+    setListLoading(true);
     const q = query(collection(db, 'products'), where('companyId', '==', company.id));
     const snap = await getDocs(q);
     const list = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Product));
     setProducts(list);
+    setListLoading(false);
   };
 
   useEffect(() => {
@@ -327,6 +331,10 @@ export function Products() {
           </div>
         </div>
 
+        {listLoading ? (
+          <div className="px-1"><SkeletonProductGrid /></div>
+        ) : (
+        <>
         <div className="hidden overflow-x-auto sm:block">
           <table className="w-full border-collapse">
             <thead className="sticky top-0 z-10">
@@ -446,8 +454,9 @@ export function Products() {
             </motion.div>
           ))}
         </div>
-
-        {filtered.length === 0 && (
+        </>
+        )}
+        {!listLoading && filtered.length === 0 && (
           <div className="py-24 text-center">
             <div className="mx-auto flex max-w-md flex-col items-center gap-6 p-6 text-neutral-600">
               <div className="flex h-20 w-20 items-center justify-center rounded-[28px] border border-dashed border-white/10 bg-white/[0.01]">
