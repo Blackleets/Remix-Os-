@@ -29,11 +29,6 @@ export function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
             <Menu className="h-5 w-5" />
           </button>
 
-          <div className="hidden min-w-0 sm:block">
-            <p className="section-kicker mb-1 !tracking-[0.18em] text-neutral-400">Consola</p>
-            <p className="truncate text-sm font-semibold text-white">Operacion asistida por IA</p>
-          </div>
-
           <div className="relative hidden max-w-xl flex-1 sm:block">
             <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-600" />
             <input

@@ -305,6 +305,59 @@ function toDate(value: any) {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
+const SUBSCRIPTION_LABELS: Record<string, string> = {
+  active: 'Activa',
+  trialing: 'En prueba',
+  past_due: 'Pago vencido',
+  canceled: 'Cancelada',
+  incomplete: 'Incompleta',
+  unpaid: 'Sin pago',
+};
+
+const ONBOARDING_LABELS: Record<string, string> = {
+  complete: 'Completo',
+  in_progress: 'En curso',
+  pending: 'Pendiente',
+  not_started: 'No iniciado',
+  unassigned: 'Sin empresa',
+  no_company: 'Sin empresa',
+};
+
+function humanizeStatus(value?: string | null, dict?: Record<string, string>) {
+  if (!value) return 'Sin dato';
+  const key = value.toLowerCase();
+  if (dict && dict[key]) return dict[key];
+  return key
+    .replace(/[_-]+/g, ' ')
+    .replace(/^\w/, (c) => c.toUpperCase());
+}
+
+function statusTone(value?: string | null): 'emerald' | 'blue' | 'amber' | 'red' | 'neutral' {
+  if (!value) return 'neutral';
+  const key = value.toLowerCase();
+  if (['active', 'complete', 'completed', 'paid'].includes(key)) return 'emerald';
+  if (['trialing', 'in_progress', 'pending'].includes(key)) return 'blue';
+  if (['past_due', 'incomplete', 'not_started', 'unpaid'].includes(key)) return 'amber';
+  if (['canceled', 'cancelled', 'failed', 'unassigned', 'no_company'].includes(key)) return 'red';
+  return 'neutral';
+}
+
+function StatusChip({ value, dict }: { value?: string | null; dict?: Record<string, string> }) {
+  const tone = statusTone(value);
+  const toneClass = {
+    emerald: 'border-emerald-400/16 bg-emerald-500/8 text-emerald-200',
+    blue: 'border-blue-400/16 bg-blue-500/8 text-blue-200',
+    amber: 'border-amber-400/16 bg-amber-500/8 text-amber-200',
+    red: 'border-red-400/16 bg-red-500/8 text-red-200',
+    neutral: 'border-white/10 bg-white/[0.03] text-neutral-300',
+  }[tone];
+  return (
+    <span className={cn('inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em]', toneClass)}>
+      {humanizeStatus(value, dict)}
+    </span>
+  );
+}
+
 function compareByCreatedAtDesc<T extends { createdAt?: any }>(items: T[]) {
   return [...items].sort((a, b) => {
     const aTime = toDate(a.createdAt)?.getTime() || 0;
@@ -1502,11 +1555,11 @@ export function SuperAdmin() {
                       <th className="table-header">{t('super_admin.tables.company')}</th>
                       <th className="table-header">Current Company</th>
                       <th className="table-header">{t('super_admin.tables.user_role')}</th>
-                      <th className="table-header">Subscription</th>
+                      <th className="table-header">Suscripción</th>
                       <th className="table-header">Onboarding</th>
-                      <th className="table-header">Totals</th>
+                      <th className="table-header">Volumen</th>
                       <th className="table-header">{t('super_admin.tables.registered_at')}</th>
-                      <th className="table-header">Support</th>
+                      <th className="table-header">Soporte</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1527,15 +1580,26 @@ export function SuperAdmin() {
                           </div>
                         </td>
                         <td className="table-cell text-neutral-300">
-                          <div>{user.companyName}</div>
-                          <div className="mt-1 font-mono text-[10px] text-neutral-500">{user.companyId || '-'}</div>
+                          {user.companyName ? (
+                            <>
+                              <div>{user.companyName}</div>
+                              <div className="mt-1 font-mono text-[10px] text-neutral-500">{user.companyId || '-'}</div>
+                            </>
+                          ) : (
+                            <span className="text-neutral-500">Sin empresa</span>
+                          )}
                         </td>
                         <td className="table-cell font-mono text-[11px] text-neutral-500">{user.currentCompanyId || '-'}</td>
                         <td className="table-cell uppercase text-neutral-300">{user.role}</td>
-                        <td className="table-cell uppercase text-neutral-300">{user.subscriptionStatus || '-'}</td>
-                        <td className="table-cell uppercase text-neutral-300">{user.onboardingStatus || '-'}</td>
-                        <td className="table-cell text-[11px] text-neutral-400">
-                          P:{user.products || 0} C:{user.customers || 0} O:{user.orders || 0}
+                        <td className="table-cell"><StatusChip value={user.subscriptionStatus} dict={SUBSCRIPTION_LABELS} /></td>
+                        <td className="table-cell"><StatusChip value={user.onboardingStatus} dict={ONBOARDING_LABELS} /></td>
+                        <td className="table-cell text-[11px] text-neutral-300">
+                          <span className="font-semibold text-white">{user.products || 0}</span>
+                          <span className="text-neutral-600"> · </span>
+                          <span className="font-semibold text-white">{user.customers || 0}</span>
+                          <span className="text-neutral-600"> · </span>
+                          <span className="font-semibold text-white">{user.orders || 0}</span>
+                          <div className="mt-1 font-mono text-[9px] uppercase tracking-[0.2em] text-neutral-600">Prod · Clt · Ped</div>
                         </td>
                         <td className="table-cell text-neutral-400">{toDate(user.createdAt)?.toLocaleDateString() || '-'}</td>
                         <td className="table-cell">
@@ -1545,7 +1609,7 @@ export function SuperAdmin() {
                             disabled={loadingSupport || !(user.companyId || user.currentCompanyId)}
                             onClick={() => void openSupportView(user.companyId || user.currentCompanyId || null, user.id)}
                           >
-                            Soporte
+                            Ver soporte
                           </Button>
                         </td>
                       </tr>
@@ -1663,8 +1727,8 @@ export function SuperAdmin() {
                                     : 'border-blue-500/20 bg-blue-500/[0.08] text-blue-200'
                               )}
                             >
-                              <p className="font-mono">{issue.code}</p>
-                              <p className="mt-1">{issue.message}</p>
+                              <p className="text-sm font-semibold leading-snug">{issue.message}</p>
+                              <p className="mt-1.5 inline-flex items-center rounded-full border border-white/10 bg-black/30 px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.18em] text-neutral-400">{issue.code}</p>
                             </div>
                           )) : (
                             <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/[0.08] px-3 py-2 text-xs text-emerald-200">

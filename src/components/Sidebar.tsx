@@ -134,7 +134,6 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
                     <div className="flex-1">
                       <span>{compactLabel(item.path, item.label)}</span>
                     </div>
-                    {isActive && <span className="font-mono text-[10px] tracking-normal text-blue-200/70">OS</span>}
                   </motion.div>
                 </Link>
               );
