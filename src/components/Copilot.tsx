@@ -132,6 +132,12 @@ export function Copilot() {
   const toastRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
+    if (!company?.id) return;
+    const stored = localStorage.getItem(`peppy_briefing_date_${company.id}`);
+    if (stored) setLastBriefingDate(stored);
+  }, [company?.id]);
+
+  useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault();
@@ -227,7 +233,9 @@ export function Copilot() {
         isBriefing: true,
       };
       setMessages((prev) => [briefingMsg, ...prev]);
-      setLastBriefingDate(new Date().toDateString());
+      const today = new Date().toDateString();
+      setLastBriefingDate(today);
+      if (company?.id) localStorage.setItem(`peppy_briefing_date_${company.id}`, today);
       setUnreadInsights((prev) => prev + 1);
       if (!isOpen) showToast(`${PEPPY.name}: Tu briefing del día está listo`);
     } catch (e) {

@@ -2506,6 +2506,7 @@ Return ONLY this JSON:
   });
 
   app.post('/api/ai/daily-briefing', async (req, res) => {
+    if (!enforceAiRateLimit(req, res)) return;
     const startedAt = Date.now();
     try {
       const access = await requireCompanyAccess(req, res, ['owner', 'admin']);
@@ -2549,7 +2550,7 @@ CURRENT BUSINESS DATA:
 - Top Customers: ${(ctx.topCustomers?.slice(0, 3) || []).map((c: AnyRecord) => `${c.name} ($${c.total})`).join(', ') || 'No data'}`;
 
       const response = await ai.models.generateContent({
-        model: 'gemini-2.0-flash',
+        model: 'gemini-2.5-flash',
         contents: prompt,
       });
       const briefing = response.text ?? '';
