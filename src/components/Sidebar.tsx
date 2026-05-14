@@ -28,6 +28,11 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
   const { company, role } = useAuth();
   const { t } = useTranslation();
   const { canAccessSuperAdmin } = usePlatformAdmin();
+  const compactLabel = (path: string, label: string) => {
+    if (path === '/dashboard') return 'Panel';
+    if (path === '/insights') return 'Copilot';
+    return label;
+  };
 
   const navItems = [
     { icon: Grip, label: t('nav.dashboard'), path: '/dashboard' },
@@ -52,7 +57,7 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
               <div className="relative h-5 w-5 rounded-md bg-white transition-all duration-500 group-hover:rotate-45 group-hover:rounded-[10px]" />
             </div>
             <div>
-              <p className="section-kicker mb-1 !tracking-[0.26em] text-blue-300/80">Sistema operativo IA</p>
+              <p className="section-kicker mb-1 !tracking-[0.24em] text-blue-300/80">AI business OS</p>
               <span className="font-display text-xl font-bold tracking-tight text-white">Remix OS</span>
             </div>
           </Link>
@@ -66,7 +71,7 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
 
         <div className="shell-panel mb-6 p-4">
           <div className="mb-3 flex items-center justify-between">
-            <span className="section-kicker !text-neutral-400">Registro de entidad</span>
+            <span className="section-kicker !text-neutral-400">Empresa</span>
             <span className="telemetry-chip !px-2.5 !py-1 !text-[9px]">
               <span className="status-dot pulse-live bg-emerald-400 text-emerald-400" />
               En vivo
@@ -81,16 +86,16 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
               )}
             </div>
             <div className="min-w-0">
-              <p className="truncate text-sm font-semibold text-white">{company?.name || 'Núcleo principal'}</p>
+              <p className="truncate text-sm font-semibold text-white">{company?.name || 'Remix OS'}</p>
               <p className="mt-1 truncate font-mono text-[10px] uppercase tracking-[0.2em] text-neutral-500">
-                {company ? getCompanyVerticalLabel(company.vertical || company.industry) : 'Núcleo operativo'}
+                {company ? getCompanyVerticalLabel(company.vertical || company.industry) : 'Activo'}
               </p>
             </div>
           </div>
         </div>
 
         <div className="mb-4">
-          <p className="mb-3 px-2 text-[10px] font-black uppercase tracking-[0.28em] text-neutral-600">Operaciones</p>
+          <p className="mb-3 px-2 text-[10px] font-black uppercase tracking-[0.22em] text-neutral-600">Navegacion</p>
           <nav className="space-y-1.5">
             {navItems.map((item) => {
               const isActive = location.pathname === item.path;
@@ -127,16 +132,9 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
                       <item.icon className="h-4 w-4" />
                     </OSGlyph>
                     <div className="flex-1">
-                      <span>{item.label}</span>
+                      <span>{compactLabel(item.path, item.label)}</span>
                     </div>
-                    <span
-                      className={cn(
-                        'font-mono text-[10px] tracking-normal transition-opacity',
-                        isActive ? 'text-blue-200/70' : 'text-neutral-700 group-hover:text-neutral-500'
-                      )}
-                    >
-                      OS
-                    </span>
+                    {isActive && <span className="font-mono text-[10px] tracking-normal text-blue-200/70">OS</span>}
                   </motion.div>
                 </Link>
               );

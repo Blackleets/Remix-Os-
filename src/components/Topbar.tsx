@@ -30,8 +30,8 @@ export function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
           </button>
 
           <div className="hidden min-w-0 sm:block">
-            <p className="section-kicker mb-1 !tracking-[0.22em] text-neutral-400">Consola operativa</p>
-            <p className="truncate text-sm font-semibold text-white">Coordinación operativa asistida por IA</p>
+            <p className="section-kicker mb-1 !tracking-[0.18em] text-neutral-400">Consola</p>
+            <p className="truncate text-sm font-semibold text-white">Operacion asistida por IA</p>
           </div>
 
           <div className="relative hidden max-w-xl flex-1 sm:block">
@@ -52,8 +52,7 @@ export function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
           <div className="hidden items-center gap-2 rounded-2xl border border-emerald-400/10 bg-emerald-400/5 px-3 py-2 md:flex">
             <span className="status-dot pulse-live bg-emerald-400 text-emerald-400" />
             <div className="leading-tight">
-              <p className="text-[10px] font-black uppercase tracking-[0.22em] text-emerald-300">Sincronización en vivo</p>
-              <p className="font-mono text-[10px] text-neutral-500">Vigilancia IA activa</p>
+              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-300">Sync en vivo</p>
             </div>
           </div>
 
@@ -62,8 +61,7 @@ export function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
               <Sparkles className="h-3.5 w-3.5" />
             </OSGlyph>
             <div className="leading-tight">
-              <p className="text-[10px] font-black uppercase tracking-[0.22em] text-blue-200">Capa IA</p>
-              <p className="font-mono text-[10px] text-neutral-500">Operador listo</p>
+              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-blue-200">IA lista</p>
             </div>
           </div>
 

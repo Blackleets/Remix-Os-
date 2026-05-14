@@ -203,15 +203,15 @@ export function Dashboard() {
 
   const operatingBrief = useMemo(() => {
     if (!stats.orders && !stats.customers && !stats.products) {
-      return 'Remix OS está en espera. Completa la secuencia de activación para desbloquear inteligencia operativa en vivo.';
+      return 'Agrega los datos base para activar metricas e IA.';
     }
     if (stats.orders > 0 && stats.revenue > 0) {
-      return `Los ingresos en vivo se sitúan en ${formatCurrency(stats.revenue)} con ${stats.orders} transacciones ejecutadas en la ventana operativa actual.`;
+      return `${stats.orders} pedidos y ${formatCurrency(stats.revenue)} en ingresos acumulados.`;
     }
     if (stats.products > 0 || stats.customers > 0) {
-      return `El grafo comercial está en línea con ${stats.products} nodos de producto y ${stats.customers} registros de clientes. El sistema está listo para operar.`;
+      return 'Ventas, clientes e inventario sincronizados en un solo centro.';
     }
-    return 'Los datos operativos se están sincronizando en todo el espacio de trabajo.';
+    return 'Los datos operativos se estan sincronizando.';
   }, [formatCurrency, stats]);
 
   const handleExportPDF = async () => {
@@ -299,7 +299,7 @@ export function Dashboard() {
 
   const statCards = [
     {
-      label: t('dashboard.revenue'),
+      label: 'Ingresos',
       value: formatCurrency(stats.revenue),
       change: formatChangeValue(stats.revenueChange),
       signal: stats.revenueChange.startsWith('+') || stats.revenueChange === 'NEW' ? 'Expansión' : 'Estable',
@@ -308,28 +308,28 @@ export function Dashboard() {
       ring: 'border-blue-400/14 from-blue-500/14 to-transparent',
     },
     {
-      label: t('dashboard.customers'),
+      label: 'Clientes',
       value: stats.customers.toString(),
       change: stats.customers > 0 ? 'Activo' : 'En espera',
-      signal: 'Grafo relacional',
+      signal: 'CRM',
       icon: Contact,
       accent: 'text-violet-300',
       ring: 'border-violet-400/14 from-violet-500/14 to-transparent',
     },
     {
-      label: t('dashboard.inventory'),
+      label: 'Stock',
       value: stats.products.toString(),
-      change: stats.products > 0 ? 'Indexado' : 'Pendiente',
-      signal: 'Tejido de activos',
+      change: stats.products > 0 ? 'Listo' : 'Pendiente',
+      signal: 'Inventario',
       icon: Shapes,
       accent: 'text-emerald-300',
       ring: 'border-emerald-400/14 from-emerald-500/14 to-transparent',
     },
     {
-      label: t('dashboard.orders'),
+      label: 'Pedidos',
       value: stats.orders.toString(),
       change: stats.orders > 0 ? 'Activo' : 'Inactivo',
-      signal: 'Flujo transaccional',
+      signal: 'Ventas',
       icon: Layers,
       accent: 'text-amber-300',
       ring: 'border-amber-400/14 from-amber-500/14 to-transparent',
@@ -338,20 +338,20 @@ export function Dashboard() {
 
   const systemModules = [
     {
-      label: t('dashboard.ops_status.inventory'),
-      status: stats.products > 0 ? 'Indexado' : 'Pendiente',
+      label: 'Inventario',
+      status: stats.products > 0 ? 'Listo' : 'Pendiente',
       icon: Shapes,
       good: stats.products > 0,
     },
     {
-      label: t('dashboard.ops_status.orders'),
-      status: stats.orders > 0 ? 'En flujo' : 'Inactivo',
+      label: 'Pedidos',
+      status: stats.orders > 0 ? 'Activo' : 'Inactivo',
       icon: Receipt,
       good: stats.orders > 0,
     },
     {
-      label: t('dashboard.ops_status.customers'),
-      status: stats.customers > 0 ? 'Sincronizado' : 'Pendiente',
+      label: 'Clientes',
+      status: stats.customers > 0 ? 'Activo' : 'Pendiente',
       icon: Contact,
       good: stats.customers > 0,
     },
@@ -370,16 +370,16 @@ export function Dashboard() {
             <div className="mb-4 flex flex-wrap items-center gap-2">
               <span className="operator-badge">
                 <span className="status-dot pulse-live bg-emerald-400 text-emerald-400" />
-                Estado operativo en vivo
+                En vivo
               </span>
               <span className="telemetry-chip">
                 <Fingerprint className="h-3.5 w-3.5 text-blue-300" />
-                Núcleo operativo IA
+                IA activa
               </span>
             </div>
 
             <h1 className="section-title glow-text max-w-3xl text-3xl leading-none md:text-4xl xl:text-5xl">
-              {company?.name || 'Remix OS'} opera ahora como un centro operativo vivo.
+              {company?.name || 'Remix OS'} esta listo para operar.
             </h1>
             <p className="mt-4 max-w-2xl text-base leading-relaxed text-neutral-300 md:text-lg">
               {operatingBrief}
@@ -415,12 +415,12 @@ export function Dashboard() {
 
           <div className="grid gap-4 sm:grid-cols-3 xl:grid-cols-1">
             <div className="data-tile">
-              <p className="section-kicker mb-2 !text-neutral-400">Integridad del sistema</p>
+              <p className="section-kicker mb-2 !text-neutral-400">Integridad</p>
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
                   <p className="text-2xl font-bold text-white md:text-3xl">{allSystemsReady ? '98%' : '71%'}</p>
                   <p className="mt-1 text-sm text-neutral-400">
-                    {allSystemsReady ? 'Los módulos principales responden con normalidad.' : 'La activación sigue en curso en los módulos comerciales.'}
+                    Sistema activo
                   </p>
                 </div>
                 <OSGlyph tone="blue" size="md">
@@ -433,21 +433,21 @@ export function Dashboard() {
               <p className="section-kicker mb-2 !text-neutral-400">Pulso comercial</p>
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-sm text-neutral-300">
-                  <span>Delta de ingresos</span>
+                  <span>Estado</span>
                   <span className="font-mono text-blue-300">{formatChangeValue(stats.revenueChange)}</span>
                 </div>
                 <div className="flex items-center justify-between text-sm text-neutral-300">
-                  <span>Transacciones</span>
+                  <span>Pedidos</span>
                   <span className="font-mono text-white">{stats.orders}</span>
                 </div>
               </div>
             </div>
 
             <div className="data-tile">
-              <p className="section-kicker mb-2 !text-neutral-400">Vigilancia IA</p>
+              <p className="section-kicker mb-2 !text-neutral-400">IA</p>
               <div className="flex items-start justify-between gap-4">
                 <p className="text-sm leading-relaxed text-neutral-300">
-                  Copilot observa ingresos, flujo operativo y riesgo comercial en tiempo real.
+                  Activa y analizando la operacion.
                 </p>
                 <OSGlyph tone="emerald" size="md">
                   <Zap className="h-4.5 w-4.5" />
@@ -463,30 +463,30 @@ export function Dashboard() {
           <Card className="overflow-hidden border-blue-400/14 bg-[linear-gradient(180deg,rgba(32,67,138,0.18),rgba(12,16,24,0.96))]">
             <div className="grid gap-6 lg:grid-cols-[0.8fr_1.2fr]">
               <div>
-                <p className="section-kicker mb-3">Secuencia de activación</p>
-                <h2 className="section-title text-2xl md:text-3xl">{t('dashboard.setup.title')}</h2>
-                <p className="mt-3 section-subtitle">{t('dashboard.setup.description')}</p>
+                <p className="section-kicker mb-3">Activacion</p>
+                <h2 className="section-title text-2xl md:text-3xl">Completa tu operacion.</h2>
+                <p className="mt-3 section-subtitle">Agrega los datos base para activar metricas e IA.</p>
               </div>
 
               <div className="grid gap-4 md:grid-cols-3">
                 {[
                   {
-                    label: t('dashboard.setup.register_product'),
-                    desc: t('dashboard.setup.register_product_desc'),
+                    label: 'Producto',
+                    desc: 'Anade inventario.',
                     done: stats.products > 0,
                     link: '/products',
                     icon: <Database className="h-5 w-5" />,
                   },
                   {
-                    label: t('dashboard.setup.add_customer'),
-                    desc: t('dashboard.setup.add_customer_desc'),
+                    label: 'Cliente',
+                    desc: 'Inicia tu CRM.',
                     done: stats.customers > 0,
                     link: '/customers',
                     icon: <UserPlus className="h-5 w-5" />,
                   },
                   {
-                    label: t('dashboard.setup.log_sale'),
-                    desc: t('dashboard.setup.log_sale_desc'),
+                    label: 'Venta',
+                    desc: 'Registra un pedido.',
                     done: stats.orders > 0,
                     link: '/orders',
                     icon: <Receipt className="h-5 w-5" />,
@@ -540,7 +540,7 @@ export function Dashboard() {
                     </div>
                     <p className="truncate text-2xl font-bold tracking-tight text-white md:text-3xl">{stat.value}</p>
                     <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-xs">
-                      <span className="font-mono uppercase tracking-[0.18em] text-neutral-500">Señal</span>
+                      <span className="font-mono uppercase tracking-[0.18em] text-neutral-500">Estado</span>
                       <span className="font-mono text-blue-200">{stat.change}</span>
                     </div>
                   </div>
@@ -553,9 +553,9 @@ export function Dashboard() {
             <Card className="overflow-hidden">
               <div className="mb-6 flex items-center justify-between gap-4">
                 <div>
-                  <p className="section-kicker mb-2">Telemetría financiera</p>
-                  <h3 className="section-title text-2xl">{t('dashboard.financial_intelligence')}</h3>
-                  <p className="section-subtitle mt-2">{t('dashboard.revenue_optimization')}</p>
+                  <p className="section-kicker mb-2">Ingresos</p>
+                  <h3 className="section-title text-2xl">Vista financiera</h3>
+                  <p className="section-subtitle mt-2">Ultimos 7 dias.</p>
                 </div>
                 <OSGlyph tone="blue" size="md">
                   <TrendingUp className="h-4.5 w-4.5" />
@@ -565,9 +565,9 @@ export function Dashboard() {
               <div className="mb-5 flex flex-wrap gap-2">
                 <span className="telemetry-chip">
                   <span className="status-dot bg-blue-400 text-blue-400" />
-                  Flujo de ingresos
+                  Ingresos
                 </span>
-                <span className="telemetry-chip">Señal 7 días</span>
+                <span className="telemetry-chip">7 dias</span>
               </div>
 
               <div className="h-[290px] rounded-[24px] border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.01))] p-3">
@@ -605,8 +605,8 @@ export function Dashboard() {
                 ) : (
                   <div className="flex h-full flex-col items-center justify-center rounded-[20px] border border-dashed border-white/8 bg-white/[0.02] text-center">
                     <Activity className="mb-4 h-8 w-8 text-neutral-700" />
-                    <p className="text-sm font-semibold text-neutral-400">Aún no hay señal de ingresos</p>
-                    <p className="mt-1 text-xs text-neutral-600">La telemetría financiera aparecerá cuando empiecen a fluir pedidos completados.</p>
+                    <p className="text-sm font-semibold text-neutral-400">Aun no hay ingresos</p>
+                    <p className="mt-1 text-xs text-neutral-600">La metrica aparecera cuando entren pedidos completados.</p>
                   </div>
                 )}
               </div>
@@ -615,9 +615,9 @@ export function Dashboard() {
             <Card className="overflow-hidden">
               <div className="mb-6 flex items-center justify-between gap-4">
                 <div>
-                  <p className="section-kicker mb-2">Flujo operativo</p>
-                  <h3 className="section-title text-2xl">{t('dashboard.system_log')}</h3>
-                  <p className="section-subtitle mt-2">Eventos en vivo priorizados por relevancia operativa.</p>
+                  <p className="section-kicker mb-2">Actividad</p>
+                  <h3 className="section-title text-2xl">Actividad reciente</h3>
+                  <p className="section-subtitle mt-2">Eventos recientes del negocio.</p>
                 </div>
                 <OSGlyph tone="amber" size="md">
                   <History className="h-4.5 w-4.5" />
@@ -628,8 +628,8 @@ export function Dashboard() {
                 {activityMeta.length === 0 ? (
                   <div className="flex min-h-[260px] flex-col items-center justify-center rounded-[24px] border border-dashed border-white/8 bg-white/[0.02] text-center">
                     <History className="mb-4 h-8 w-8 text-neutral-700" />
-                    <p className="text-sm font-semibold text-neutral-400">El flujo operativo está en espera</p>
-                    <p className="mt-1 max-w-xs text-xs text-neutral-600">Aquí aparecerán pedidos, clientes, inventario y acciones del sistema a medida que el negocio entre en movimiento.</p>
+                    <p className="text-sm font-semibold text-neutral-400">Aun no hay actividad</p>
+                    <p className="mt-1 max-w-xs text-xs text-neutral-600">Aqui veras pedidos, clientes e inventario en cuanto haya movimiento.</p>
                   </div>
                 ) : (
                   activityMeta.map((item, index) => (
@@ -695,16 +695,16 @@ export function Dashboard() {
 
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="data-tile">
-                  <p className="section-kicker mb-2 !text-neutral-500">Perfil de riesgo</p>
-                  <p className="text-lg font-semibold text-white">{allSystemsReady ? 'Estable' : 'Activación en vigilancia'}</p>
+                  <p className="section-kicker mb-2 !text-neutral-500">Riesgo</p>
+                  <p className="text-lg font-semibold text-white">{allSystemsReady ? 'Estable' : 'En activacion'}</p>
                   <p className="mt-1 text-sm text-neutral-400">
-                    {allSystemsReady ? 'No se detectan incidencias críticas en la señal actual.' : 'Completa la secuencia de activación para estabilizar el grafo operativo.'}
+                    {allSystemsReady ? 'Sin alertas criticas.' : 'Completa la activacion base.'}
                   </p>
                 </div>
                 <div className="data-tile">
-                  <p className="section-kicker mb-2 !text-neutral-500">Sincronización de datos</p>
+                  <p className="section-kicker mb-2 !text-neutral-500">Sync</p>
                   <p className="text-lg font-semibold text-white">En vivo</p>
-                  <p className="mt-1 text-sm text-neutral-400">La telemetría comercial está entrando al panel en tiempo real.</p>
+                  <p className="mt-1 text-sm text-neutral-400">Ventas y datos entrando al panel.</p>
                 </div>
               </div>
 
@@ -721,8 +721,8 @@ export function Dashboard() {
           <Card>
             <div className="mb-5 flex items-center justify-between">
               <div>
-                <p className="section-kicker mb-2 !text-neutral-500">Módulos del sistema</p>
-                <h3 className="section-title text-xl">{t('dashboard.ops_status.title')}</h3>
+                <p className="section-kicker mb-2 !text-neutral-500">Modulos</p>
+                <h3 className="section-title text-xl">Estado del sistema</h3>
               </div>
               <OSGlyph tone="neutral" size="sm">
                 <Fingerprint className="h-4 w-4 text-neutral-300" />
@@ -738,7 +738,7 @@ export function Dashboard() {
                     </OSGlyph>
                     <div className="min-w-0">
                       <p className="text-sm font-semibold text-white">{item.label}</p>
-                      <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-neutral-500">Salud del módulo</p>
+                      <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-neutral-500">Estado</p>
                     </div>
                   </div>
                   <span className={cn(
@@ -755,8 +755,8 @@ export function Dashboard() {
           <Card>
             <div className="mb-5 flex items-center justify-between">
               <div>
-                <p className="section-kicker mb-2 !text-neutral-500">Playbooks IA</p>
-                <h3 className="section-title text-xl">Siguientes movimientos sugeridos</h3>
+                <p className="section-kicker mb-2 !text-neutral-500">Siguientes pasos</p>
+                <h3 className="section-title text-xl">Acciones sugeridas</h3>
               </div>
               <AlertTriangle className="h-4.5 w-4.5 text-neutral-500" />
             </div>
@@ -764,18 +764,18 @@ export function Dashboard() {
             <div className="space-y-3">
               {[
                 {
-                  label: 'Revisar presión por bajo stock',
-                  detail: 'Abre la inteligencia de inventario e inspecciona cobertura antes de que la demanda aumente.',
+                  label: 'Revisar stock',
+                  detail: 'Abre inventario y revisa cobertura.',
                   action: () => navigate('/inventory'),
                 },
                 {
-                  label: 'Inspeccionar flujo transaccional',
-                  detail: 'Revisa pedidos recientes y detecta fricciones de conversión antes de que escalen.',
+                  label: 'Revisar pedidos',
+                  detail: 'Inspecciona ventas recientes y puntos de friccion.',
                   action: () => navigate('/orders'),
                 },
                 {
-                  label: 'Pedir un informe ejecutivo al operador IA',
-                  detail: 'Genera un resumen de ingresos, movimiento de clientes y riesgos operativos.',
+                  label: 'Abrir Copilot',
+                  detail: 'Genera un resumen ejecutivo de la operacion.',
                   action: () => window.dispatchEvent(new CustomEvent('open-copilot')),
                 },
               ].map((item) => (

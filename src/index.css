@@ -112,7 +112,7 @@
 }
 
 .section-kicker {
-  @apply text-[10px] font-black uppercase tracking-[0.34em];
+  @apply text-[10px] font-black uppercase tracking-[0.24em];
   color: rgba(124, 184, 255, 0.82);
 }
 
@@ -121,7 +121,7 @@
 }
 
 .section-subtitle {
-  @apply text-sm leading-relaxed text-neutral-400;
+  @apply text-sm leading-normal text-neutral-400;
 }
 
 .telemetry-chip {
