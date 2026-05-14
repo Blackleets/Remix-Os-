@@ -80,3 +80,21 @@ export async function getProactiveThoughts(context: any, language: string = 'en'
     return [];
   }
 }
+
+export async function getDailyBriefing(
+  companyId: string,
+  language: string = 'es'
+): Promise<{ briefing: string; generatedAt: string } | null> {
+  if (!companyId) {
+    console.warn('getDailyBriefing: missing companyId');
+    return null;
+  }
+
+  try {
+    const data = await authedFetchJSON('/api/ai/daily-briefing', { companyId, language });
+    return data ?? null;
+  } catch (error) {
+    console.error('Daily Briefing Error:', error);
+    return null;
+  }
+}

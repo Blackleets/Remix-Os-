@@ -1229,8 +1229,10 @@ No markdown, no preamble.`;
       };
       const langInstruction = langMap[language] || langMap.en;
       const systemInstruction = `
-You are the Remix OS AI Operator, a premium business intelligence system.
-You are a proactive business advisor and operational assistant.
+You are Peppy, the dedicated AI copilot for Remix OS.
+Personality: direct, warm, data-focused, occasionally witty — never corporate speak.
+Celebrate wins, flag risks with urgency, always end with a clear next action.
+Sign your greeting with your name on the first message only.
 
 CRITICAL: ${langInstruction}
 
@@ -1250,7 +1252,8 @@ OPERATIONAL PRINCIPLES:
 2. INDUSTRY CONTEXT: Calibrate terminology to "${ctx.industry}".
 3. PROACTIVE ADVICE: Prioritize critical risks and suggest specific drafted actions.
 4. CUSTOMER ENGAGEMENT: Identify pending reminders and suggest follow-ups.
-5. SECURITY PROTOCOL: Respect user roles.
+5. SECURITY PROTOCOL: Respect user roles. Never suggest actions beyond the user's role.
+6. PERSONALITY: Use phrases like "Let's unpack that:", "Here's the signal:", "Action window:" to maintain your distinct voice as Peppy.
 
 COMMAND PROTOCOLS (MUST appear at the END of the response, on their own line):
 - [COMMAND: NAVIGATE | /path] - ONLY for changing screens. Valid paths: /dashboard, /customers, /products, /inventory, /orders, /pos, /insights, /team, /settings, /billing.
@@ -1258,14 +1261,19 @@ COMMAND PROTOCOLS (MUST appear at the END of the response, on their own line):
 - [COMMAND: DRAFT_REPORT | summary] - When generating an analysis or report.
 - [COMMAND: REVIEW_ONLY | summary] - For complex advice without automated path.
 - [COMMAND: DRAFT_ORDER | details] - For preparing new orders.
+- [COMMAND: CREATE_REMINDER | customerId | customerName | follow_up | notes | YYYY-MM-DD] - Create a customer reminder. Use when user asks to follow up with a specific customer.
+- [COMMAND: DRAFT_MESSAGE | customerId | customerName | email | message content] - Draft a customer message for review. Use when user asks to contact a customer.
+- [COMMAND: FLAG_CUSTOMER | customerId | whale|vip|regular|new|at_risk] - Update customer segment. Use when user identifies a customer's value tier.
+- [COMMAND: STOCK_ALERT | productId | productName | threshold] - Set a stock alert threshold for a product.
 
 CRITICAL RULES:
 1. NEVER put long markdown reports inside [COMMAND: NAVIGATE].
-2. If a customer needs a reminder, suggest it and tell the user to check the Customers module.
-3. If there are messages in "draft" status, suggest reviewing them.
+2. Use CREATE_REMINDER when user says "follow up with", "remind me about", or "call [customer]".
+3. Use DRAFT_MESSAGE when user wants to send or write to a customer.
+4. Use FLAG_CUSTOMER when a customer's behavior warrants reclassification.
+5. For DRAFT_MESSAGE, always set isReviewOnly so the user must confirm before sending.
 
-STRUCTURE: Use SUMMARY, STATUS REPORT, RECOMMENDATIONS, and [COMMANDS].
-Maintain a professional, efficient, and supportive persona.`;
+STRUCTURE: Use SUMMARY, STATUS REPORT, RECOMMENDATIONS, and [COMMANDS].`;
 
       const chat = ai.chats.create({
         model: 'gemini-2.0-flash',
@@ -1300,9 +1308,9 @@ Maintain a professional, efficient, and supportive persona.`;
       };
       const langInstruction = langMap[language] || langMap.en;
 
-      const prompt = `You are the Remix OS AI Operator thinking about business insights in real-time.
+      const prompt = `You are Peppy, the Remix OS AI copilot thinking about business insights in real-time.
 Analyze the current business context and generate 1-2 specific, actionable insights.
-Be direct, logical, and practical. Focus on what matters NOW.
+Be direct, logical, and practical — use your distinct Peppy voice. Focus on what matters NOW.
 
 CRITICAL: ${langInstruction}
 
@@ -1353,6 +1361,155 @@ NO markdown, NO preamble, just valid JSON.`;
     } catch (error: any) {
       console.error('/api/ai/proactive-thoughts error:', error);
       res.status(500).json({ error: error.message || 'AI request failed' });
+    }
+  });
+
+  app.post('/api/ai/action', async (req, res) => {
+    try {
+      const access = await requireCompanyAccess(req, res, ['owner', 'admin', 'staff']);
+      if (!access) return;
+      const db = getDb();
+      if (!db) throw new Error('Database not initialized');
+
+      const { commandType, params } = req.body || {};
+      if (!commandType || typeof params !== 'string') {
+        return res.status(400).json({ error: 'commandType and params required' });
+      }
+
+      const parts = params.split('|').map((s: string) => s.trim());
+
+      if (commandType === 'CREATE_REMINDER') {
+        const [customerId, customerName, type, notes, dueDateStr] = parts;
+        if (!customerId || !customerName) return res.status(400).json({ error: 'Missing reminder params' });
+        const customerDoc = await db.collection('customers').doc(customerId).get();
+        if (!customerDoc.exists || customerDoc.data()?.companyId !== access.companyId) {
+          return res.status(403).json({ error: 'Customer not found in this company' });
+        }
+        const dueDate = dueDateStr ? new Date(dueDateStr) : new Date(Date.now() + 86400000 * 3);
+        const ref = await db.collection('reminders').add({
+          companyId: access.companyId,
+          customerId,
+          customerName,
+          type: type || 'follow_up',
+          notes: notes || '',
+          dueDate: Timestamp.fromDate(dueDate),
+          status: 'pending',
+          createdBy: 'peppy',
+          createdAt: FieldValue.serverTimestamp(),
+        });
+        return res.json({ status: 'success', actionId: ref.id });
+      }
+
+      if (commandType === 'DRAFT_MESSAGE') {
+        const [customerId, customerName, channel, ...contentParts] = parts;
+        const content = contentParts.join(' | ');
+        if (!customerId || !content) return res.status(400).json({ error: 'Missing message params' });
+        const customerDoc = await db.collection('customers').doc(customerId).get();
+        if (!customerDoc.exists || customerDoc.data()?.companyId !== access.companyId) {
+          return res.status(403).json({ error: 'Customer not found in this company' });
+        }
+        const ref = await db.collection('customerMessages').add({
+          companyId: access.companyId,
+          customerId,
+          customerName: customerName || '',
+          content,
+          channel: channel || 'email',
+          status: 'draft',
+          createdBy: 'peppy',
+          createdAt: FieldValue.serverTimestamp(),
+        });
+        return res.json({ status: 'success', actionId: ref.id });
+      }
+
+      if (commandType === 'FLAG_CUSTOMER') {
+        const [customerId, segment] = parts;
+        const validSegments = ['whale', 'vip', 'regular', 'new', 'at_risk'];
+        if (!customerId || !validSegments.includes(segment)) {
+          return res.status(400).json({ error: 'Invalid customer or segment' });
+        }
+        const customerDoc = await db.collection('customers').doc(customerId).get();
+        if (!customerDoc.exists || customerDoc.data()?.companyId !== access.companyId) {
+          return res.status(403).json({ error: 'Customer not found in this company' });
+        }
+        await db.collection('customers').doc(customerId).update({ segment, updatedAt: FieldValue.serverTimestamp() });
+        return res.json({ status: 'success', actionId: customerId });
+      }
+
+      if (commandType === 'STOCK_ALERT') {
+        const [productId, productName, thresholdStr] = parts;
+        if (!productId || !productName) return res.status(400).json({ error: 'Missing stock alert params' });
+        const ref = await db.collection('stockAlerts').add({
+          companyId: access.companyId,
+          productId,
+          productName,
+          threshold: Number(thresholdStr) || 5,
+          status: 'active',
+          createdBy: 'peppy',
+          createdAt: FieldValue.serverTimestamp(),
+        });
+        return res.json({ status: 'success', actionId: ref.id });
+      }
+
+      return res.status(400).json({ error: `Unknown commandType: ${commandType}` });
+    } catch (error: any) {
+      console.error('/api/ai/action error:', error);
+      res.status(500).json({ error: error.message || 'Action failed' });
+    }
+  });
+
+  app.post('/api/ai/daily-briefing', async (req, res) => {
+    const startedAt = Date.now();
+    try {
+      const access = await requireCompanyAccess(req, res, ['owner', 'admin']);
+      if (!access) return;
+      const ai = getGenAI();
+      if (!ai) return res.status(503).json({ error: 'AI not configured' });
+
+      const db = getDb();
+      if (!db) throw new Error('Database not initialized');
+      const ctx = await buildCompanyOverview(db, access.companyId);
+      const language = req.body?.language || 'es';
+      const langMap: Record<string, string> = {
+        en: 'Write the briefing in English.',
+        es: 'Escribe el briefing en Español.',
+        pt: 'Escreva o briefing em Português.',
+      };
+      const langInstruction = langMap[language] || langMap.es;
+      const greetingMap: Record<string, string> = {
+        en: `## Good morning, ${ctx.companyName}`,
+        es: `## Buenos días, ${ctx.companyName}`,
+        pt: `## Bom dia, ${ctx.companyName}`,
+      };
+      const greeting = greetingMap[language] || greetingMap.es;
+
+      const prompt = `You are Peppy, the Remix OS AI copilot delivering a morning operational briefing.
+${langInstruction}
+
+Be concise: 4-6 bullet points maximum. Lead with the most critical signal.
+Cover: revenue snapshot (30d and trend), any at-risk customers needing attention, inventory pressure, and sales velocity.
+End with ONE specific recommended action for today.
+Start with exactly: "${greeting}"
+Use Markdown formatting with bullet points.
+
+CURRENT BUSINESS DATA:
+- 30-Day Revenue: $${Number(ctx.recentRevenue30d ?? ctx.recentRevenue ?? 0).toFixed(2)} (growth: ${ctx.growth?.toFixed(1) ?? 0}%)
+- Sales Trend: ${ctx.salesVelocity?.currentPeriodOrders || 0} orders this week vs ${ctx.salesVelocity?.previousPeriodOrders || 0} last week (${ctx.salesVelocity?.trend || 'flat'})
+- Low Stock Items: ${ctx.lowStockCount || 0}
+- Pending Follow-ups: ${ctx.pendingReminders?.length || 0}
+- Total Customers: ${ctx.customersCount}
+- Top Products: ${(ctx.topProducts?.slice(0, 3) || []).map((p: AnyRecord) => `${p.name} ($${p.revenue})`).join(', ') || 'No data'}
+- Top Customers: ${(ctx.topCustomers?.slice(0, 3) || []).map((c: AnyRecord) => `${c.name} ($${c.total})`).join(', ') || 'No data'}`;
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.0-flash',
+        contents: prompt,
+      });
+      const briefing = response.text ?? '';
+      logAiRequest('/api/ai/daily-briefing', access.companyId, startedAt, { briefingLength: briefing.length });
+      res.json({ briefing, generatedAt: new Date().toISOString() });
+    } catch (error: any) {
+      console.error('/api/ai/daily-briefing error:', error);
+      res.status(500).json({ error: error.message || 'Briefing generation failed' });
     }
   });
 

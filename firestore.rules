@@ -315,5 +315,12 @@ service cloud.firestore {
       allow read: if isPlatformAdmin() || hasRole(resource.data.companyId, ['owner', 'admin']);
       allow write: if false; // System only
     }
+
+    match /stockAlerts/{id} {
+      allow read: if isPlatformAdmin() || isMember(resource.data.companyId);
+      allow create: if hasRole(incoming().companyId, ['owner', 'admin', 'staff']);
+      allow update: if hasRole(existing().companyId, ['owner', 'admin', 'staff']);
+      allow delete: if hasRole(existing().companyId, ['owner', 'admin']);
+    }
   }
 }
