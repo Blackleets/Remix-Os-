@@ -39,6 +39,91 @@ interface CompanyOverview {
     previousPeriodOrders: number;
     trend: 'up' | 'down';
   };
+  customerRFMSummary?: {
+    champions: number;
+    loyal: number;
+    atRisk: number;
+    lost: number;
+    promising: number;
+    topAtRiskCustomers: Array<{ name: string; daysSinceLastOrder: number }>;
+  };
+}
+
+type RFMTier = 'champion' | 'loyal' | 'at_risk' | 'lost' | 'promising' | 'new';
+
+interface RFMResult {
+  rfmTier: RFMTier;
+  rfmScore: number;
+  recencyScore: number;
+  frequencyScore: number;
+  monetaryScore: number;
+  daysSinceLastOrder: number;
+}
+
+function computeRFMScores(
+  orders: AnyRecord[],
+  customerIds: string[],
+  now: Date
+): Map<string, RFMResult> {
+  const ordersByCustomer = new Map<string, AnyRecord[]>();
+  for (const id of customerIds) ordersByCustomer.set(id, []);
+  for (const order of orders) {
+    const cid = order.customerId || 'guest';
+    if (ordersByCustomer.has(cid)) ordersByCustomer.get(cid)!.push(order);
+  }
+
+  const avgSpend = customerIds.length > 0
+    ? orders.reduce((s, o) => s + getOrderTotal(o), 0) / Math.max(customerIds.length, 1)
+    : 0;
+
+  const results = new Map<string, RFMResult>();
+
+  for (const cid of customerIds) {
+    const custOrders = ordersByCustomer.get(cid) || [];
+    const frequency = custOrders.length;
+    const monetary = custOrders.reduce((s, o) => s + getOrderTotal(o), 0);
+
+    let daysSinceLastOrder = 999;
+    if (frequency > 0) {
+      const lastOrderDate = custOrders
+        .map(o => toDate(o.createdAt))
+        .filter(Boolean)
+        .sort((a, b) => b!.getTime() - a!.getTime())[0];
+      if (lastOrderDate) {
+        daysSinceLastOrder = Math.floor((now.getTime() - lastOrderDate.getTime()) / 86400000);
+      }
+    }
+
+    // Recency score 1-5
+    const rScore = daysSinceLastOrder <= 30 ? 5
+      : daysSinceLastOrder <= 60 ? 4
+      : daysSinceLastOrder <= 90 ? 3
+      : daysSinceLastOrder <= 180 ? 2 : 1;
+
+    // Frequency score 1-5
+    const fScore = frequency >= 10 ? 5
+      : frequency >= 6 ? 4
+      : frequency >= 3 ? 3
+      : frequency >= 2 ? 2 : 1;
+
+    // Monetary score 1-5 (relative to avg spend per customer)
+    const ratio = avgSpend > 0 ? monetary / avgSpend : 0;
+    const mScore = ratio >= 3 ? 5 : ratio >= 2 ? 4 : ratio >= 1 ? 3 : ratio >= 0.5 ? 2 : 1;
+
+    const rfmScore = rScore * 100 + fScore * 10 + mScore;
+
+    let rfmTier: RFMTier;
+    if (rScore >= 4 && fScore >= 4 && mScore >= 4) rfmTier = 'champion';
+    else if (rScore >= 3 && fScore >= 3) rfmTier = 'loyal';
+    else if (rScore <= 2 && fScore >= 3) rfmTier = 'at_risk';
+    else if (rScore >= 4 && fScore <= 2) rfmTier = 'promising';
+    else if (rScore <= 2) rfmTier = 'lost';
+    else rfmTier = 'new';
+
+    results.set(cid, { rfmTier, rfmScore, recencyScore: rScore, frequencyScore: fScore, monetaryScore: mScore, daysSinceLastOrder });
+  }
+
+  return results;
 }
 
 let adminDb: Firestore | null = null;
@@ -452,6 +537,47 @@ async function buildCompanyOverview(db: Firestore, companyId: string): Promise<C
     ? ((recentRevenue30d - previousRevenue30d) / previousRevenue30d) * 100
     : recentRevenue30d > 0 ? 100 : 0;
 
+  const customerIds = customersSnap.docs.map(d => d.id);
+  const rfmMap = computeRFMScores(orders, customerIds, now);
+
+  const rfmEntries = [...rfmMap.entries()];
+  const rfmSummary = {
+    champions: rfmEntries.filter(([, r]) => r.rfmTier === 'champion').length,
+    loyal: rfmEntries.filter(([, r]) => r.rfmTier === 'loyal').length,
+    atRisk: rfmEntries.filter(([, r]) => r.rfmTier === 'at_risk').length,
+    lost: rfmEntries.filter(([, r]) => r.rfmTier === 'lost').length,
+    promising: rfmEntries.filter(([, r]) => r.rfmTier === 'promising').length,
+    topAtRiskCustomers: rfmEntries
+      .filter(([, r]) => r.rfmTier === 'at_risk')
+      .sort(([, a], [, b]) => b.daysSinceLastOrder - a.daysSinceLastOrder)
+      .slice(0, 3)
+      .map(([cid, r]) => {
+        const cdata = customersSnap.docs.find(d => d.id === cid)?.data() || {};
+        return { name: cdata.name || 'Unknown', daysSinceLastOrder: r.daysSinceLastOrder };
+      }),
+  };
+
+  // Background batch-write RFM scores to customer documents (fire-and-forget)
+  Promise.resolve().then(async () => {
+    try {
+      const chunks: Array<[string, RFMResult][]> = [];
+      for (let i = 0; i < rfmEntries.length; i += 490) chunks.push(rfmEntries.slice(i, i + 490));
+      for (const chunk of chunks) {
+        const batch = db.batch();
+        for (const [cid, r] of chunk) {
+          batch.update(db.collection('customers').doc(cid), {
+            rfmTier: r.rfmTier,
+            rfmScore: r.rfmScore,
+            rfmUpdatedAt: FieldValue.serverTimestamp(),
+          });
+        }
+        await batch.commit();
+      }
+    } catch (e) {
+      // RFM batch update is best-effort; don't block the response
+    }
+  });
+
   return {
     companyId,
     companyName: company.name || 'Unknown company',
@@ -485,6 +611,7 @@ async function buildCompanyOverview(db: Firestore, companyId: string): Promise<C
       previousPeriodOrders: previousOrders.length,
       trend: recentOrders.length >= previousOrders.length ? 'up' : 'down',
     },
+    customerRFMSummary: rfmSummary,
   };
 }
 
@@ -1207,29 +1334,24 @@ No markdown, no preamble.`;
     }
   });
 
-  app.post('/api/ai/chat', async (req, res) => {
-    const startedAt = Date.now();
-    try {
-      const access = await requireCompanyAccess(req, res, ['owner', 'admin', 'staff', 'viewer']);
-      if (!access) return;
-      const ai = getGenAI();
-      if (!ai) return res.status(503).json({ error: 'AI not configured' });
-      const { message, history, language } = req.body || {};
-      if (typeof message !== 'string' || !message.trim()) {
-        return res.status(400).json({ error: 'message required' });
-      }
+  function buildPeppySystemInstruction(ctx: CompanyOverview, language: string, userRole: string): string {
+    const langMap: Record<string, string> = {
+      en: 'Communicate in English.',
+      es: 'Comunícate en Español. Mantén un tono profesional y premium.',
+      pt: 'Comunique-se em Português. Mantenha um tom profissional e premium.',
+    };
+    const langInstruction = langMap[language] || langMap.en;
+    const rfm = ctx.customerRFMSummary;
+    const rfmBlock = rfm ? `
+CUSTOMER INTELLIGENCE (RFM Analysis):
+- Champions: ${rfm.champions} customers (high value, recent, frequent)
+- Loyal: ${rfm.loyal} customers (consistent buyers)
+- At Risk: ${rfm.atRisk} customers (were frequent, now absent)
+- Promising: ${rfm.promising} new high-potential customers
+- Lost: ${rfm.lost} customers (inactive)${rfm.topAtRiskCustomers.length > 0 ? `
+- Top At-Risk: ${rfm.topAtRiskCustomers.map(c => `${c.name} (${c.daysSinceLastOrder}d inactive)`).join(', ')}` : ''}` : '';
 
-      const db = getDb();
-      if (!db) throw new Error('Database not initialized');
-      const ctx = req.body?.context || await buildCompanyOverview(db, access.companyId);
-      const langMap: Record<string, string> = {
-        en: 'Communicate in English.',
-        es: 'Comunícate en Español. Mantén un tono profesional y premium.',
-        pt: 'Comunique-se em Português. Mantenha um tom profissional e premium.',
-      };
-      const langInstruction = langMap[language] || langMap.en;
-      const systemInstruction = `
-You are Peppy, the dedicated AI copilot for Remix OS.
+    return `You are Peppy, the dedicated AI copilot for Remix OS.
 Personality: direct, warm, data-focused, occasionally witty — never corporate speak.
 Celebrate wins, flag risks with urgency, always end with a clear next action.
 Sign your greeting with your name on the first message only.
@@ -1239,19 +1361,19 @@ CRITICAL: ${langInstruction}
 SYSTEM STATUS:
 - Company: ${ctx.companyName} (${ctx.industry})
 - Onboarding: ${ctx.onboardingCompleted ? 'COMPLETED' : 'IN PROGRESS'}
-- User Role: ${req.body?.context?.userRole || 'staff'}
+- User Role: ${userRole}
 
 BUSINESS TELEMETRY:
-- 30-Day Revenue: $${Number(ctx.recentRevenue30d ?? ctx.recentRevenue ?? 0).toFixed(2)}
+- 30-Day Revenue: $${Number(ctx.recentRevenue30d ?? ctx.recentRevenue ?? 0).toFixed(2)} (growth: ${ctx.growth?.toFixed(1) ?? 0}%)
 - Sales Trend: ${ctx.salesVelocity?.currentPeriodOrders || 0} orders this week (${ctx.salesVelocity?.trend || 'flat'} vs last week)
 - Inventory Risk: ${ctx.lowStockCount || 0} items below threshold.
 - Engagement: ${ctx.pendingReminders?.length || 0} urgent follow-ups pending.
-
+${rfmBlock}
 OPERATIONAL PRINCIPLES:
 1. OPERATIONAL FOCUS: Avoid conversational filler. Provide high-impact data analysis first.
 2. INDUSTRY CONTEXT: Calibrate terminology to "${ctx.industry}".
 3. PROACTIVE ADVICE: Prioritize critical risks and suggest specific drafted actions.
-4. CUSTOMER ENGAGEMENT: Identify pending reminders and suggest follow-ups.
+4. CUSTOMER ENGAGEMENT: Use RFM data to identify at-risk customers; suggest win-back actions.
 5. SECURITY PROTOCOL: Respect user roles. Never suggest actions beyond the user's role.
 6. PERSONALITY: Use phrases like "Let's unpack that:", "Here's the signal:", "Action window:" to maintain your distinct voice as Peppy.
 
@@ -1274,6 +1396,32 @@ CRITICAL RULES:
 5. For DRAFT_MESSAGE, always set isReviewOnly so the user must confirm before sending.
 
 STRUCTURE: Use SUMMARY, STATUS REPORT, RECOMMENDATIONS, and [COMMANDS].`;
+  }
+
+  function parseCommandFromText(text: string, userMessage: string): { type: string; params: string } | null {
+    const userTriedToInject = /\[COMMAND:/i.test(userMessage);
+    if (userTriedToInject) return null;
+    const match = text.match(/\[COMMAND:\s*([^|\]\n]+)\s*\|\s*([^\]]+)\]\s*$/);
+    if (!match) return null;
+    return { type: match[1].trim(), params: match[2].trim() };
+  }
+
+  app.post('/api/ai/chat', async (req, res) => {
+    const startedAt = Date.now();
+    try {
+      const access = await requireCompanyAccess(req, res, ['owner', 'admin', 'staff', 'viewer']);
+      if (!access) return;
+      const ai = getGenAI();
+      if (!ai) return res.status(503).json({ error: 'AI not configured' });
+      const { message, history, language } = req.body || {};
+      if (typeof message !== 'string' || !message.trim()) {
+        return res.status(400).json({ error: 'message required' });
+      }
+
+      const db = getDb();
+      if (!db) throw new Error('Database not initialized');
+      const ctx = req.body?.context || await buildCompanyOverview(db, access.companyId);
+      const systemInstruction = buildPeppySystemInstruction(ctx, language || 'en', req.body?.context?.userRole || 'staff');
 
       const chat = ai.chats.create({
         model: 'gemini-2.0-flash',
@@ -1286,6 +1434,63 @@ STRUCTURE: Use SUMMARY, STATUS REPORT, RECOMMENDATIONS, and [COMMANDS].`;
     } catch (error: any) {
       console.error('/api/ai/chat error:', error);
       res.status(500).json({ error: error.message || 'AI request failed' });
+    }
+  });
+
+  app.post('/api/ai/chat/stream', async (req, res) => {
+    try {
+      const access = await requireCompanyAccess(req, res, ['owner', 'admin', 'staff', 'viewer']);
+      if (!access) return;
+      const ai = getGenAI();
+      if (!ai) return res.status(503).json({ error: 'AI not configured' });
+      const { message, history, language } = req.body || {};
+      if (typeof message !== 'string' || !message.trim()) {
+        return res.status(400).json({ error: 'message required' });
+      }
+      const db = getDb();
+      if (!db) throw new Error('Database not initialized');
+      const ctx = req.body?.context || await buildCompanyOverview(db, access.companyId);
+      const systemInstruction = buildPeppySystemInstruction(ctx, language || 'en', req.body?.context?.userRole || 'staff');
+
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      res.setHeader('X-Accel-Buffering', 'no');
+      res.flushHeaders();
+
+      let disconnected = false;
+      req.on('close', () => { disconnected = true; });
+
+      const chat = ai.chats.create({
+        model: 'gemini-2.0-flash',
+        history: Array.isArray(history) ? history : [],
+        config: { systemInstruction },
+      });
+
+      let accumulated = '';
+      try {
+        const stream = await chat.sendMessageStream({ message });
+        for await (const chunk of stream) {
+          if (disconnected || res.writableEnded) break;
+          const text = chunk.text ?? '';
+          accumulated += text;
+          res.write(`data: ${JSON.stringify({ text })}\n\n`);
+        }
+      } catch (streamErr: any) {
+        if (!res.writableEnded) {
+          res.write(`data: ${JSON.stringify({ error: streamErr.message })}\n\n`);
+        }
+      }
+
+      if (!res.writableEnded) {
+        const command = parseCommandFromText(accumulated, message);
+        res.write(`data: ${JSON.stringify({ done: true, command })}\n\n`);
+        res.end();
+      }
+    } catch (error: any) {
+      console.error('/api/ai/chat/stream error:', error);
+      if (!res.headersSent) res.status(500).json({ error: error.message || 'Stream failed' });
+      else if (!res.writableEnded) res.end();
     }
   });
 
@@ -1361,6 +1566,59 @@ NO markdown, NO preamble, just valid JSON.`;
     } catch (error: any) {
       console.error('/api/ai/proactive-thoughts error:', error);
       res.status(500).json({ error: error.message || 'AI request failed' });
+    }
+  });
+
+  app.post('/api/ai/conversation/load', async (req, res) => {
+    try {
+      const access = await requireCompanyAccess(req, res, ['owner', 'admin', 'staff', 'viewer']);
+      if (!access) return;
+      const db = getDb();
+      if (!db) throw new Error('Database not initialized');
+      const docId = `${access.companyId}_${access.uid}_peppy`;
+      const snap = await db.collection('agentConversations').doc(docId).get();
+      const messages = snap.exists ? (snap.data()?.messages || []) : [];
+      res.json({ messages });
+    } catch (error: any) {
+      console.error('/api/ai/conversation/load error:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post('/api/ai/conversation/save', async (req, res) => {
+    try {
+      const access = await requireCompanyAccess(req, res, ['owner', 'admin', 'staff', 'viewer']);
+      if (!access) return;
+      const db = getDb();
+      if (!db) throw new Error('Database not initialized');
+      const { messages } = req.body || {};
+      if (!Array.isArray(messages)) return res.status(400).json({ error: 'messages array required' });
+
+      const sanitized = messages
+        .filter((m: AnyRecord) => !m.streaming && m.role && m.text !== undefined)
+        .slice(-60)
+        .map((m: AnyRecord) => ({
+          id: m.id,
+          role: m.role,
+          text: String(m.text || '').slice(0, 8000),
+          timestamp: m.timestamp || new Date().toISOString(),
+          isBriefing: m.isBriefing || false,
+          commandStatus: m.commandStatus || null,
+        }));
+
+      const docId = `${access.companyId}_${access.uid}_peppy`;
+      await db.collection('agentConversations').doc(docId).set({
+        companyId: access.companyId,
+        userId: access.uid,
+        agentName: 'peppy',
+        messages: sanitized,
+        updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+
+      res.json({ status: 'saved', count: sanitized.length });
+    } catch (error: any) {
+      console.error('/api/ai/conversation/save error:', error);
+      res.status(500).json({ error: error.message });
     }
   });
 

@@ -322,5 +322,22 @@ service cloud.firestore {
       allow update: if hasRole(existing().companyId, ['owner', 'admin', 'staff']);
       allow delete: if hasRole(existing().companyId, ['owner', 'admin']);
     }
+
+    match /agentConversations/{conversationId} {
+      allow read: if isSignedIn() && (
+        isPlatformAdmin() ||
+        (resource.data.userId == request.auth.uid && isMember(resource.data.companyId))
+      );
+      allow create: if isSignedIn() &&
+        incoming().userId == request.auth.uid &&
+        isMember(incoming().companyId) &&
+        incoming().agentName == 'peppy';
+      allow update: if isSignedIn() &&
+        existing().userId == request.auth.uid &&
+        isMember(existing().companyId) &&
+        incoming().userId == existing().userId &&
+        incoming().companyId == existing().companyId;
+      allow delete: if false;
+    }
   }
 }

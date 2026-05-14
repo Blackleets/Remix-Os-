@@ -19,7 +19,7 @@ import {
   Clock3,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { chatCopilot, getProactiveThoughts, getDailyBriefing } from '../services/gemini';
+import { chatCopilot, chatCopilotStream, getProactiveThoughts, getDailyBriefing, loadPeppyConversation, savePeppyConversation } from '../services/gemini';
 import { executeAgentAction } from '../services/agentActions';
 import { cn } from './Common';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -104,7 +104,6 @@ export function Copilot() {
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const streamingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const toastRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -150,52 +149,45 @@ export function Copilot() {
     toastRef.current = setTimeout(() => setToast(null), 5000);
   }, []);
 
+  const [conversationLoaded, setConversationLoaded] = useState(false);
+
   useEffect(() => {
-    if (!company) return;
-    try {
-      const stored = localStorage.getItem(`copilot_messages_${company.id}`);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        setMessages(parsed.map((m: any) => ({
-          ...m,
-          timestamp: new Date(m.timestamp),
-          streaming: false,
-        })));
+    if (!company || conversationLoaded) return;
+    setConversationLoaded(true);
+    loadPeppyConversation(company.id).then((loaded) => {
+      if (loaded.length > 0) {
+        setMessages(loaded);
+      } else {
+        // Fallback: try localStorage for users with existing history
+        try {
+          const stored = localStorage.getItem(`copilot_messages_${company.id}`);
+          if (stored) {
+            const parsed = JSON.parse(stored);
+            setMessages(parsed.map((m: any) => ({ ...m, timestamp: new Date(m.timestamp), streaming: false })));
+          }
+        } catch (_) {
+          // ignore malformed local data
+        }
       }
-    } catch (_) {
-      // ignore malformed local data
-    }
-  }, [company?.id]);
+    });
+  }, [company?.id, conversationLoaded]);
 
   useEffect(() => {
     if (!company || messages.length === 0) return;
     const timer = setTimeout(() => {
-      const toSave = messages
-        .filter((m) => !m.streaming)
-        .slice(-60)
-        .map((m) => ({ ...m, timestamp: m.timestamp.toISOString() }));
-      localStorage.setItem(`copilot_messages_${company.id}`, JSON.stringify(toSave));
-    }, 600);
+      const toSave = messages.filter((m) => !m.streaming).slice(-60);
+      // Primary: Firestore
+      savePeppyConversation(company.id, toSave);
+      // Secondary: localStorage backup
+      try {
+        localStorage.setItem(`copilot_messages_${company.id}`, JSON.stringify(
+          toSave.map((m) => ({ ...m, timestamp: m.timestamp.toISOString() }))
+        ));
+      } catch (_) {}
+    }, 1000);
     return () => clearTimeout(timer);
   }, [messages, company?.id]);
 
-  const simulateStreaming = useCallback((msgId: string, fullText: string, onDone?: () => void) => {
-    const words = fullText.split(' ');
-    let i = 0;
-    if (streamingRef.current) clearInterval(streamingRef.current);
-    streamingRef.current = setInterval(() => {
-      i++;
-      const partial = words.slice(0, i).join(' ');
-      const done = i >= words.length;
-      setMessages((prev) =>
-        prev.map((m) => (m.id === msgId ? { ...m, text: partial, streaming: !done } : m))
-      );
-      if (done) {
-        if (streamingRef.current) clearInterval(streamingRef.current);
-        onDone?.();
-      }
-    }, 22);
-  }, []);
 
   const triggerDailyBriefing = useCallback(async () => {
     if (!company || !['owner', 'admin'].includes(role || '')) return;
@@ -295,28 +287,6 @@ export function Copilot() {
         .filter((m) => !m.streaming)
         .map((m) => ({ role: m.role, parts: [{ text: m.text }] }));
 
-      const aiResponse = await chatCopilot(textToSend, history, context, language);
-
-      const userTriedToInject = /\[COMMAND:/i.test(textToSend);
-      const commandMatch = !userTriedToInject
-        ? aiResponse.match(/\[COMMAND:\s*([^|\]\n]+)\s*\|\s*([^\]]+)\]\s*$/)
-        : null;
-
-      const cleanText = commandMatch ? aiResponse.split('[COMMAND:')[0].trim() : aiResponse;
-
-      let command: Message['command'] | undefined;
-      if (commandMatch) {
-        const type = commandMatch[1].trim();
-        const params = commandMatch[2].trim();
-        const isReviewOnly = ['DRAFT_REPORT', 'REVIEW_ONLY', 'DRAFT_ORDER'].includes(type) || params.length > 100;
-        command = {
-          type: type === 'NAVIGATE' && params.length > 50 ? 'REVIEW_ONLY' : type,
-          params,
-          summary: cleanText,
-          isReviewOnly,
-        };
-      }
-
       const botMsgId = `m-${Date.now()}`;
       setMessages((prev) => [...prev, {
         id: botMsgId,
@@ -324,18 +294,57 @@ export function Copilot() {
         text: '',
         streaming: true,
         timestamp: new Date(),
-        command,
-        commandStatus: command ? 'pending' : undefined,
       }]);
       setIsTyping(false);
 
-      simulateStreaming(botMsgId, cleanText);
-
-      setOperatorHistory((prev) => [{
-        type: commandMatch ? 'COMMAND' : 'QUERY',
-        action: textToSend,
-        timestamp: new Date(),
-      }, ...prev].slice(0, 10));
+      await chatCopilotStream(
+        textToSend,
+        history,
+        context,
+        language,
+        (chunk) => {
+          setMessages((prev) =>
+            prev.map((m) => m.id === botMsgId ? { ...m, text: m.text + chunk } : m)
+          );
+        },
+        (cmd) => {
+          let command: Message['command'] | undefined;
+          if (cmd) {
+            const isReviewOnly = ['DRAFT_REPORT', 'REVIEW_ONLY', 'DRAFT_ORDER', 'DRAFT_MESSAGE'].includes(cmd.type) || cmd.params.length > 100;
+            command = {
+              type: cmd.type === 'NAVIGATE' && cmd.params.length > 50 ? 'REVIEW_ONLY' : cmd.type,
+              params: cmd.params,
+              summary: '',
+              isReviewOnly,
+            };
+          }
+          setMessages((prev) =>
+            prev.map((m) => m.id === botMsgId
+              ? { ...m, streaming: false, command, commandStatus: command ? 'pending' : undefined }
+              : m)
+          );
+          setOperatorHistory((prev) => [{
+            type: cmd ? 'COMMAND' : 'QUERY',
+            action: textToSend,
+            timestamp: new Date(),
+          }, ...prev].slice(0, 10));
+        },
+        (err) => {
+          console.error('Stream error:', err);
+          // Fallback to non-streaming on stream failure
+          chatCopilot(textToSend, history, context, language).then((text) => {
+            setMessages((prev) =>
+              prev.map((m) => m.id === botMsgId ? { ...m, text, streaming: false } : m)
+            );
+          }).catch(() => {
+            setMessages((prev) =>
+              prev.map((m) => m.id === botMsgId
+                ? { ...m, text: 'No pude conectarme al servicio de datos del negocio. Inténtalo de nuevo.', streaming: false }
+                : m)
+            );
+          });
+        }
+      );
     } catch (error) {
       console.error('Chat error:', error);
       setIsTyping(false);
@@ -799,7 +808,10 @@ export function Copilot() {
                       <button
                         onClick={() => {
                           setMessages([]);
-                          if (company) localStorage.removeItem(`copilot_messages_${company.id}`);
+                          if (company) {
+                            localStorage.removeItem(`copilot_messages_${company.id}`);
+                            savePeppyConversation(company.id, []);
+                          }
                         }}
                         className="mt-3 w-full text-center text-[10px] font-black uppercase tracking-[0.2em] text-neutral-600 transition-colors hover:text-neutral-400"
                       >

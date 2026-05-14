@@ -61,6 +61,8 @@ interface Customer {
   segment?: 'whale' | 'vip' | 'regular' | 'new' | 'at_risk';
   lastOrderAt?: any;
   imageURL?: string;
+  rfmTier?: 'champion' | 'loyal' | 'at_risk' | 'lost' | 'promising' | 'new';
+  rfmScore?: number;
 }
 
 const SEGMENTS_LOCALIZED = (t: any) => [
@@ -386,6 +388,17 @@ export function Customers() {
   const getSegmentClasses = (segment?: string) =>
     SEGMENTS.find((s) => s.id === segment)?.color || 'bg-neutral-500/10 text-neutral-300 border-white/10';
 
+  const getRFMBadge = (tier?: string) => {
+    switch (tier) {
+      case 'champion': return { label: '⭐ Champion', cls: 'border-violet-400/30 bg-violet-500/10 text-violet-300' };
+      case 'loyal': return { label: '💎 Loyal', cls: 'border-blue-400/30 bg-blue-500/10 text-blue-300' };
+      case 'at_risk': return { label: '⚠ At Risk', cls: 'border-amber-400/30 bg-amber-500/10 text-amber-300' };
+      case 'lost': return { label: '🔴 Lost', cls: 'border-red-400/30 bg-red-500/10 text-red-300' };
+      case 'promising': return { label: '🚀 Promising', cls: 'border-emerald-400/30 bg-emerald-500/10 text-emerald-300' };
+      default: return null;
+    }
+  };
+
   return (
     <div className="space-y-6 md:space-y-8">
       <section className="hero-gradient overflow-hidden rounded-[30px] border border-white/10 p-6 md:p-8">
@@ -541,11 +554,18 @@ export function Customers() {
                       </div>
                       <div className="flex flex-col">
                         <span className="font-medium text-neutral-200 group-hover:text-blue-400 transition-colors">{customer.name}</span>
-                        {customer.segment && (
-                          <span className={cn('mt-1 inline-block w-fit rounded-full border px-2 py-0.5 text-[8px] font-black uppercase tracking-[0.16em]', getSegmentClasses(customer.segment))}>
-                            {customer.segment}
-                          </span>
-                        )}
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          {customer.segment && (
+                            <span className={cn('inline-block w-fit rounded-full border px-2 py-0.5 text-[8px] font-black uppercase tracking-[0.16em]', getSegmentClasses(customer.segment))}>
+                              {customer.segment}
+                            </span>
+                          )}
+                          {(() => { const rfm = getRFMBadge(customer.rfmTier); return rfm ? (
+                            <span className={cn('inline-block w-fit rounded-full border px-2 py-0.5 text-[8px] font-black tracking-[0.12em]', rfm.cls)} title="Peppy RFM Score">
+                              {rfm.label}
+                            </span>
+                          ) : null; })()}
+                        </div>
                       </div>
                     </div>
                   </td>
