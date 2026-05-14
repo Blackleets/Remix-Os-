@@ -24,22 +24,22 @@ service firebase.storage {
     }
 
     match /users/{userId}/{allPaths=**} {
-      allow read: if isSignedIn();
+      allow read: if isSignedIn() && request.auth.uid == userId;
       allow write: if isSignedIn() && request.auth.uid == userId;
     }
 
     match /companies/{companyId}/logo/{allPaths=**} {
-      allow read: if isSignedIn();
+      allow read: if isSignedIn() && (hasCompanyRole(companyId, ['owner', 'admin', 'staff', 'viewer']) || !companyExists(companyId));
       allow write: if isSignedIn() && (!companyExists(companyId) || hasCompanyRole(companyId, ['owner', 'admin']));
     }
 
     match /companies/{companyId}/products/{allPaths=**} {
-      allow read: if isSignedIn();
+      allow read: if hasCompanyRole(companyId, ['owner', 'admin', 'staff', 'viewer']);
       allow write: if hasCompanyRole(companyId, ['owner', 'admin', 'staff']);
     }
 
     match /companies/{companyId}/customers/{allPaths=**} {
-      allow read: if isSignedIn();
+      allow read: if hasCompanyRole(companyId, ['owner', 'admin', 'staff', 'viewer']);
       allow write: if hasCompanyRole(companyId, ['owner', 'admin', 'staff']);
     }
 
