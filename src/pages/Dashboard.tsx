@@ -60,6 +60,7 @@ export function Dashboard() {
   const [chartData, setChartData] = useState<{ name: string; sales: number }[]>([]);
   const [activities, setActivities] = useState<ActivityItem[]>([]);
   const [exporting, setExporting] = useState(false);
+  const [stockAlerts, setStockAlerts] = useState<{ id: string; name: string; stockLevel: number; daysLeft: number | null; velocity: number }[]>([]);
 
   useEffect(() => {
     if (!company) return;
@@ -166,6 +167,56 @@ export function Dashboard() {
       unsubscribeProducts();
       unsubscribeActivity();
     };
+  }, [company]);
+
+  useEffect(() => {
+    if (!company) return;
+    let cancelled = false;
+
+    async function computeStockAlerts() {
+      const LOOKBACK_DAYS = 14;
+      const cutoff = subDays(new Date(), LOOKBACK_DAYS);
+
+      const [productsSnap, ordersSnap] = await Promise.all([
+        getDocs(query(collection(db, 'products'), where('companyId', '==', company!.id), where('status', '==', 'active'))),
+        getDocs(query(collection(db, 'orders'), where('companyId', '==', company!.id), where('status', '==', 'completed'))),
+      ]);
+
+      if (cancelled) return;
+
+      // Count units sold per product in last 14 days
+      const unitsSold = new Map<string, number>();
+      ordersSnap.docs.forEach(d => {
+        const createdAt = d.data().createdAt?.toDate?.();
+        if (!createdAt || createdAt < cutoff) return;
+        const items: { productId: string; quantity: number }[] = d.data().itemsSnapshot || [];
+        items.forEach(item => {
+          unitsSold.set(item.productId, (unitsSold.get(item.productId) || 0) + item.quantity);
+        });
+      });
+
+      const alerts = productsSnap.docs
+        .map(d => {
+          const stockLevel = d.data().stockLevel ?? 0;
+          const sold = unitsSold.get(d.id) || 0;
+          const velocity = sold / LOOKBACK_DAYS; // units/day
+          const daysLeft = velocity > 0 ? Math.floor(stockLevel / velocity) : null;
+          return { id: d.id, name: d.data().name, stockLevel, daysLeft, velocity };
+        })
+        .filter(p => p.stockLevel >= 0 && (p.stockLevel <= 5 || (p.daysLeft !== null && p.daysLeft <= 14)))
+        .sort((a, b) => {
+          if (a.daysLeft === null && b.daysLeft === null) return a.stockLevel - b.stockLevel;
+          if (a.daysLeft === null) return 1;
+          if (b.daysLeft === null) return -1;
+          return a.daysLeft - b.daysLeft;
+        })
+        .slice(0, 6);
+
+      setStockAlerts(alerts);
+    }
+
+    computeStockAlerts().catch(console.error);
+    return () => { cancelled = true; };
   }, [company]);
 
   const showChecklist = stats.products === 0 || stats.customers === 0 || stats.orders === 0;
@@ -758,6 +809,64 @@ export function Dashboard() {
               ))}
             </div>
           </Card>
+
+          {stockAlerts.length > 0 && (
+            <Card className="border-amber-400/14 bg-[linear-gradient(180deg,rgba(92,60,10,0.28),rgba(8,11,16,0.96))]">
+              <div className="mb-5 flex items-center justify-between gap-3">
+                <div>
+                  <p className="section-kicker mb-2 !text-amber-400/70">Presión de inventario</p>
+                  <h3 className="section-title text-xl">Predicción de rotura de stock</h3>
+                  <p className="section-subtitle mt-1">Basado en velocidad de ventas de los últimos 14 días.</p>
+                </div>
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-amber-400/20 bg-amber-500/10">
+                  <AlertTriangle className="h-5 w-5 text-amber-300" />
+                </div>
+              </div>
+              <div className="space-y-2">
+                {stockAlerts.map(alert => {
+                  const isUrgent = alert.daysLeft !== null && alert.daysLeft <= 3;
+                  const isCritical = alert.stockLevel === 0;
+                  return (
+                    <button
+                      key={alert.id}
+                      onClick={() => navigate('/inventory')}
+                      className={cn(
+                        'surface-elevated block w-full p-3 text-left transition-all',
+                        isCritical ? 'border-red-400/20 bg-red-500/5 hover:border-red-400/30' :
+                        isUrgent ? 'border-amber-400/20 bg-amber-500/5 hover:border-amber-400/30' :
+                        'hover:border-white/10'
+                      )}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="truncate text-sm font-semibold text-white">{alert.name}</p>
+                        <span className={cn(
+                          'shrink-0 rounded-full border px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-wider',
+                          isCritical ? 'border-red-400/20 bg-red-500/10 text-red-300' :
+                          isUrgent ? 'border-amber-400/20 bg-amber-500/10 text-amber-300' :
+                          'border-white/10 bg-white/5 text-neutral-400'
+                        )}>
+                          {isCritical ? 'Sin stock' :
+                           alert.daysLeft !== null ? `~${alert.daysLeft}d` : `${alert.stockLevel} u.`}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-xs text-neutral-500">
+                        {isCritical ? 'Agotado — reabastecer ahora' :
+                         alert.daysLeft !== null ? `${alert.stockLevel} u. restantes · ${alert.velocity.toFixed(1)} u/día` :
+                         `${alert.stockLevel} unidades · sin ventas recientes`}
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
+              <button
+                onClick={() => navigate('/inventory')}
+                className="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl border border-amber-400/14 py-2.5 text-[11px] font-black uppercase tracking-[0.2em] text-amber-300/80 transition-all hover:border-amber-400/25 hover:bg-amber-500/8"
+              >
+                Ver inventario completo
+                <ChevronRight className="h-3.5 w-3.5" />
+              </button>
+            </Card>
+          )}
 
           <Card>
             <div className="mb-5 flex items-center justify-between">

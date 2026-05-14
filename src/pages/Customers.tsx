@@ -25,6 +25,7 @@ import {
   Users
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { useToast } from '../contexts/ToastContext';
 import { useLocale } from '../hooks/useLocale';
 import { usePermissions } from '../hooks/usePermissions';
 import { db } from '../lib/firebase';
@@ -103,6 +104,7 @@ const MESSAGE_TEMPLATES_LOCALIZED = (t: any) => [
 
 export function Customers() {
   const { company, role } = useAuth();
+  const toast = useToast();
   const { t, formatCurrency, formatDate } = useLocale();
   const SEGMENTS = SEGMENTS_LOCALIZED(t);
   const MESSAGE_TEMPLATES = MESSAGE_TEMPLATES_LOCALIZED(t);
@@ -305,7 +307,7 @@ export function Customers() {
       fetchCustomers();
     } catch (err: any) {
       console.error(err);
-      alert(err?.message || 'Failed to save customer.');
+      toast(err?.message || 'Failed to save customer.', 'error');
     } finally {
       setLoading(false);
     }
@@ -342,14 +344,15 @@ export function Customers() {
         limit(1)
       ));
       if (!ordersSnap.empty) {
-        alert('This customer has orders and cannot be deleted.');
+        toast(t('customers.has_orders_error') || 'This customer has orders and cannot be deleted.', 'warning');
         return;
       }
       await deleteDoc(doc(db, 'customers', id));
+      toast(t('customers.deleted_success') || 'Customer deleted.', 'success');
       fetchCustomers();
     } catch (err: any) {
       console.error(err);
-      alert(err?.message || 'Failed to delete customer.');
+      toast(err?.message || 'Failed to delete customer.', 'error');
     }
   };
 

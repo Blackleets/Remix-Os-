@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   AlertCircle,
@@ -12,6 +12,7 @@ import {
   Package,
   Plus,
   Printer,
+  QrCode,
   ReceiptText,
   Search,
   ShoppingCart,
@@ -150,6 +151,7 @@ export function POS() {
   const [customerId, setCustomerId] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<(typeof PAYMENT_METHODS)[number]>('Cash');
   const [discountInput, setDiscountInput] = useState('0');
+  const [discountType, setDiscountType] = useState<'fixed' | 'pct'>('fixed');
   const [taxInput, setTaxInput] = useState('0');
   const [saleError, setSaleError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -163,6 +165,11 @@ export function POS() {
   const [isCashLoading, setIsCashLoading] = useState(false);
   const [isCommandBarOpen, setIsCommandBarOpen] = useState(false);
   const [selectedProductIndex, setSelectedProductIndex] = useState(0);
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [scannerError, setScannerError] = useState<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const scanIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     if (!company) return;
@@ -294,9 +301,10 @@ export function POS() {
     return customers.find((customer) => customer.id === customerId)?.name || t('orders.guest') || 'Guest';
   }, [customerId, customers, t]);
 
-  const discount = Math.max(0, parseFloat(discountInput) || 0);
-  const tax = Math.max(0, parseFloat(taxInput) || 0);
   const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  const discountRaw = Math.max(0, parseFloat(discountInput) || 0);
+  const discount = discountType === 'pct' ? Math.min(subtotal, subtotal * (discountRaw / 100)) : Math.min(subtotal, discountRaw);
+  const tax = Math.max(0, parseFloat(taxInput) || 0);
   const total = Math.max(0, subtotal - discount + tax);
 
   const sortedCashSessions = useMemo(
@@ -345,6 +353,7 @@ export function POS() {
   const clearCart = () => {
     setCart([]);
     setDiscountInput('0');
+    setDiscountType('fixed');
     setTaxInput('0');
     setSaleError(null);
   };
@@ -413,12 +422,62 @@ export function POS() {
 
   const applyQuickDiscount = () => {
     if (subtotal <= 0) return;
-    setDiscountInput((subtotal * QUICK_DISCOUNT_RATE).toFixed(2));
+    setDiscountType('pct');
+    setDiscountInput((QUICK_DISCOUNT_RATE * 100).toFixed(0));
   };
 
   const setGuestCheckout = () => {
     setCustomerId('');
   };
+
+  const closeScanner = useCallback(() => {
+    if (scanIntervalRef.current) { clearInterval(scanIntervalRef.current); scanIntervalRef.current = null; }
+    if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; }
+    setIsScannerOpen(false);
+    setScannerError(null);
+  }, []);
+
+  const openScanner = useCallback(async () => {
+    setScannerError(null);
+    setIsScannerOpen(true);
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const BarcodeDetectorAPI = (window as any).BarcodeDetector;
+      if (!BarcodeDetectorAPI) {
+        setScannerError('Barcode scanning is not supported in this browser. Try Chrome on Android.');
+        return;
+      }
+      const detector = new BarcodeDetectorAPI({ formats: ['ean_13', 'ean_8', 'qr_code', 'code_128', 'code_39', 'upc_a', 'upc_e'] });
+
+      scanIntervalRef.current = setInterval(async () => {
+        if (!videoRef.current || videoRef.current.readyState < 2) return;
+        try {
+          const barcodes = await detector.detect(videoRef.current);
+          if (barcodes.length === 0) return;
+          const code = barcodes[0].rawValue;
+          const match = activeProducts.find(p => p.sku === code || p.id === code);
+          if (match) {
+            addToCart(match);
+            closeScanner();
+          } else {
+            setScannerError(`No product found for barcode: ${code}`);
+          }
+        } catch { /* frame not ready */ }
+      }, 300);
+    } catch (err: any) {
+      setScannerError(err?.message || 'Camera access denied.');
+    }
+  }, [activeProducts, addToCart, closeScanner]);
+
+  useEffect(() => () => closeScanner(), [closeScanner]);
 
   const loadOrderItems = async (order: OrderDoc) => {
     if (order.itemsSnapshot?.length) {
@@ -1062,14 +1121,23 @@ export function POS() {
                 {t('pos.catalog.live', { count: activeProducts.length })}
               </div>
             </div>
-            <div className="relative">
-              <Search className="w-4 h-4 text-neutral-600 absolute left-3 top-1/2 -translate-y-1/2" />
-              <Input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder={t('pos.catalog.search_placeholder')}
-                className="pl-10 h-11 bg-black/40 border-white/10"
-              />
+            <div className="relative flex gap-2">
+              <div className="relative flex-1">
+                <Search className="w-4 h-4 text-neutral-600 absolute left-3 top-1/2 -translate-y-1/2" />
+                <Input
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder={t('pos.catalog.search_placeholder')}
+                  className="pl-10 h-11 bg-black/40 border-white/10"
+                />
+              </div>
+              <button
+                onClick={openScanner}
+                title="Scan barcode"
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-black/40 text-neutral-500 transition-colors hover:border-blue-400/30 hover:text-blue-300 active:scale-95"
+              >
+                <QrCode className="h-4 w-4" />
+              </button>
             </div>
           </div>
 
@@ -1452,16 +1520,54 @@ export function POS() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-3">
               <div className="space-y-2">
-                <Label>{t('pos.summary.discount')}</Label>
+                <div className="flex items-center justify-between">
+                  <Label>{t('pos.summary.discount')}</Label>
+                  <div className="flex rounded-xl border border-white/10 bg-black/30 p-0.5">
+                    {(['fixed', 'pct'] as const).map(type => (
+                      <button
+                        key={type}
+                        onClick={() => { setDiscountType(type); setDiscountInput('0'); }}
+                        className={cn(
+                          'rounded-[9px] px-3 py-1 text-[10px] font-bold uppercase tracking-wide transition-all',
+                          discountType === type
+                            ? 'bg-white/10 text-white'
+                            : 'text-neutral-600 hover:text-neutral-400'
+                        )}
+                      >
+                        {type === 'fixed' ? '$' : '%'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex gap-1.5">
+                  {discountType === 'pct'
+                    ? [5, 10, 15, 20].map(pct => (
+                        <button
+                          key={pct}
+                          onClick={() => setDiscountInput(String(pct))}
+                          className={cn(
+                            'flex-1 rounded-xl border py-2 text-[11px] font-bold transition-all',
+                            discountInput === String(pct)
+                              ? 'border-blue-400/30 bg-blue-500/15 text-blue-200'
+                              : 'border-white/8 bg-white/[0.03] text-neutral-500 hover:text-white'
+                          )}
+                        >
+                          {pct}%
+                        </button>
+                      ))
+                    : null}
+                </div>
                 <Input
                   type="number"
                   min="0"
-                  step="0.01"
+                  step={discountType === 'pct' ? '1' : '0.01'}
+                  max={discountType === 'pct' ? '100' : undefined}
                   value={discountInput}
                   onChange={(event) => setDiscountInput(event.target.value)}
-                  placeholder="0.00"
+                  placeholder={discountType === 'pct' ? '0' : '0.00'}
+                  className="h-11 bg-black/40 border-white/10"
                 />
               </div>
               <div className="space-y-2">
@@ -1473,6 +1579,7 @@ export function POS() {
                   value={taxInput}
                   onChange={(event) => setTaxInput(event.target.value)}
                   placeholder="0.00"
+                  className="h-11 bg-black/40 border-white/10"
                 />
               </div>
             </div>
@@ -1492,8 +1599,13 @@ export function POS() {
                 <span className="text-white font-mono">{formatCurrency(subtotal)}</span>
               </div>
               <div className="flex items-center justify-between text-sm">
-                <span className="text-neutral-500">{t('pos.summary.discount')}</span>
-                <span className="text-white font-mono">- {formatCurrency(discount)}</span>
+                <span className="text-neutral-500">
+                  {t('pos.summary.discount')}
+                  {discountType === 'pct' && discountRaw > 0 && <span className="ml-1 text-[10px] text-neutral-600">({discountRaw}%)</span>}
+                </span>
+                <span className={cn('font-mono', discount > 0 ? 'text-emerald-300' : 'text-white')}>
+                  {discount > 0 ? `- ${formatCurrency(discount)}` : formatCurrency(0)}
+                </span>
               </div>
               <div className="flex items-center justify-between text-sm">
                 <span className="text-neutral-500">{t('pos.summary.tax')}</span>
@@ -1546,6 +1658,64 @@ export function POS() {
           </Card>
         </div>
       </div>
+
+      {/* Barcode Scanner Modal */}
+      <AnimatePresence>
+        {isScannerOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[80] flex items-center justify-center bg-black/80 backdrop-blur-lg p-4"
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="relative w-full max-w-sm rounded-3xl border border-white/10 bg-[rgba(6,8,12,0.97)] p-5 shadow-2xl"
+            >
+              <div className="mb-4 flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-bold text-white">Escanear código</p>
+                  <p className="text-xs text-neutral-500">Apunta la cámara al código de barras del producto</p>
+                </div>
+                <button onClick={closeScanner} className="flex h-8 w-8 items-center justify-center rounded-xl border border-white/10 text-neutral-500 hover:text-white">
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-black" style={{ aspectRatio: '4/3' }}>
+                <video ref={videoRef} className="h-full w-full object-cover" playsInline muted />
+                {/* Scanning frame overlay */}
+                <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                  <div className="relative h-40 w-64">
+                    <div className="absolute left-0 top-0 h-6 w-6 rounded-tl-lg border-l-2 border-t-2 border-blue-400" />
+                    <div className="absolute right-0 top-0 h-6 w-6 rounded-tr-lg border-r-2 border-t-2 border-blue-400" />
+                    <div className="absolute bottom-0 left-0 h-6 w-6 rounded-bl-lg border-b-2 border-l-2 border-blue-400" />
+                    <div className="absolute bottom-0 right-0 h-6 w-6 rounded-br-lg border-b-2 border-r-2 border-blue-400" />
+                    <motion.div
+                      animate={{ y: [0, 112, 0] }}
+                      transition={{ repeat: Infinity, duration: 2, ease: 'easeInOut' }}
+                      className="absolute inset-x-0 h-[2px] bg-blue-400/70 shadow-[0_0_8px_rgba(96,165,250,0.8)]"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {scannerError && (
+                <div className="mt-3 flex items-start gap-2 rounded-xl border border-red-400/20 bg-red-500/10 px-3 py-2">
+                  <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-400" />
+                  <p className="text-xs text-red-300">{scannerError}</p>
+                </div>
+              )}
+
+              <p className="mt-3 text-center text-[10px] text-neutral-600">
+                Se requiere permiso de cámara · Busca por SKU o ID de producto
+              </p>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

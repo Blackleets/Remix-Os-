@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Card, Button, Input, Label, cn } from '../components/Common';
 import { Plus, UserPlus, Mail, Shield, MoreVertical, Trash2, ShieldCheck, Clock, CheckCircle2, XCircle } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { useToast } from '../contexts/ToastContext';
 import { useLocale } from '../hooks/useLocale';
 import { db, auth } from '../lib/firebase';
 import { collection, query, where, getDocs, addDoc, serverTimestamp, doc, deleteDoc, updateDoc, getDoc, setDoc } from 'firebase/firestore';
@@ -29,6 +30,7 @@ interface Invitation {
 
 export function Team() {
   const { company, role: myRole } = useAuth();
+  const toast = useToast();
   const { t } = useLocale();
   const [members, setMembers] = useState<Member[]>([]);
   const [invitations, setInvitations] = useState<Invitation[]>([]);
@@ -153,7 +155,7 @@ export function Team() {
     if (member.role === 'owner') {
       const owners = members.filter(m => m.role === 'owner');
       if (owners.length <= 1) {
-        alert(t('team.alerts.owner_termination'));
+        toast(t('team.alerts.owner_termination'), 'warning');
         return;
       }
     }
