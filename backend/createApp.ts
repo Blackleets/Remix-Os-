@@ -140,6 +140,26 @@ function sendAiConfigError(res: any) {
   });
 }
 
+// Gemini returns RESOURCE_EXHAUSTED / 429 when the free-tier per-minute or
+// per-day quota is hit. Map these to a clean 429 so the Copilot UI can show its
+// existing "rate limited" toast instead of a confusing generic 500.
+function isGeminiQuotaError(error: any): boolean {
+  if (!error) return false;
+  if (error.status === 429 || error.statusCode === 429 || error.code === 429) return true;
+  const msg = String(error?.message || error || '');
+  return msg.includes('RESOURCE_EXHAUSTED') || msg.includes('quota') || msg.includes('429');
+}
+
+function sendAiQuotaError(res: any, retryAfterSec = 30) {
+  res.setHeader('Retry-After', String(retryAfterSec));
+  return res.status(429).json({
+    error: 'AI quota exceeded',
+    code: 'AI_RATE_LIMIT',
+    details: 'Gemini upstream quota reached. Please retry shortly.',
+    retryAfterSec,
+  });
+}
+
 function logMembership(message: string, extra?: Record<string, unknown>) {
   console.info('[Membership]', message, extra || {});
 }
@@ -1856,6 +1876,7 @@ No markdown, no preamble.`;
       }
     } catch (error: any) {
       console.error('[AI] /api/ai/insights error:', error.message || error);
+      if (isGeminiQuotaError(error)) return sendAiQuotaError(res);
       res.status(500).json({ error: error.message || 'AI request failed' });
     }
   });
@@ -2003,6 +2024,7 @@ Maintain a professional, efficient, and supportive persona.`;
         });
       }
 
+      if (isGeminiQuotaError(error)) return sendAiQuotaError(res);
       res.status(500).json({ error: error.message || 'AI request failed' });
     }
   });
@@ -2125,6 +2147,7 @@ Return ONLY this JSON:
       }
     } catch (error: any) {
       console.error('[AI] /api/ai/proactive-thoughts error:', error.message || error);
+      if (isGeminiQuotaError(error)) return sendAiQuotaError(res);
       res.status(500).json({ error: error.message || 'AI request failed' });
     }
   });

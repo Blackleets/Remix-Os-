@@ -416,7 +416,13 @@ export function Copilot() {
     // caps any abuse; the polling pauses when the tab is hidden (Fase 2 task).
     const interval = setInterval(runMonitoring, 60000);
     return () => clearInterval(interval);
-  }, [company?.id, isOpen, showToast, language, normalizedCopilotError]);
+    // Deps intentionally minimal. Adding `isOpen`/`showToast`/`normalizedCopilotError`
+    // restarted the effect on every panel toggle, firing concurrent monitoring
+    // bursts that tripped Gemini's per-second quota. The toast/render still gates
+    // by the current `isOpen` so a stale closure here does not show toasts at the
+    // wrong time.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [company?.id, language]);
 
   const handleSendMessage = async (overrideText?: string) => {
     const textToSend = (overrideText || inputText).trim();
