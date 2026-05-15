@@ -34,6 +34,7 @@ import { motion } from 'motion/react';
 import { format, subDays, startOfDay, eachDayOfInterval, isSameDay } from 'date-fns';
 import { exportDashboardToPDF } from '../lib/exportUtils';
 import { useLocale } from '../hooks/useLocale';
+import { getOrderTotal } from '../../shared/orders';
 
 interface ActivityItem {
   id: string;
@@ -97,7 +98,7 @@ export function Dashboard() {
       const fourteenDaysAgo = subDays(startOfDay(now), 13);
 
       snapshot.forEach((doc) => {
-        const total = doc.data().total || 0;
+        const total = getOrderTotal(doc.data());
         totalRev += total;
         const date = doc.data().createdAt?.toDate?.();
         if (date) {
@@ -128,7 +129,7 @@ export function Dashboard() {
             const date = entry.data().createdAt?.toDate();
             return date && isSameDay(date, day);
           })
-          .reduce((sum, entry) => sum + (entry.data().total || 0), 0);
+          .reduce((sum, entry) => sum + getOrderTotal(entry.data()), 0);
 
         return {
           name: format(day, 'EEE'),
@@ -343,7 +344,7 @@ export function Dashboard() {
           data: recentOrdersSnap.docs.map((d) => ({
             ID: d.id.slice(-6).toUpperCase(),
             Customer: d.data().customerName,
-            Total: `${d.data().total}`,
+            Total: `${getOrderTotal(d.data()).toFixed(2)}`,
             Status: d.data().status,
             Date: d.data().createdAt,
           })),
