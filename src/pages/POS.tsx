@@ -121,6 +121,8 @@ interface POSReceipt {
   discount: number;
   tax: number;
   total: number;
+  cashReceived?: number;
+  changeDue?: number;
   items: CartItem[];
   footerMessage: string;
 }
@@ -158,6 +160,7 @@ export function POS() {
   const [search, setSearch] = useState('');
   const [customerId, setCustomerId] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<(typeof PAYMENT_METHODS)[number]>('Cash');
+  const [cashReceivedInput, setCashReceivedInput] = useState('');
   const [discountInput, setDiscountInput] = useState('0');
   const [discountType, setDiscountType] = useState<'fixed' | 'pct'>('fixed');
   const [taxInput, setTaxInput] = useState('0');
@@ -350,6 +353,16 @@ export function POS() {
   const discount = discountType === 'pct' ? Math.min(subtotal, subtotal * (discountRaw / 100)) : Math.min(subtotal, discountRaw);
   const tax = Math.max(0, parseFloat(taxInput) || 0);
   const total = Math.max(0, subtotal - discount + tax);
+  const cashReceived = Math.max(0, parseFloat(cashReceivedInput) || 0);
+  const changeDue = Math.max(0, cashReceived - total);
+  const isRetailCashMode = operationMode === 'retail' && paymentMethod === 'Cash';
+  const needsMoreCash = isRetailCashMode && total > 0 && cashReceived < total;
+  const suggestedCashTenders = useMemo(() => {
+    if (total <= 0) return [];
+    const roundedUp5 = Math.ceil(total / 5) * 5;
+    const roundedUp10 = Math.ceil(total / 10) * 10;
+    return Array.from(new Set([total, roundedUp5, roundedUp10])).filter((value) => value > 0);
+  }, [total]);
 
   const sortedCashSessions = useMemo(
     () => [...cashSessions].sort((a, b) => getTimestampValue(b.openedAt) - getTimestampValue(a.openedAt)),
@@ -374,6 +387,12 @@ export function POS() {
       setPaymentMethod(availablePaymentMethods[0]);
     }
   }, [availablePaymentMethods, paymentMethod]);
+
+  useEffect(() => {
+    if (paymentMethod !== 'Cash') {
+      setCashReceivedInput('');
+    }
+  }, [paymentMethod]);
 
   const cartUnits = useMemo(
     () => cart.reduce((sum, item) => sum + item.quantity, 0),
@@ -418,6 +437,7 @@ export function POS() {
     setDiscountInput('0');
     setDiscountType('fixed');
     setTaxInput('0');
+    setCashReceivedInput('');
     setSaleError(null);
   };
 
@@ -829,6 +849,9 @@ export function POS() {
       if (operationMode === 'wholesale' && !customerId) {
         throw new Error('Selecciona un cliente para completar una venta mayorista.');
       }
+      if (isRetailCashMode && cashReceived < total) {
+        throw new Error('El efectivo recibido debe cubrir el total de la venta.');
+      }
 
       const receiptItems = cart.map((item) => ({ ...item }));
       const result = await createSaleTransaction({
@@ -866,6 +889,8 @@ export function POS() {
         discount,
         tax,
         total,
+        cashReceived: isRetailCashMode ? cashReceived : undefined,
+        changeDue: isRetailCashMode ? changeDue : undefined,
         items: receiptItems,
         footerMessage: receiptFooterMessage,
       });
@@ -873,6 +898,7 @@ export function POS() {
       clearCart();
       setCustomerId('');
       setPaymentMethod(operationMode === 'wholesale' ? 'Transfer' : 'Cash');
+      setCashReceivedInput('');
     } catch (error) {
       setSaleError(error instanceof Error ? error.message : t('pos.errors.sale_failed'));
     } finally {
@@ -922,6 +948,8 @@ export function POS() {
           <p class="summary">Discount: ${formatCurrency(latestReceipt.discount)}</p>
           <p class="summary">Tax: ${formatCurrency(latestReceipt.tax)}</p>
           <p class="total">Total: ${formatCurrency(latestReceipt.total)}</p>
+          ${latestReceipt.paymentMethod === 'Cash' && latestReceipt.cashReceived != null ? `<p class="summary">Recibido: ${formatCurrency(latestReceipt.cashReceived)}</p>` : ''}
+          ${latestReceipt.paymentMethod === 'Cash' && latestReceipt.changeDue != null ? `<p class="summary">Cambio: ${formatCurrency(latestReceipt.changeDue)}</p>` : ''}
           <p class="summary">${latestReceipt.footerMessage}</p>
         </body>
       </html>
@@ -1107,6 +1135,12 @@ export function POS() {
                   <p className="text-[10px] uppercase tracking-[0.2em] font-black text-neutral-600 mb-2">{t('pos.receipt.payment')}</p>
                   <p className="text-sm text-white">{latestReceipt.paymentMethod}</p>
                 </div>
+                {latestReceipt.paymentMethod === 'Cash' ? (
+                  <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                    <p className="text-[10px] uppercase tracking-[0.2em] font-black text-neutral-600 mb-2">Cambio</p>
+                    <p className="text-sm font-mono text-white">{formatCurrency(latestReceipt.changeDue || 0)}</p>
+                  </div>
+                ) : null}
                 <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
                   <p className="text-[10px] uppercase tracking-[0.2em] font-black text-neutral-600 mb-2">{t('pos.receipt.items')}</p>
                   <p className="text-sm text-white">{latestReceipt.items.length}</p>
@@ -1196,6 +1230,18 @@ export function POS() {
                 <span className="text-neutral-500">{t('pos.summary.tax')}</span>
                 <span className="text-white font-mono">+ {formatCurrency(latestReceipt.tax)}</span>
               </div>
+              {latestReceipt.paymentMethod === 'Cash' && latestReceipt.cashReceived != null ? (
+                <>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-neutral-500">Recibido</span>
+                    <span className="text-white font-mono">{formatCurrency(latestReceipt.cashReceived)}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-neutral-500">Cambio</span>
+                    <span className="text-emerald-300 font-mono">{formatCurrency(latestReceipt.changeDue || 0)}</span>
+                  </div>
+                </>
+              ) : null}
               <div className="pt-3 mt-3 border-t border-white/10 flex items-center justify-between">
                 <span className="text-xs uppercase tracking-[0.25em] text-neutral-500 font-black">{t('pos.summary.final_total')}</span>
                 <span className="text-2xl font-mono text-white">{formatCurrency(latestReceipt.total)}</span>
@@ -1704,6 +1750,56 @@ export function POS() {
               </div>
             </div>
 
+            {isRetailCashMode ? (
+              <div className="space-y-3 rounded-2xl border border-emerald-500/15 bg-emerald-500/[0.06] p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <Label>Efectivo recibido</Label>
+                    <p className="mt-1 text-[11px] text-emerald-200/80">Usa montos sugeridos para cobrar rapido en caja.</p>
+                  </div>
+                  <div className="rounded-xl border border-emerald-400/20 bg-black/30 px-3 py-2 text-right">
+                    <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-600">{needsMoreCash ? 'Falta' : 'Cambio'}</p>
+                    <p className={cn('text-sm font-mono font-bold', needsMoreCash ? 'text-amber-300' : 'text-emerald-300')}>
+                      {formatCurrency(needsMoreCash ? total - cashReceived : changeDue)}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2">
+                  {suggestedCashTenders.map((amount) => (
+                    <button
+                      key={amount}
+                      type="button"
+                      onClick={() => setCashReceivedInput(amount.toFixed(2))}
+                      className={cn(
+                        'rounded-xl border px-3 py-2 text-[11px] font-bold transition-all',
+                        cashReceivedInput === amount.toFixed(2)
+                          ? 'border-emerald-400/30 bg-emerald-500/15 text-emerald-100'
+                          : 'border-white/10 bg-black/30 text-neutral-300 hover:text-white'
+                      )}
+                    >
+                      {amount === total ? 'Exacto' : formatCurrency(amount)}
+                    </button>
+                  ))}
+                </div>
+
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={cashReceivedInput}
+                  onChange={(event) => setCashReceivedInput(event.target.value)}
+                  placeholder="0.00"
+                  className="h-11 bg-black/40 border-white/10"
+                />
+                <p className={cn('text-[11px]', needsMoreCash ? 'text-amber-300' : 'text-neutral-500')}>
+                  {needsMoreCash
+                    ? `Faltan ${formatCurrency(total - cashReceived)} para cerrar la venta.`
+                    : 'Cobro listo para caja.'}
+                </p>
+              </div>
+            ) : null}
+
             <div className="space-y-3">
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
@@ -1803,6 +1899,20 @@ export function POS() {
                 <span className="text-neutral-500">{t('pos.summary.tax')}</span>
                 <span className="text-white font-mono">+ {formatCurrency(tax)}</span>
               </div>
+              {isRetailCashMode ? (
+                <>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-neutral-500">Recibido</span>
+                    <span className="text-white font-mono">{formatCurrency(cashReceived)}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-neutral-500">{needsMoreCash ? 'Falta' : 'Cambio'}</span>
+                    <span className={cn('font-mono', needsMoreCash ? 'text-amber-300' : 'text-emerald-300')}>
+                      {formatCurrency(needsMoreCash ? total - cashReceived : changeDue)}
+                    </span>
+                  </div>
+                </>
+              ) : null}
               <div className="pt-3 border-t border-white/10 flex items-center justify-between">
                 <span className="text-xs uppercase tracking-[0.25em] text-neutral-500 font-black">{t('pos.summary.total')}</span>
                 <span className="text-3xl font-mono text-white tracking-tighter">{formatCurrency(total)}</span>
@@ -1811,7 +1921,7 @@ export function POS() {
 
             <Button
               className="w-full h-14 text-sm font-bold uppercase tracking-[0.25em] shadow-xl shadow-blue-600/10"
-              disabled={cart.length === 0 || hasCartStockIssue || isSubmitting}
+              disabled={cart.length === 0 || hasCartStockIssue || isSubmitting || needsMoreCash}
               onClick={handleCompleteSale}
             >
               <BadgeDollarSign className="w-4 h-4 mr-2" />
@@ -1845,7 +1955,7 @@ export function POS() {
             </div>
             <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.01] p-4 flex items-center gap-3 text-neutral-500 text-xs">
               <Printer className="w-4 h-4" />
-              Manual tenders are live now. Hardware connectors stay in roadmap until certified.
+              Cobros manuales activos ahora. Los conectores de hardware siguen en roadmap hasta certificarlos.
             </div>
           </Card>
         </div>

@@ -31,7 +31,7 @@ const TYPE_LABELS: Record<PlatformFeedbackItem['type'], string> = {
   bug: 'Bug',
   idea: 'Idea',
   ux: 'UX',
-  billing: 'Billing',
+  billing: 'Facturacion',
   copilot: 'Copilot',
   other: 'Otro',
 };
@@ -46,6 +46,7 @@ export function SuperAdminFeedbackCenter() {
   const [items, setItems] = useState<PlatformFeedbackItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [saveFeedback, setSaveFeedback] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [statusFilter, setStatusFilter] = useState<FilterStatus>('all');
   const [severityFilter, setSeverityFilter] = useState<FilterSeverity>('all');
@@ -91,7 +92,19 @@ export function SuperAdminFeedbackCenter() {
     if (!selectedItem) return;
     setStatusDraft(selectedItem.status);
     setNotesDraft(selectedItem.adminNotes || '');
+    setError(null);
+    setSaveFeedback(null);
   }, [selectedItem]);
+
+  useEffect(() => {
+    if (!selectedItem) return;
+    const refreshedItem = items.find((item) => item.id === selectedItem.id);
+    if (!refreshedItem) {
+      setSelectedItem(null);
+      return;
+    }
+    setSelectedItem(refreshedItem);
+  }, [items, selectedItem]);
 
   const filteredItems = useMemo(() => {
     const normalized = search.trim().toLowerCase();
@@ -108,10 +121,15 @@ export function SuperAdminFeedbackCenter() {
     });
   }, [items, search]);
 
+  const hasUnsavedChanges = selectedItem
+    ? statusDraft !== selectedItem.status || notesDraft !== (selectedItem.adminNotes || '')
+    : false;
+
   const handleSave = async () => {
     if (!selectedItem) return;
     setSaving(true);
     setError(null);
+    setSaveFeedback(null);
     try {
       await updatePlatformFeedback(selectedItem.id, {
         status: statusDraft,
@@ -141,6 +159,7 @@ export function SuperAdminFeedbackCenter() {
         reviewedAt: statusDraft === 'reviewed' ? new Date().toISOString() : current.reviewedAt,
         resolvedAt: statusDraft === 'resolved' ? new Date().toISOString() : current.resolvedAt,
       } : null);
+      setSaveFeedback('Feedback actualizado.');
       setReloadKey((current) => current + 1);
     } catch (saveError) {
       console.error('Failed to update platform feedback:', saveError);
@@ -155,7 +174,7 @@ export function SuperAdminFeedbackCenter() {
       <Card className="border-white/5 bg-neutral-900/40 p-5 xl:col-span-3">
         <div className="mb-5 flex items-center justify-between gap-3">
           <div>
-            <p className="section-kicker text-neutral-500">Feedback Center</p>
+            <p className="section-kicker text-neutral-500">Centro feedback</p>
             <h2 className="mt-2 text-lg font-bold text-white">Beta Feedback</h2>
           </div>
           <div className="telemetry-chip !px-3 !py-2">
@@ -220,7 +239,21 @@ export function SuperAdminFeedbackCenter() {
           </div>
         ) : filteredItems.length === 0 ? (
           <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-8 text-center text-sm text-neutral-500">
-            No hay feedback para los filtros actuales.
+            <p>{items.length === 0 ? 'Todavia no hay feedback registrado.' : 'No hay feedback para los filtros actuales.'}</p>
+            {(statusFilter !== 'all' || severityFilter !== 'all' || search.trim()) ? (
+              <Button
+                type="button"
+                variant="secondary"
+                className="mt-4 border-white/10 bg-white/[0.03]"
+                onClick={() => {
+                  setStatusFilter('all');
+                  setSeverityFilter('all');
+                  setSearch('');
+                }}
+              >
+                Limpiar filtros
+              </Button>
+            ) : null}
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -265,7 +298,14 @@ export function SuperAdminFeedbackCenter() {
 
       {selectedItem ? (
         <div className="fixed inset-0 z-[75] flex justify-end bg-black/50 backdrop-blur-sm">
-          <div className="absolute inset-0" onClick={() => setSelectedItem(null)} />
+          <div
+            className="absolute inset-0"
+            onClick={() => {
+              setSelectedItem(null);
+              setError(null);
+              setSaveFeedback(null);
+            }}
+          />
           <div className="relative z-10 h-full w-full max-w-xl overflow-y-auto border-l border-white/10 bg-neutral-950 px-6 py-6 shadow-2xl">
             <div className="mb-5 flex items-start justify-between gap-4">
               <div>
@@ -274,7 +314,11 @@ export function SuperAdminFeedbackCenter() {
               </div>
               <button
                 type="button"
-                onClick={() => setSelectedItem(null)}
+                onClick={() => {
+                  setSelectedItem(null);
+                  setError(null);
+                  setSaveFeedback(null);
+                }}
                 className="rounded-2xl border border-white/10 bg-white/[0.03] p-2 text-neutral-500 transition-colors hover:text-white"
               >
                 <X className="h-5 w-5" />
@@ -338,6 +382,12 @@ export function SuperAdminFeedbackCenter() {
                 />
               </div>
 
+              {saveFeedback ? (
+                <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.08] px-4 py-3 text-sm text-emerald-200">
+                  {saveFeedback}
+                </div>
+              ) : null}
+
               {error ? (
                 <div className="rounded-2xl border border-red-500/20 bg-red-500/[0.08] px-4 py-3 text-sm text-red-200">
                   <AlertTriangle className="mb-2 h-4 w-4" />
@@ -346,10 +396,18 @@ export function SuperAdminFeedbackCenter() {
               ) : null}
 
               <div className="flex items-center justify-end gap-3">
-                <Button type="button" variant="secondary" onClick={() => setSelectedItem(null)}>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => {
+                    setSelectedItem(null);
+                    setError(null);
+                    setSaveFeedback(null);
+                  }}
+                >
                   Cerrar
                 </Button>
-                <Button type="button" onClick={handleSave} disabled={saving} className="gap-2">
+                <Button type="button" onClick={handleSave} disabled={saving || !hasUnsavedChanges} className="gap-2">
                   {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Filter className="h-4 w-4" />}
                   {saving ? 'Guardando...' : 'Guardar cambios'}
                 </Button>

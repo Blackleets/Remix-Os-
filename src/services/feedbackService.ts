@@ -1,4 +1,4 @@
-import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
+import { addDoc, collection, doc, increment, serverTimestamp, setDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 
 export type BetaFeedbackType =
@@ -55,7 +55,7 @@ export async function submitBetaFeedback(input: BetaFeedbackInput) {
   if (!VALID_TYPES.includes(input.type)) throw new Error('type is invalid');
   if (!VALID_SEVERITIES.includes(input.severity)) throw new Error('severity is invalid');
 
-  return addDoc(collection(db, 'betaFeedback'), {
+  const feedbackRef = await addDoc(collection(db, 'betaFeedback'), {
     companyId,
     companyName: input.companyName?.trim() || null,
     userId,
@@ -70,4 +70,27 @@ export async function submitBetaFeedback(input: BetaFeedbackInput) {
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
+
+  await setDoc(
+    doc(db, 'betaUsers', userId),
+    {
+      uid: userId,
+      email: userEmail,
+      displayName: input.userName?.trim() || null,
+      currentCompanyId: companyId,
+      companyId,
+      companyName: input.companyName?.trim() || null,
+      onboardingStatus: companyId ? 'pending' : 'no_company',
+      needsAttention: true,
+      accessTier: 'free_beta',
+      source: 'public_beta',
+      feedbackCount: increment(1),
+      lastFeedbackAt: serverTimestamp(),
+      lastSeenAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    },
+    { merge: true }
+  );
+
+  return feedbackRef;
 }

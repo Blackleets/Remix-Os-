@@ -172,6 +172,35 @@ service cloud.firestore {
              data.updatedAt == request.time;
     }
 
+    function isValidBetaUserWrite(data, userId) {
+      return data.uid is string &&
+             data.uid == userId &&
+             data.email is string &&
+             data.email.size() > 0 &&
+             data.email.size() <= 320 &&
+             data.accessTier == 'free_beta' &&
+             data.source == 'public_beta' &&
+             data.hasCompany is bool &&
+             data.onboardingStatus in ['no_company', 'pending', 'ready'] &&
+             data.activationStage in ['signed_up', 'company_created', 'data_seeded', 'active'] &&
+             data.needsAttention is bool &&
+             (!('companyId' in data) || data.companyId == null || (data.companyId is string && data.companyId.size() <= 128)) &&
+             (!('currentCompanyId' in data) || data.currentCompanyId == null || (data.currentCompanyId is string && data.currentCompanyId.size() <= 128)) &&
+             (!('companyName' in data) || data.companyName == null || (data.companyName is string && data.companyName.size() <= 200)) &&
+             (!('companyIndustry' in data) || data.companyIndustry == null || (data.companyIndustry is string && data.companyIndustry.size() <= 120)) &&
+             (!('onboardingChecklist' in data) || data.onboardingChecklist == null || (
+               data.onboardingChecklist.profile is bool &&
+               data.onboardingChecklist.product is bool &&
+               data.onboardingChecklist.customer is bool &&
+               data.onboardingChecklist.order is bool
+             )) &&
+             (!('displayName' in data) || data.displayName == null || (data.displayName is string && data.displayName.size() <= 120)) &&
+             (!('photoURL' in data) || data.photoURL == null || (data.photoURL is string && data.photoURL.size() <= 2000)) &&
+             (!('role' in data) || data.role == null || data.role in ['owner', 'admin', 'staff', 'viewer']) &&
+             (!('subscriptionStatus' in data) || data.subscriptionStatus == null || data.subscriptionStatus in ['active', 'past_due', 'trialing', 'canceled', 'incomplete', 'unpaid']) &&
+             (!('feedbackCount' in data) || (data.feedbackCount is number && data.feedbackCount >= 0));
+    }
+
     // Bounds invoice payloads so a malicious client can't write a huge
     // items[] array or megabyte-long strings that would blow up reads and
     // billing costs for the whole tenant. Optional fields are only checked
@@ -250,6 +279,25 @@ service cloud.firestore {
       allow create: if isPlatformAdmin() &&
                     request.resource.data.actorUid == request.auth.uid;
       allow update, delete: if false;
+    }
+
+    match /betaUsers/{userId} {
+      allow read: if isPlatformAdmin() || (isSignedIn() && request.auth.uid == userId);
+      allow create, update: if isSignedIn() &&
+                            request.auth.uid == userId &&
+                            isValidBetaUserWrite(request.resource.data, userId);
+      allow delete: if false;
+    }
+
+    match /betaUserOps/{userId} {
+      allow read: if isPlatformAdmin();
+      allow create, update: if isPlatformAdmin() &&
+                            request.resource.data.userId == userId &&
+                            request.resource.data.followUpStatus in ['new', 'watching', 'contacted', 'qualified'] &&
+                            (!('notes' in request.resource.data) || request.resource.data.notes == null || (request.resource.data.notes is string && request.resource.data.notes.size() <= 2000)) &&
+                            (!('targetCompanyId' in request.resource.data) || request.resource.data.targetCompanyId == null || (request.resource.data.targetCompanyId is string && request.resource.data.targetCompanyId.size() <= 128)) &&
+                            (!('updatedBy' in request.resource.data) || request.resource.data.updatedBy == request.auth.uid);
+      allow delete: if false;
     }
 
     match /adminAuditLogs/{logId} {

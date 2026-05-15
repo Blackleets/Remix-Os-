@@ -3,6 +3,7 @@ import { User, onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc, collection, query, where, getDocs, setDoc, serverTimestamp, updateDoc, limit } from 'firebase/firestore';
 import { auth, db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { normalizeCompanyVertical, getCompanyVerticalLabel } from '../lib/company';
+import { upsertBetaUserRegistry } from '../services/betaRegistry';
 
 interface Company {
   id: string;
@@ -305,6 +306,49 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
     return () => unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (!user?.uid || !user.email || loading) return;
+
+    const onboardingStatus: 'no_company' | 'pending' | 'ready' =
+      !company
+        ? 'no_company'
+        : company.onboardingState?.isComplete
+          ? 'ready'
+          : 'pending';
+
+    void upsertBetaUserRegistry({
+      uid: user.uid,
+      email: user.email,
+      displayName: userProfile?.displayName || user.displayName,
+      photoURL: userProfile?.photoURL || user.photoURL,
+      currentCompanyId: userProfile?.currentCompanyId || company?.id || null,
+      companyId: company?.id || null,
+      companyName: company?.name || null,
+      companyIndustry: company?.industry || null,
+      role,
+      onboardingStatus,
+      onboardingChecklist: company?.onboardingState?.checklist || null,
+      subscriptionStatus: company?.subscription?.status || null,
+    }).catch((error) => {
+      console.error('Error syncing beta user registry:', error);
+    });
+  }, [
+    company?.id,
+    company?.industry,
+    company?.name,
+    company?.onboardingState?.isComplete,
+    company?.subscription?.status,
+    loading,
+    role,
+    user?.displayName,
+    user?.email,
+    user?.photoURL,
+    user?.uid,
+    userProfile?.currentCompanyId,
+    userProfile?.displayName,
+    userProfile?.photoURL,
+  ]);
 
   return (
     <AuthContext.Provider value={{ user, userProfile, company, role, loading, refreshCompany, refreshProfile }}>
