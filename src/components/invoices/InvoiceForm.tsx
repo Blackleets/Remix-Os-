@@ -71,6 +71,10 @@ interface InvoiceFormProps {
   saving?: boolean;
   readOnly?: boolean;
   existing?: Invoice | null;
+  // Operation-level error (save/issue failure) raised by the parent. Rendered
+  // inside the modal so the user actually sees it — the page-level banner sits
+  // behind this overlay and would otherwise be invisible.
+  error?: string | null;
 }
 
 function emptyItem(): InvoiceItemInput {
@@ -95,6 +99,7 @@ export function InvoiceForm({
   saving,
   readOnly,
   existing,
+  error,
 }: InvoiceFormProps) {
   const [type, setType] = useState<InvoiceType>(initial?.type || 'invoice');
   const [series, setSeries] = useState(initial?.series || 'A');
@@ -585,6 +590,12 @@ export function InvoiceForm({
               {defaultIssuer.address && <p className="mt-1">{defaultIssuer.address}</p>}
               {defaultIssuer.country && <p className="mt-1">{defaultIssuer.country}</p>}
             </div>
+
+            {error && (
+              <div className="rounded-2xl border border-red-500/30 bg-red-500/[0.08] px-4 py-3 text-sm text-red-200">
+                {error}
+              </div>
+            )}
 
             {!readOnly && (
               <div className="space-y-2">

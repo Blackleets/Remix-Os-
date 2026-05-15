@@ -792,6 +792,7 @@ export function Invoices() {
         }
         saving={saving}
         readOnly={!!editing && editing.status !== 'draft'}
+        error={formOpen ? actionError : null}
         onSaveDraft={handleSaveDraft}
         onIssue={handleIssue}
       />
