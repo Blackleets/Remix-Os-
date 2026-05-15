@@ -1023,30 +1023,61 @@ export function Dashboard() {
 
             <div className="space-y-3">
               {[
+                ...(invoiceMetrics.overdueCount > 0
+                  ? [{
+                      label: `Cobrar ${invoiceMetrics.overdueCount} factura${invoiceMetrics.overdueCount === 1 ? '' : 's'} vencida${invoiceMetrics.overdueCount === 1 ? '' : 's'}`,
+                      detail: `Tienes ${formatCurrency(invoiceMetrics.unpaidTotal)} pendiente. Revisa las facturas vencidas y dispara recordatorios al cliente.`,
+                      action: () => navigate('/invoices'),
+                      tone: 'amber' as const,
+                    }]
+                  : invoiceMetrics.unpaidTotal > 0
+                    ? [{
+                        label: 'Revisar cobros pendientes',
+                        detail: `${formatCurrency(invoiceMetrics.unpaidTotal)} aún sin cobrar. Marca como pagadas las que ya hayas conciliado.`,
+                        action: () => navigate('/invoices'),
+                        tone: 'blue' as const,
+                      }]
+                    : []),
                 {
                   label: 'Revisar presión por bajo stock',
                   detail: 'Abre la inteligencia de inventario e inspecciona cobertura antes de que la demanda aumente.',
                   action: () => navigate('/inventory'),
+                  tone: 'blue' as const,
                 },
                 {
                   label: 'Inspeccionar flujo transaccional',
                   detail: 'Revisa pedidos recientes y detecta fricciones de conversión antes de que escalen.',
                   action: () => navigate('/orders'),
+                  tone: 'blue' as const,
                 },
                 {
                   label: 'Pedir un informe ejecutivo al operador IA',
                   detail: 'Genera un resumen de ingresos, movimiento de clientes y riesgos operativos.',
                   action: () => window.dispatchEvent(new CustomEvent('open-copilot')),
+                  tone: 'blue' as const,
                 },
               ].map((item) => (
                 <button
                   key={item.label}
                   onClick={item.action}
-                  className="surface-elevated block w-full p-4 text-left transition-all hover:border-blue-400/16 hover:bg-white/[0.035]"
+                  className={cn(
+                    'surface-elevated block w-full p-4 text-left transition-all',
+                    item.tone === 'amber'
+                      ? 'border-amber-400/20 bg-amber-500/[0.06] hover:border-amber-400/30 hover:bg-amber-500/[0.10]'
+                      : 'hover:border-blue-400/16 hover:bg-white/[0.035]'
+                  )}
                 >
                   <div className="flex items-start gap-3">
-                    <div className="mt-0.5 flex h-9 w-9 items-center justify-center rounded-2xl border border-blue-400/12 bg-blue-500/8">
-                      <ChevronRight className="h-4 w-4 text-blue-300" />
+                    <div className={cn(
+                      'mt-0.5 flex h-9 w-9 items-center justify-center rounded-2xl border',
+                      item.tone === 'amber'
+                        ? 'border-amber-400/20 bg-amber-500/12'
+                        : 'border-blue-400/12 bg-blue-500/8'
+                    )}>
+                      <ChevronRight className={cn(
+                        'h-4 w-4',
+                        item.tone === 'amber' ? 'text-amber-300' : 'text-blue-300'
+                      )} />
                     </div>
                     <div>
                       <p className="text-sm font-semibold text-white">{item.label}</p>

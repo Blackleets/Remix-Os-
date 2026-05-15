@@ -283,6 +283,69 @@ export async function cancelInvoice(invoiceId: string): Promise<void> {
   await updateDoc(ref, { status: 'cancelled', updatedAt: serverTimestamp() });
 }
 
+// Clone an existing invoice as a fresh draft — useful for recurring billing
+// or re-issuing a corrected version. The new document gets:
+// - a fresh id, status="draft", empty invoiceNumber/sequentialNumber so the
+//   counter is only spent when the draft is explicitly issued.
+// - issueDate set to today; dueDate is dropped so the operator re-confirms it.
+// - payment fields reset (amountPaid=0, amountDue=total).
+// - orderId stripped to avoid linking two invoices to the same order.
+export async function duplicateInvoice(invoiceId: string, createdBy: string): Promise<string> {
+  const sourceRef = doc(db, INVOICES_COLLECTION, invoiceId);
+  const snap = await getDoc(sourceRef);
+  if (!snap.exists()) throw new Error('Factura no encontrada');
+  const source = snap.data() as Invoice;
+
+  const newRef = doc(collection(db, INVOICES_COLLECTION));
+  const cloneItems: InvoiceLineItem[] = (source.items || []).map((it) => ({
+    ...it,
+    id: typeof globalThis !== 'undefined' && (globalThis as any).crypto?.randomUUID
+      ? (globalThis as any).crypto.randomUUID()
+      : `inv_${Math.random().toString(36).slice(2, 10)}`,
+  }));
+
+  await setDoc(newRef, stripUndefined({
+    companyId: source.companyId,
+    type: source.type,
+    status: 'draft' as const,
+    invoiceNumber: '',
+    series: source.series,
+    sequentialNumber: 0,
+    customerId: source.customerId,
+    customerName: source.customerName,
+    customerEmail: source.customerEmail,
+    customerTaxId: source.customerTaxId,
+    customerAddress: source.customerAddress,
+    customerCountry: source.customerCountry,
+    issuerName: source.issuerName,
+    issuerTaxId: source.issuerTaxId,
+    issuerAddress: source.issuerAddress,
+    issuerCountry: source.issuerCountry,
+    currency: source.currency,
+    locale: source.locale,
+    countryProfile: source.countryProfile,
+    issueDate: Timestamp.fromDate(new Date()),
+    dueDate: null,
+    items: cloneItems,
+    subtotal: source.subtotal,
+    discountTotal: source.discountTotal,
+    taxTotal: source.taxTotal,
+    total: source.total,
+    amountPaid: 0,
+    amountDue: source.total,
+    notes: source.notes,
+    terms: source.terms,
+    complianceMode: source.complianceMode || 'commercial_only',
+    fiscalProvider: 'none' as const,
+    fiscalStatus: 'not_required' as const,
+    createdBy,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  }) as any);
+
+  return newRef.id;
+}
+
 export async function deleteInvoiceDraft(invoiceId: string): Promise<void> {
   const ref = doc(db, INVOICES_COLLECTION, invoiceId);
   const snap = await getDoc(ref);

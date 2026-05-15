@@ -2127,7 +2127,12 @@ Revenue (Last 30 Days): $${Number(overview.recentRevenue30d ?? overview.recentRe
 Growth vs Prev Period: ${Number(overview.growth || 0).toFixed(1)}%
 Top Products: ${JSON.stringify(overview.topProducts || [])}
 Low Stock Items: ${JSON.stringify(overview.lowStockItems || [])}
-Top Customers: ${JSON.stringify(overview.topCustomers || [])}
+Top Customers: ${JSON.stringify(overview.topCustomers || [])}${
+  (overview.invoicesSummary?.invoicesCount || 0) > 0
+    ? `
+Invoicing: ${overview.invoicesSummary!.invoicesCount} documents · unpaid $${overview.invoicesSummary!.unpaidInvoicesTotal.toFixed(2)} · overdue ${overview.invoicesSummary!.overdueCount}`
+    : ''
+}
 
 Constraint based on Plan:
 - starter: basic observations and straightforward advice.
@@ -2460,7 +2465,12 @@ LIVE STATE:
 - Customers: ${context.customersCount} · Products: ${context.productsCount} · Orders: ${context.ordersCount || 0}
 - 30-day revenue: $${Number(context.recentRevenue30d ?? context.recentRevenue ?? 0).toFixed(2)} (growth ${Number(context.growth || 0).toFixed(1)}%)
 - This-week orders: ${context.salesVelocity?.currentPeriodOrders || 0} (trend: ${context.salesVelocity?.trend || 'flat'})
-- Low stock items: ${context.lowStockCount}
+- Low stock items: ${context.lowStockCount}${
+  (context.invoicesSummary?.invoicesCount || 0) > 0
+    ? `
+- Invoicing: $${context.invoicesSummary!.unpaidInvoicesTotal.toFixed(2)} unpaid across ${context.invoicesSummary!.issuedCount + context.invoicesSummary!.overdueCount} open invoices${context.invoicesSummary!.overdueCount > 0 ? ` (${context.invoicesSummary!.overdueCount} overdue)` : ''}`
+    : ''
+}
 
 TOP PRODUCTS: ${(context.topProducts?.slice(0, 3) || []).map((p: AnyRecord) => `${p.name} (${p.quantity})`).join(', ') || 'none yet'}
 TOP CUSTOMERS: ${(context.topCustomers?.slice(0, 3) || []).map((c: AnyRecord) => `${c.name} ($${c.total})`).join(', ') || 'none yet'}
@@ -2713,7 +2723,12 @@ CURRENT BUSINESS DATA:
 - Pending Follow-ups: ${ctx.pendingReminders?.length || 0}
 - Total Customers: ${ctx.customersCount}
 - Top Products: ${(ctx.topProducts?.slice(0, 3) || []).map((p: AnyRecord) => `${p.name} ($${p.revenue})`).join(', ') || 'No data'}
-- Top Customers: ${(ctx.topCustomers?.slice(0, 3) || []).map((c: AnyRecord) => `${c.name} ($${c.total})`).join(', ') || 'No data'}`;
+- Top Customers: ${(ctx.topCustomers?.slice(0, 3) || []).map((c: AnyRecord) => `${c.name} ($${c.total})`).join(', ') || 'No data'}${
+  (ctx.invoicesSummary?.invoicesCount || 0) > 0
+    ? `
+- Invoicing: $${ctx.invoicesSummary!.unpaidInvoicesTotal.toFixed(2)} pending · ${ctx.invoicesSummary!.overdueCount} overdue invoices`
+    : ''
+}`;
 
       const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash',

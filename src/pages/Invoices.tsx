@@ -11,6 +11,7 @@ import {
   CheckCircle2,
   XCircle,
   Loader2,
+  Copy,
 } from 'lucide-react';
 import {
   collection,
@@ -31,6 +32,7 @@ import { InvoiceStatusBadge, invoiceStatusLabel } from '../components/invoices/I
 import {
   cancelInvoice,
   deleteInvoiceDraft,
+  duplicateInvoice,
   issueInvoice,
   markInvoicePaid,
   markInvoiceSent,
@@ -288,6 +290,19 @@ export function Invoices() {
     }
   };
 
+  const handleDuplicate = async (invoice: Invoice) => {
+    if (!user) return;
+    setActionBusyId(invoice.id);
+    setActionError(null);
+    try {
+      await duplicateInvoice(invoice.id, user.uid);
+    } catch (err: any) {
+      setActionError(err?.message || 'No se pudo duplicar la factura.');
+    } finally {
+      setActionBusyId(null);
+    }
+  };
+
   const runAction = async (invoice: Invoice, action: () => Promise<void>) => {
     setActionBusyId(invoice.id);
     setActionError(null);
@@ -493,6 +508,14 @@ export function Invoices() {
                             onClick={() => handleDownloadPdf(inv)}
                             icon={<Download className="h-3.5 w-3.5" />}
                           />
+                          {canManage && (
+                            <RowAction
+                              title="Duplicar como nuevo borrador"
+                              onClick={() => handleDuplicate(inv)}
+                              busy={actionBusyId === inv.id}
+                              icon={<Copy className="h-3.5 w-3.5" />}
+                            />
+                          )}
                           {canManage && inv.status === 'issued' && (
                             <RowAction
                               title="Marcar como enviada"
