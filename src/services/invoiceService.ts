@@ -7,7 +7,6 @@ import {
   onSnapshot,
   Timestamp,
   serverTimestamp,
-  runTransaction,
   getDoc,
   updateDoc,
   deleteDoc,
@@ -21,7 +20,6 @@ import type {
 import {
   calculateInvoiceTotals,
   canDeleteInvoice as canDeleteByStatus,
-  formatInvoiceNumber,
   isInvoiceEditable,
   type ComplianceMode,
   type CountryProfileId,
@@ -32,7 +30,6 @@ import {
 import { getCountryProfile } from '../../shared/invoiceProfiles';
 
 const INVOICES_COLLECTION = 'invoices';
-const COUNTERS_COLLECTION = 'invoiceCounters';
 
 export interface InvoiceDraftInput {
   companyId: string;
@@ -64,10 +61,6 @@ export interface InvoiceDraftInput {
   createdBy: string;
 
   complianceMode?: ComplianceMode;
-}
-
-function counterId(companyId: string, series: string): string {
-  return `${companyId}_${(series || 'A').toUpperCase()}`;
 }
 
 function normalizeOptionalText(value: string | undefined | null): string | undefined {
@@ -202,11 +195,13 @@ export async function updateInvoiceDraft(invoiceId: string, input: InvoiceDraftI
   } as any);
 }
 
-// Issue a draft → assign a sequential number atomically. Prefer the backend
-// endpoint POST /api/invoices/issue (server-side firebase-admin tx, hardened
-// against client tampering). Fall back to a client-side Firestore tx if the
-// backend isn't reachable yet (404 / network error). This makes the SaaS
-// safely deployable in stages.
+// Issue a draft → the sequential number is ALWAYS assigned server-side by
+// POST /api/invoices/issue (firebase-admin transaction on
+// invoiceCounters/{companyId}_{series}). There is intentionally NO
+// client-side numbering fallback: legal invoice numbering must be
+// authoritative and tamper-proof, so if the backend is unreachable we fail
+// loudly instead of minting a number the client could manipulate or
+// duplicate. The caller surfaces the thrown message to the user.
 export async function issueInvoice(invoiceId: string): Promise<{ invoiceNumber: string; sequentialNumber: number }> {
   const invRef = doc(db, INVOICES_COLLECTION, invoiceId);
   const invSnap = await getDoc(invRef);
@@ -216,80 +211,52 @@ export async function issueInvoice(invoiceId: string): Promise<{ invoiceNumber: 
     throw new Error('Solo borradores pueden emitirse.');
   }
 
-  const serverResult = await tryIssueOnServer(invoice.companyId, invoiceId);
-  if (serverResult) return serverResult;
+  const token = await auth.currentUser?.getIdToken().catch(() => null);
+  if (!token) {
+    throw new Error('Tu sesión expiró. Vuelve a iniciar sesión para emitir la factura.');
+  }
 
-  return await runTransaction(db, async (tx) => {
-    const freshSnap = await tx.get(invRef);
-    if (!freshSnap.exists()) throw new Error('Factura no encontrada');
-    const fresh = freshSnap.data() as Invoice;
-    if (fresh.status !== 'draft') {
-      throw new Error('Solo borradores pueden emitirse.');
-    }
-
-    const ctrRef = doc(db, COUNTERS_COLLECTION, counterId(fresh.companyId, fresh.series));
-    const ctrSnap = await tx.get(ctrRef);
-    const current = ctrSnap.exists() ? Number(ctrSnap.data().nextNumber || 1) : 1;
-
-    const invoiceNumber = formatInvoiceNumber(fresh.series, current);
-
-    tx.set(ctrRef, {
-      companyId: fresh.companyId,
-      series: fresh.series,
-      nextNumber: current + 1,
-      updatedAt: serverTimestamp(),
-    }, { merge: true });
-
-    tx.update(invRef, {
-      status: 'issued',
-      invoiceNumber,
-      sequentialNumber: current,
-      updatedAt: serverTimestamp(),
-    });
-
-    return { invoiceNumber, sequentialNumber: current };
-  });
-}
-
-async function tryIssueOnServer(
-  companyId: string,
-  invoiceId: string
-): Promise<{ invoiceNumber: string; sequentialNumber: number } | null> {
+  let response: Response;
   try {
-    const token = await auth.currentUser?.getIdToken();
-    if (!token) return null;
-    const response = await fetch('/api/invoices/issue', {
+    response = await fetch('/api/invoices/issue', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ companyId, invoiceId }),
+      body: JSON.stringify({ companyId: invoice.companyId, invoiceId }),
     });
-    // 404 / 405 → endpoint not deployed yet, fall back silently.
-    if (response.status === 404 || response.status === 405) return null;
-    if (!response.ok) {
-      let message = `Issue failed (${response.status})`;
-      try {
-        const body = await response.json();
-        if (body?.error) message = body.error;
-      } catch {
-        /* ignore */
-      }
-      throw new Error(message);
-    }
-    const payload = await response.json();
-    return {
-      invoiceNumber: String(payload.invoiceNumber || ''),
-      sequentialNumber: Number(payload.sequentialNumber || 0),
-    };
-  } catch (err: any) {
-    // Network/CORS/typeerror → backend unreachable. Fall back to client tx.
-    if (err instanceof Error && err.message && !err.message.toLowerCase().includes('failed to fetch')) {
-      throw err;
-    }
-    return null;
+  } catch {
+    // Network/CORS failure — do NOT fall back to client numbering.
+    throw new Error(
+      'No se pudo contactar el servidor para emitir la factura. Revisa tu conexión e inténtalo de nuevo.'
+    );
   }
+
+  if (response.status === 404 || response.status === 405) {
+    throw new Error(
+      'El servicio de emisión de facturas no está disponible en este despliegue. Contacta a soporte antes de emitir.'
+    );
+  }
+
+  if (!response.ok) {
+    let message = `No se pudo emitir la factura (error ${response.status}).`;
+    try {
+      const body = await response.json();
+      if (body?.error) message = String(body.error);
+    } catch {
+      /* keep generic message */
+    }
+    throw new Error(message);
+  }
+
+  const payload = await response.json().catch(() => null);
+  const invoiceNumber = payload && typeof payload.invoiceNumber === 'string' ? payload.invoiceNumber : '';
+  const sequentialNumber = payload && typeof payload.sequentialNumber === 'number' ? payload.sequentialNumber : 0;
+  if (!invoiceNumber) {
+    throw new Error('El servidor no devolvió un número de factura válido. Inténtalo de nuevo.');
+  }
+  return { invoiceNumber, sequentialNumber };
 }
 
 export async function markInvoicePaid(invoiceId: string, amountPaid?: number): Promise<void> {
