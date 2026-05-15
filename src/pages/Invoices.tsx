@@ -84,6 +84,16 @@ interface OrderPrefill {
   items: InvoiceItemInput[];
 }
 
+interface POSQuotePrefill {
+  customerId?: string;
+  customerName?: string;
+  customerEmail?: string;
+  customerTaxId?: string;
+  customerAddress?: string;
+  customerCountry?: string;
+  items: InvoiceItemInput[];
+}
+
 export function Invoices() {
   const { user, company, role } = useAuth();
   const location = useLocation();
@@ -97,6 +107,7 @@ export function Invoices() {
   const [editing, setEditing] = useState<Invoice | null>(null);
   const [defaultType, setDefaultType] = useState<InvoiceType>('invoice');
   const [prefill, setPrefill] = useState<OrderPrefill | null>(null);
+  const [posQuotePrefill, setPosQuotePrefill] = useState<POSQuotePrefill | null>(null);
   const [saving, setSaving] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionBusyId, setActionBusyId] = useState<string | null>(null);
@@ -107,11 +118,22 @@ export function Invoices() {
   // the navigation state once, then strip it so a back/refresh doesn't
   // reopen the form unexpectedly.
   useEffect(() => {
-    const fromOrder = (location.state as { fromOrder?: OrderPrefill } | null)?.fromOrder;
-    if (!fromOrder) return;
-    setPrefill(fromOrder);
+    const state = location.state as { fromOrder?: OrderPrefill; fromPosQuote?: POSQuotePrefill } | null;
+    const fromOrder = state?.fromOrder;
+    const fromPosQuote = state?.fromPosQuote;
+    if (!fromOrder && !fromPosQuote) return;
+    setPrefill(fromOrder || null);
+    setPosQuotePrefill(fromPosQuote || null);
     setEditing(null);
-    setDefaultType('invoice');
+    setDefaultType(fromPosQuote ? 'quote' : 'invoice');
+    if (fromPosQuote) {
+      setFormOpen(true);
+      navigate(location.pathname, {
+        replace: true,
+        state: null,
+      });
+      return;
+    }
     setFormOpen(true);
     navigate(location.pathname, { replace: true, state: null });
   }, [location.state, location.pathname, navigate]);
@@ -210,6 +232,7 @@ export function Invoices() {
     setFormOpen(false);
     setEditing(null);
     setPrefill(null);
+    setPosQuotePrefill(null);
   };
 
   const buildDraftInput = (values: InvoiceFormValues) => ({
@@ -703,6 +726,18 @@ export function Invoices() {
                   orderId: prefill.orderId,
                   items: prefill.items,
                 }
+              : posQuotePrefill
+                ? {
+                    type: defaultType,
+                    countryProfile: 'ES',
+                    customerId: posQuotePrefill.customerId,
+                    customerName: posQuotePrefill.customerName || '',
+                    customerEmail: posQuotePrefill.customerEmail,
+                    customerTaxId: posQuotePrefill.customerTaxId,
+                    customerAddress: posQuotePrefill.customerAddress,
+                    customerCountry: posQuotePrefill.customerCountry,
+                    items: posQuotePrefill.items || [],
+                  }
               : { type: defaultType, countryProfile: 'ES' }
         }
         saving={saving}

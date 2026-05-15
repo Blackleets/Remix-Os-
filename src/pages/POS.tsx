@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import { useNavigate } from 'react-router-dom';
 import {
   AlertCircle,
   BadgeDollarSign,
@@ -42,6 +43,7 @@ import { db } from '../lib/firebase';
 import { createSaleTransaction } from '../services/sales';
 import { exportPOSReceiptToPDF } from '../lib/exportUtils';
 import { getOrderTotal } from '../../shared/orders';
+import type { InvoiceItemInput } from '../../shared/invoices';
 
 interface Product {
   id: string;
@@ -59,6 +61,10 @@ interface Customer {
   id: string;
   name: string;
   phone?: string;
+  email?: string;
+  taxId?: string;
+  address?: string;
+  country?: string;
   totalOrders?: number;
   totalSpent?: number;
   rfmTier?: string;
@@ -150,6 +156,7 @@ export function POS() {
   const { company, user, userProfile } = useAuth();
   const { t, formatCurrency } = useLocale();
   const { canUsePOS } = usePermissions();
+  const navigate = useNavigate();
   const commandBarInputRef = useRef<HTMLInputElement>(null);
 
   const [products, setProducts] = useState<Product[]>([]);
@@ -202,6 +209,10 @@ export function POS() {
         id: entry.id,
         name: entry.data().name || 'Unknown',
         phone: entry.data().phone,
+        email: entry.data().email,
+        taxId: entry.data().taxId || entry.data().rfc || entry.data().nif,
+        address: entry.data().address,
+        country: entry.data().country,
         totalOrders: entry.data().totalOrders,
         totalSpent: entry.data().totalSpent,
         rfmTier: entry.data().rfmTier,
@@ -347,6 +358,10 @@ export function POS() {
     if (!customerId) return t('orders.guest') || 'Guest';
     return customers.find((customer) => customer.id === customerId)?.name || t('orders.guest') || 'Guest';
   }, [customerId, customers, t]);
+  const selectedCustomer = useMemo(
+    () => customers.find((customer) => customer.id === customerId) || null,
+    [customerId, customers]
+  );
 
   const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const discountRaw = Math.max(0, parseFloat(discountInput) || 0);
@@ -396,6 +411,18 @@ export function POS() {
 
   const cartUnits = useMemo(
     () => cart.reduce((sum, item) => sum + item.quantity, 0),
+    [cart]
+  );
+  const wholesaleDraftItems = useMemo<InvoiceItemInput[]>(
+    () =>
+      cart.map((item) => ({
+        productId: item.productId,
+        name: item.name,
+        quantity: item.quantity,
+        unitPrice: item.price,
+        discountRate: 0,
+        taxRate: 0,
+      })),
     [cart]
   );
 
@@ -906,6 +933,32 @@ export function POS() {
     }
   };
 
+  const handleCreateWholesaleQuote = () => {
+    if (operationMode !== 'wholesale') return;
+    if (cart.length === 0) {
+      setSaleError('Agrega productos antes de generar un presupuesto mayorista.');
+      return;
+    }
+    if (!selectedCustomer) {
+      setSaleError('Selecciona un cliente para crear un presupuesto mayorista.');
+      return;
+    }
+
+    navigate('/invoices', {
+      state: {
+        fromPosQuote: {
+          customerId: selectedCustomer.id,
+          customerName: selectedCustomer.name,
+          customerEmail: selectedCustomer.email,
+          customerTaxId: selectedCustomer.taxId,
+          customerAddress: selectedCustomer.address,
+          customerCountry: selectedCustomer.country,
+          items: wholesaleDraftItems,
+        },
+      },
+    });
+  };
+
   const handlePrintReceipt = () => {
     if (!latestReceipt) return;
 
@@ -1370,6 +1423,38 @@ export function POS() {
 
         <div className="space-y-5">
           <Card className="flex min-h-[680px] flex-col overflow-hidden border-white/5 bg-neutral-900/40 p-0">
+            {operationMode === 'wholesale' ? (
+              <div className="border-b border-cyan-500/10 bg-cyan-500/[0.06] px-5 py-4">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-[0.22em] text-cyan-200/80">Wholesale flow</p>
+                    <h3 className="mt-2 text-sm font-bold text-white">Convierte este carrito en presupuesto</h3>
+                    <p className="mt-1 text-xs text-cyan-100/70">
+                      Usa facturacion para validar PDF, compartir propuesta y cerrar antes del cobro.
+                    </p>
+                  </div>
+                  <Button
+                    variant="secondary"
+                    className="gap-2"
+                    onClick={handleCreateWholesaleQuote}
+                    disabled={cart.length === 0 || !selectedCustomer}
+                  >
+                    <ReceiptText className="h-4 w-4" />
+                    Crear presupuesto
+                  </Button>
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-3">
+                  <div className="rounded-2xl border border-white/10 bg-black/20 px-3 py-3">
+                    <p className="text-[10px] font-black uppercase tracking-[0.18em] text-neutral-500">Cliente</p>
+                    <p className="mt-2 text-sm font-bold text-white">{selectedCustomer?.name || 'Requerido'}</p>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-black/20 px-3 py-3">
+                    <p className="text-[10px] font-black uppercase tracking-[0.18em] text-neutral-500">Unidades</p>
+                    <p className="mt-2 text-sm font-bold text-white">{cartUnits}</p>
+                  </div>
+                </div>
+              </div>
+            ) : null}
             <div className="flex items-center justify-between border-b border-white/[0.05] bg-white/[0.01] p-5">
               <div>
                 <p className="mb-2 text-[10px] font-black uppercase tracking-[0.35em] text-neutral-600">{t('pos.cart.label')}</p>
