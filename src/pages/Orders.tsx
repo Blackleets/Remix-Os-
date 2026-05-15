@@ -625,7 +625,7 @@ export function Orders() {
             >
               <div className="flex items-center justify-between border-b border-white/[0.05] bg-white/[0.02] p-8">
                 <h2 className="font-display text-xl font-bold uppercase tracking-tight text-white">{t('orders.modal.title')}</h2>
-                <button onClick={() => setIsModalOpen(false)} className="rounded-full p-2 text-neutral-500 transition-colors hover:bg-white/5 hover:text-white">
+                <button type="button" aria-label="Cerrar" onClick={() => setIsModalOpen(false)} className="rounded-full p-2 text-neutral-500 transition-colors hover:bg-white/5 hover:text-white">
                   <Plus className="w-6 h-6 rotate-45" />
                 </button>
               </div>

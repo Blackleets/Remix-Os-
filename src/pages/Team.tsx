@@ -38,6 +38,7 @@ export function Team() {
   const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [inviteError, setInviteError] = useState<string | null>(null);
+  const [teamError, setTeamError] = useState<string | null>(null);
   const [inviteForm, setInviteForm] = useState({ email: '', role: 'staff' as any });
 
   const handleOpenInvite = async () => {
@@ -63,34 +64,46 @@ export function Team() {
 
   const fetchTeam = async () => {
     if (!company) return;
-    
-    // Fetch Memberships
-    const membershipsQ = query(collection(db, 'memberships'), where('companyId', '==', company.id));
-    const membershipsSnap = await getDocs(membershipsQ);
-    
-    const memberList: Member[] = [];
-    for (const membershipDoc of membershipsSnap.docs) {
-      const mData = membershipDoc.data();
-      // Fetch User profile for each member
-      const userDoc = await getDoc(doc(db, 'users', mData.userId));
-      const userData = userDoc.exists() ? userDoc.data() : { email: t('team.unnamed_node') };
-      
-      memberList.push({
-        id: membershipDoc.id,
-        userId: mData.userId,
-        role: mData.role,
-        email: userData.email,
-        displayName: userData.displayName,
-        photoURL: userData.photoURL,
-        joinedAt: mData.createdAt,
-      });
-    }
-    setMembers(memberList);
 
-    // Fetch Invitations
-    const invitesQ = query(collection(db, 'invitations'), where('companyId', '==', company.id));
-    const invitesSnap = await getDocs(invitesQ);
-    setInvitations(invitesSnap.docs.map(d => ({ id: d.id, ...d.data() } as Invitation)));
+    try {
+      // Fetch Memberships
+      const membershipsQ = query(collection(db, 'memberships'), where('companyId', '==', company.id));
+      const membershipsSnap = await getDocs(membershipsQ);
+
+      const memberList: Member[] = [];
+      for (const membershipDoc of membershipsSnap.docs) {
+        const mData = membershipDoc.data();
+        // Fetch User profile for each member. A single failing user lookup
+        // must not abort the whole team list — fall back to a minimal record.
+        let userData: any = { email: t('team.unnamed_node') };
+        try {
+          const userDoc = await getDoc(doc(db, 'users', mData.userId));
+          if (userDoc.exists()) userData = userDoc.data();
+        } catch (userErr) {
+          console.error('Team: user profile lookup failed for', mData.userId, userErr);
+        }
+
+        memberList.push({
+          id: membershipDoc.id,
+          userId: mData.userId,
+          role: mData.role,
+          email: userData.email,
+          displayName: userData.displayName,
+          photoURL: userData.photoURL,
+          joinedAt: mData.createdAt,
+        });
+      }
+      setMembers(memberList);
+
+      // Fetch Invitations
+      const invitesQ = query(collection(db, 'invitations'), where('companyId', '==', company.id));
+      const invitesSnap = await getDocs(invitesQ);
+      setInvitations(invitesSnap.docs.map(d => ({ id: d.id, ...d.data() } as Invitation)));
+      setTeamError(null);
+    } catch (err) {
+      console.error('fetchTeam failed:', err);
+      setTeamError('No se pudo cargar el equipo y las invitaciones.');
+    }
   };
 
   useEffect(() => {
@@ -216,6 +229,19 @@ export function Team() {
         message={t('team.upgrade.message')}
         limitName={t('team.upgrade.limit_name')}
       />
+
+      {teamError && (
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-red-500/30 bg-red-500/[0.08] px-4 py-3 text-sm text-red-200">
+          <span>{teamError}</span>
+          <button
+            type="button"
+            onClick={() => fetchTeam()}
+            className="rounded-xl border border-red-400/30 px-3 py-1.5 text-xs font-bold uppercase tracking-[0.16em] text-red-100 transition-colors hover:bg-red-500/15"
+          >
+            Reintentar
+          </button>
+        </div>
+      )}
 
       <div className="grid lg:grid-cols-3 gap-10">
         <div className="lg:col-span-2 space-y-6">
@@ -436,7 +462,7 @@ export function Team() {
                 <h2 className="font-display text-xl font-bold text-white uppercase tracking-tight">
                   {t('team.modal.title')}
                 </h2>
-                <button onClick={() => setIsInviteModalOpen(false)} className="p-2 text-neutral-500 hover:text-white transition-colors rounded-full hover:bg-white/5">
+                <button type="button" aria-label="Cerrar" onClick={() => setIsInviteModalOpen(false)} className="p-2 text-neutral-500 hover:text-white transition-colors rounded-full hover:bg-white/5">
                   <Plus className="w-6 h-6 rotate-45" />
                 </button>
               </div>

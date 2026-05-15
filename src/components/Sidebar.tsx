@@ -64,6 +64,8 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
             </div>
           </Link>
           <button
+            type="button"
+            aria-label="Cerrar menú"
             onClick={onClose}
             className="rounded-xl border border-white/8 bg-white/[0.03] p-2 text-neutral-500 transition-colors hover:text-white lg:hidden"
           >

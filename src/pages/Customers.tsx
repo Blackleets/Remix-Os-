@@ -128,6 +128,8 @@ export function Customers() {
   const [detailCustomer, setDetailCustomer] = useState<Customer | null>(null);
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [messages, setMessages] = useState<CustomerMessage[]>([]);
+  const [customerDataError, setCustomerDataError] = useState<string | null>(null);
+  const [customersError, setCustomersError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [segmentFilter, setSegmentFilter] = useState('all');
   const [loading, setLoading] = useState(false);
@@ -163,26 +165,35 @@ export function Customers() {
 
   const fetchCustomerData = async (customerId: string) => {
     if (!company) return;
-    
+
     // Scope by companyId at the query level (multi-tenant isolation enforced
     // by the composite indexes in firestore.indexes.json + Firestore rules).
-    const rq = query(
-      collection(db, 'reminders'),
-      where('companyId', '==', company.id),
-      where('customerId', '==', customerId),
-      orderBy('dueDate', 'asc')
-    );
-    const rSnap = await getDocs(rq);
-    setReminders(rSnap.docs.map(d => ({ id: d.id, ...d.data() } as Reminder)));
+    // Resilient: if a query fails (e.g. composite index not yet deployed, or
+    // a permission/network error) we surface a retry banner instead of
+    // leaving the reminders/messages tabs silently blank.
+    try {
+      const rq = query(
+        collection(db, 'reminders'),
+        where('companyId', '==', company.id),
+        where('customerId', '==', customerId),
+        orderBy('dueDate', 'asc')
+      );
+      const rSnap = await getDocs(rq);
+      setReminders(rSnap.docs.map(d => ({ id: d.id, ...d.data() } as Reminder)));
 
-    const mq = query(
-      collection(db, 'customerMessages'),
-      where('companyId', '==', company.id),
-      where('customerId', '==', customerId),
-      orderBy('createdAt', 'desc')
-    );
-    const mSnap = await getDocs(mq);
-    setMessages(mSnap.docs.map(d => ({ id: d.id, ...d.data() } as CustomerMessage)));
+      const mq = query(
+        collection(db, 'customerMessages'),
+        where('companyId', '==', company.id),
+        where('customerId', '==', customerId),
+        orderBy('createdAt', 'desc')
+      );
+      const mSnap = await getDocs(mq);
+      setMessages(mSnap.docs.map(d => ({ id: d.id, ...d.data() } as CustomerMessage)));
+      setCustomerDataError(null);
+    } catch (err) {
+      console.error('fetchCustomerData failed:', err);
+      setCustomerDataError('No se pudieron cargar los recordatorios y mensajes de este cliente.');
+    }
   };
 
   const handleAddReminder = async (e: React.FormEvent) => {
@@ -261,10 +272,16 @@ export function Customers() {
 
   const fetchCustomers = async () => {
     if (!company) return;
-    const q = query(collection(db, 'customers'), where('companyId', '==', company.id));
-    const snap = await getDocs(q);
-    const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as Customer));
-    setCustomers(list);
+    try {
+      const q = query(collection(db, 'customers'), where('companyId', '==', company.id));
+      const snap = await getDocs(q);
+      const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as Customer));
+      setCustomers(list);
+      setCustomersError(null);
+    } catch (err) {
+      console.error('fetchCustomers failed:', err);
+      setCustomersError('No se pudo cargar la lista de clientes.');
+    }
   };
 
   useEffect(() => {
@@ -700,6 +717,19 @@ export function Customers() {
           </div>
         </div>
 
+        {customersError && (
+          <div className="mx-6 mt-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-red-500/30 bg-red-500/[0.08] px-4 py-3 text-sm text-red-200">
+            <span>{customersError}</span>
+            <button
+              type="button"
+              onClick={() => fetchCustomers()}
+              className="rounded-xl border border-red-400/30 px-3 py-1.5 text-xs font-bold uppercase tracking-[0.16em] text-red-100 transition-colors hover:bg-red-500/15"
+            >
+              Reintentar
+            </button>
+          </div>
+        )}
+
         <div className="hidden sm:block overflow-x-auto">
           <table className="w-full border-collapse">
             <thead className="sticky top-0 z-10">
@@ -863,7 +893,7 @@ export function Customers() {
                 <h2 className="font-display text-xl font-bold text-white uppercase tracking-tight">
                   {selectedCustomer ? t('customers.modal.modification') : t('customers.modal.initialization')}
                 </h2>
-                <button onClick={handleCloseModal} className="p-2 text-neutral-500 hover:text-white transition-colors rounded-full hover:bg-white/5">
+                <button type="button" aria-label="Cerrar" onClick={handleCloseModal} className="p-2 text-neutral-500 hover:text-white transition-colors rounded-full hover:bg-white/5">
                   <Plus className="w-6 h-6 rotate-45" />
                 </button>
               </div>
@@ -947,7 +977,9 @@ export function Customers() {
                     <p className="text-neutral-500 text-xs font-mono uppercase tracking-widest">{detailCustomer.id}</p>
                   </div>
                 </div>
-                <button 
+                <button
+                  type="button"
+                  aria-label="Cerrar"
                   onClick={() => setDetailCustomer(null)}
                   className="p-3 text-neutral-500 hover:text-white transition-colors rounded-full hover:bg-white/5"
                 >
@@ -1028,6 +1060,18 @@ export function Customers() {
 
                 {activeTab === 'reminders' && (
                   <div className="space-y-8">
+                    {customerDataError && detailCustomer && (
+                      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-red-500/30 bg-red-500/[0.08] px-4 py-3 text-sm text-red-200">
+                        <span>{customerDataError}</span>
+                        <button
+                          type="button"
+                          onClick={() => fetchCustomerData(detailCustomer.id)}
+                          className="rounded-xl border border-red-400/30 px-3 py-1.5 text-xs font-bold uppercase tracking-[0.16em] text-red-100 transition-colors hover:bg-red-500/15"
+                        >
+                          Reintentar
+                        </button>
+                      </div>
+                    )}
                     <div className="bg-black/40 rounded-2xl p-6 border border-white/[0.05]">
                       <h3 className="text-[11px] font-black text-white uppercase tracking-widest mb-4">{t('customers.details.reminders.new_title')}</h3>
                       <form onSubmit={handleAddReminder} className="space-y-4">
@@ -1103,6 +1147,18 @@ export function Customers() {
 
                 {activeTab === 'messages' && (
                   <div className="space-y-8">
+                    {customerDataError && detailCustomer && (
+                      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-red-500/30 bg-red-500/[0.08] px-4 py-3 text-sm text-red-200">
+                        <span>{customerDataError}</span>
+                        <button
+                          type="button"
+                          onClick={() => fetchCustomerData(detailCustomer.id)}
+                          className="rounded-xl border border-red-400/30 px-3 py-1.5 text-xs font-bold uppercase tracking-[0.16em] text-red-100 transition-colors hover:bg-red-500/15"
+                        >
+                          Reintentar
+                        </button>
+                      </div>
+                    )}
                     <div className="bg-black/40 rounded-2xl p-6 border border-white/[0.05]">
                       <h3 className="text-[11px] font-black text-white uppercase tracking-widest mb-4">{t('customers.details.messages.draft_title')}</h3>
                       <div className="flex gap-2 p-1 bg-neutral-800 rounded-xl mb-4 border border-white/5">

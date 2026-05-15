@@ -52,6 +52,7 @@ export function Products() {
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [productsError, setProductsError] = useState<string | null>(null);
   const { canEditProducts } = usePermissions();
 
   useEffect(() => {
@@ -105,10 +106,16 @@ export function Products() {
 
   const fetchProducts = async () => {
     if (!company) return;
-    const q = query(collection(db, 'products'), where('companyId', '==', company.id));
-    const snap = await getDocs(q);
-    const list = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Product));
-    setProducts(list);
+    try {
+      const q = query(collection(db, 'products'), where('companyId', '==', company.id));
+      const snap = await getDocs(q);
+      const list = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Product));
+      setProducts(list);
+      setProductsError(null);
+    } catch (err) {
+      console.error('fetchProducts failed:', err);
+      setProductsError('No se pudo cargar el catálogo de productos.');
+    }
   };
 
   useEffect(() => {
@@ -532,6 +539,19 @@ export function Products() {
           </div>
         </div>
 
+        {productsError && (
+          <div className="mx-6 mt-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-red-500/30 bg-red-500/[0.08] px-4 py-3 text-sm text-red-200">
+            <span>{productsError}</span>
+            <button
+              type="button"
+              onClick={() => fetchProducts()}
+              className="rounded-xl border border-red-400/30 px-3 py-1.5 text-xs font-bold uppercase tracking-[0.16em] text-red-100 transition-colors hover:bg-red-500/15"
+            >
+              Reintentar
+            </button>
+          </div>
+        )}
+
         <div className="hidden overflow-x-auto sm:block">
           <table className="w-full border-collapse">
             <thead className="sticky top-0 z-10">
@@ -687,7 +707,7 @@ export function Products() {
                 <h2 className="font-display text-xl font-bold uppercase tracking-tight text-white">
                   {selectedProduct ? t('products.modal.title') : t('products.modal.init_title')}
                 </h2>
-                <button onClick={handleCloseModal} className="rounded-full p-2 text-neutral-500 transition-colors hover:bg-white/5 hover:text-white">
+                <button type="button" aria-label="Cerrar" onClick={handleCloseModal} className="rounded-full p-2 text-neutral-500 transition-colors hover:bg-white/5 hover:text-white">
                   <Plus className="w-6 h-6 rotate-45" />
                 </button>
               </div>

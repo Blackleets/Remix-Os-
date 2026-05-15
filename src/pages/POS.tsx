@@ -2200,7 +2200,7 @@ export function POS() {
                   <p className="text-sm font-bold text-white">Escanear código</p>
                   <p className="text-xs text-neutral-500">Apunta la cámara al código de barras del producto</p>
                 </div>
-                <button onClick={closeScanner} className="flex h-8 w-8 items-center justify-center rounded-xl border border-white/10 text-neutral-500 hover:text-white">
+                <button type="button" aria-label="Cerrar escáner" onClick={closeScanner} className="flex h-8 w-8 items-center justify-center rounded-xl border border-white/10 text-neutral-500 hover:text-white">
                   <X className="h-4 w-4" />
                 </button>
               </div>

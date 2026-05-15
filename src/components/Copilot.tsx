@@ -485,6 +485,8 @@ export function Copilot() {
             if (isOpen) setIsOpen(false);
             else openPanel();
           }}
+          type="button"
+          aria-label={isOpen ? 'Cerrar Copilot' : 'Abrir Copilot'}
           whileHover={{ scale: 1.035 }}
           whileTap={{ scale: 0.97 }}
           className={cn(
@@ -568,6 +570,8 @@ export function Copilot() {
                   </div>
                 </div>
                 <button
+                  type="button"
+                  aria-label="Cerrar Copilot"
                   onClick={() => setIsOpen(false)}
                   className="rounded-2xl border border-white/8 bg-white/[0.03] p-2.5 text-neutral-500 transition-colors hover:text-white"
                 >
@@ -831,6 +835,8 @@ export function Copilot() {
                         className="flex-1 rounded-2xl border border-white/10 bg-white/[0.035] px-4 py-3 text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:ring-2 focus:ring-blue-400/25 focus:border-blue-400/30"
                       />
                       <button
+                        type="button"
+                        aria-label="Enviar mensaje"
                         onClick={() => handleSendMessage()}
                         disabled={!inputText.trim() || isTyping}
                         className="flex h-12 w-12 items-center justify-center rounded-2xl border border-blue-300/18 bg-[linear-gradient(180deg,rgba(91,136,255,0.96),rgba(49,92,214,0.96))] text-white shadow-[0_16px_34px_rgba(43,88,211,0.28)] transition-all hover:brightness-105 disabled:opacity-30"

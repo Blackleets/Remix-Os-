@@ -23,6 +23,8 @@ export function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
       <div className="shell-panel flex h-18 items-center justify-between gap-4 px-4 py-3 md:px-5">
         <div className="flex min-w-0 flex-1 items-center gap-3 md:gap-4">
           <button
+            type="button"
+            aria-label="Abrir menú de navegación"
             onClick={onMenuClick}
             className="rounded-2xl border border-white/8 bg-white/[0.03] p-2.5 text-neutral-500 transition-colors hover:text-white lg:hidden"
           >
@@ -62,7 +64,7 @@ export function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
 
           <LanguageSwitcher />
 
-          <button className="relative hidden rounded-2xl border border-white/8 bg-white/[0.03] p-1.5 text-neutral-500 transition-colors hover:text-white md:block">
+          <button type="button" aria-label="Notificaciones" className="relative hidden rounded-2xl border border-white/8 bg-white/[0.03] p-1.5 text-neutral-500 transition-colors hover:text-white md:block">
             <OSGlyph tone="neutral" size="sm">
               <Inbox className="h-4 w-4" />
             </OSGlyph>

@@ -412,11 +412,4 @@ export function subscribeInvoices(
   );
 }
 
-export async function getInvoice(invoiceId: string): Promise<Invoice | null> {
-  const ref = doc(db, INVOICES_COLLECTION, invoiceId);
-  const snap = await getDoc(ref);
-  if (!snap.exists()) return null;
-  return { id: snap.id, ...(snap.data() as Omit<Invoice, 'id'>) };
-}
-
 export { isInvoiceEditable, canDeleteByStatus };
