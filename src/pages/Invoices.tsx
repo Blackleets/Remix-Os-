@@ -92,6 +92,7 @@ interface POSQuotePrefill {
   customerAddress?: string;
   customerCountry?: string;
   items: InvoiceItemInput[];
+  dueDate?: Date | null;
   terms?: string;
   notes?: string;
 }
@@ -125,7 +126,14 @@ export function Invoices() {
     const fromPosQuote = state?.fromPosQuote;
     if (!fromOrder && !fromPosQuote) return;
     setPrefill(fromOrder || null);
-    setPosQuotePrefill(fromPosQuote || null);
+    setPosQuotePrefill(
+      fromPosQuote
+        ? {
+            ...fromPosQuote,
+            dueDate: fromPosQuote.dueDate || suggestDueDateFromTerms(fromPosQuote.terms),
+          }
+        : null
+    );
     setEditing(null);
     setDefaultType(fromPosQuote ? 'quote' : 'invoice');
     if (fromPosQuote) {
@@ -219,6 +227,8 @@ export function Invoices() {
   }, [invoices]);
 
   const openNew = (type: InvoiceType) => {
+    setPrefill(null);
+    setPosQuotePrefill(null);
     setEditing(null);
     setDefaultType(type);
     setFormOpen(true);
@@ -235,6 +245,34 @@ export function Invoices() {
     setEditing(null);
     setPrefill(null);
     setPosQuotePrefill(null);
+  };
+
+  const openQuoteAsInvoice = (invoice: Invoice) => {
+    setEditing(null);
+    setPrefill(null);
+    setPosQuotePrefill({
+      customerId: invoice.customerId,
+      customerName: invoice.customerName,
+      customerEmail: invoice.customerEmail,
+      customerTaxId: invoice.customerTaxId,
+      customerAddress: invoice.customerAddress,
+      customerCountry: invoice.customerCountry,
+      dueDate: suggestDueDateFromTerms(invoice.terms, toDateLike(invoice.issueDate)),
+      terms: invoice.terms,
+      notes: invoice.notes ? `Convertido desde presupuesto.\n${invoice.notes}` : 'Convertido desde presupuesto.',
+      items: (invoice.items || []).map((it) => ({
+        productId: it.productId,
+        name: it.name,
+        description: it.description,
+        quantity: it.quantity,
+        unitPrice: it.unitPrice,
+        discountRate: it.discountRate ?? 0,
+        taxRate: it.taxRate ?? 0,
+        taxName: it.taxName,
+      })),
+    });
+    setDefaultType('invoice');
+    setFormOpen(true);
   };
 
   const buildDraftInput = (values: InvoiceFormValues) => ({
@@ -349,6 +387,13 @@ export function Invoices() {
         onClick={() => handleDownloadPdf(inv)}
         icon={<Download className="h-3.5 w-3.5" />}
       />
+      {canManage && inv.type === 'quote' && inv.status !== 'cancelled' && (
+        <RowAction
+          title="Convertir en factura"
+          onClick={() => openQuoteAsInvoice(inv)}
+          icon={<Receipt className="h-3.5 w-3.5" />}
+        />
+      )}
       {canManage && (
         <RowAction
           title="Duplicar como nuevo borrador"
@@ -738,6 +783,7 @@ export function Invoices() {
                     customerTaxId: posQuotePrefill.customerTaxId,
                     customerAddress: posQuotePrefill.customerAddress,
                     customerCountry: posQuotePrefill.customerCountry,
+                    dueDate: posQuotePrefill.dueDate || null,
                     items: posQuotePrefill.items || [],
                     terms: posQuotePrefill.terms,
                     notes: posQuotePrefill.notes,
@@ -826,6 +872,28 @@ function labelForType(type: InvoiceType, profile: ReturnType<typeof getCountryPr
   if (type === 'receipt') return profile.receiptLabel;
   if (type === 'sales_note') return profile.salesNoteLabel;
   return profile.invoiceLabel;
+}
+
+function suggestDueDateFromTerms(terms?: string, baseDate?: Date | null): Date | null {
+  if (!terms) return null;
+  const normalized = terms.toLowerCase();
+  const explicitDays = normalized.match(/(\d+)\s*d[ií]as?/);
+  const start = baseDate && !Number.isNaN(baseDate.getTime()) ? baseDate : new Date();
+  if (explicitDays) {
+    const days = Number(explicitDays[1]);
+    if (!Number.isFinite(days) || days < 0) return null;
+    const due = new Date(start);
+    due.setDate(due.getDate() + days);
+    return due;
+  }
+  if (
+    normalized.includes('contra entrega') ||
+    normalized.includes('prepago') ||
+    normalized.includes('contado')
+  ) {
+    return start;
+  }
+  return null;
 }
 
 function toDateLike(value: any): Date {
