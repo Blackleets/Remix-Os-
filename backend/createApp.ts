@@ -1982,6 +1982,29 @@ export function createApp() {
       return res.status(400).send(`Webhook Error: ${err.message}`);
     }
 
+    // Idempotency: Stripe retries deliveries for up to ~3 days. Claim the
+    // event id atomically (.create throws ALREADY_EXISTS if the lock doc is
+    // already there) so a retry never double-processes — which would create
+    // duplicate audit logs and double any future side-effects. If processing
+    // then fails we delete the lock so Stripe's retry can reprocess cleanly.
+    // The TTL field lets a Firestore TTL policy on `expiresAt` garbage-collect
+    // old locks (configure once in the Firebase console).
+    const eventLockRef = db.collection('processedStripeEvents').doc(event.id);
+    try {
+      await eventLockRef.create({
+        type: event.type,
+        receivedAt: FieldValue.serverTimestamp(),
+        expiresAt: Timestamp.fromMillis(Date.now() + 35 * 24 * 60 * 60 * 1000),
+      });
+    } catch (lockErr: any) {
+      if (lockErr?.code === 6 || /already exists/i.test(lockErr?.message || '')) {
+        console.info('[Stripe] Duplicate webhook ignored', { eventId: event.id, type: event.type });
+        return res.json({ received: true, duplicate: true });
+      }
+      throw lockErr;
+    }
+
+    try {
     const { type, data } = event;
     switch (type) {
       case 'checkout.session.completed': {
@@ -2087,6 +2110,21 @@ export function createApp() {
         }
         break;
       }
+    }
+    } catch (processErr: any) {
+      // Processing failed — release the idempotency lock so Stripe's retry
+      // can have another go instead of being silently skipped forever.
+      try {
+        await eventLockRef.delete();
+      } catch {
+        /* best-effort rollback */
+      }
+      console.error('[Stripe] Webhook processing failed, lock released for retry', {
+        eventId: event.id,
+        type: event.type,
+        error: processErr?.message || processErr,
+      });
+      return res.status(500).json({ error: 'Webhook processing failed' });
     }
 
     res.json({ received: true });

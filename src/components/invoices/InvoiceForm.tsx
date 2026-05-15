@@ -264,7 +264,7 @@ export function InvoiceForm({
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.25 }}
-        className="relative z-10 my-6 w-full max-w-5xl rounded-[28px] border border-white/10 bg-[rgba(8,10,16,0.96)] p-6 shadow-[0_28px_80px_rgba(0,0,0,0.55)] md:p-8"
+        className="relative z-10 my-3 w-full max-w-5xl rounded-[20px] border border-white/10 bg-[rgba(8,10,16,0.96)] p-4 shadow-[0_28px_80px_rgba(0,0,0,0.55)] sm:my-6 sm:rounded-[28px] sm:p-6 md:p-8"
       >
         <div className="mb-6 flex items-start justify-between gap-4">
           <div>
@@ -426,68 +426,88 @@ export function InvoiceForm({
                 {items.map((item, idx) => (
                   <div
                     key={idx}
-                    className="grid gap-2 rounded-xl border border-white/8 bg-white/[0.02] p-3 md:grid-cols-[2fr_repeat(4,minmax(0,1fr))_auto]"
+                    className="grid grid-cols-2 gap-2 rounded-xl border border-white/8 bg-white/[0.02] p-3 md:grid-cols-[2fr_repeat(4,minmax(0,1fr))_auto] md:items-center"
                   >
-                    <Input
-                      placeholder="Concepto"
-                      value={item.name}
-                      onChange={(e) => updateItem(idx, { name: e.target.value })}
-                      disabled={readOnly}
-                    />
-                    <Input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      placeholder="Cant."
-                      value={item.quantity}
-                      onChange={(e) => updateItem(idx, { quantity: parseFloat(e.target.value) || 0 })}
-                      disabled={readOnly}
-                    />
-                    <Input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      placeholder="Precio"
-                      value={item.unitPrice}
-                      onChange={(e) => updateItem(idx, { unitPrice: parseFloat(e.target.value) || 0 })}
-                      disabled={readOnly}
-                    />
-                    <Input
-                      type="number"
-                      min="0"
-                      max="100"
-                      step="1"
-                      placeholder="Dto %"
-                      value={(item.discountRate || 0) * 100 || ''}
-                      onChange={(e) =>
-                        updateItem(idx, {
-                          discountRate: Math.min(1, Math.max(0, (parseFloat(e.target.value) || 0) / 100)),
-                        })
-                      }
-                      disabled={readOnly}
-                    />
-                    <select
-                      value={item.taxRate ?? 0}
-                      onChange={(e) => updateItem(idx, { taxRate: parseFloat(e.target.value) || 0 })}
-                      disabled={readOnly}
-                      className="rounded-2xl border border-white/10 bg-white/[0.035] px-3 py-2 text-sm text-white focus:border-blue-400/40 focus:outline-none"
-                    >
-                      {profile.commonTaxRates.map((rate) => (
-                        <option key={rate} value={rate} className="bg-neutral-950">
-                          {profile.taxName} {rate}%
-                        </option>
-                      ))}
-                    </select>
+                    <div className="col-span-2 md:col-span-1">
+                      <span className="mb-1 block text-[10px] font-bold uppercase tracking-[0.16em] text-neutral-600 md:hidden">Concepto</span>
+                      <Input
+                        placeholder="Concepto"
+                        value={item.name}
+                        onChange={(e) => updateItem(idx, { name: e.target.value })}
+                        disabled={readOnly}
+                      />
+                    </div>
+                    <div>
+                      <span className="mb-1 block text-[10px] font-bold uppercase tracking-[0.16em] text-neutral-600 md:hidden">Cant.</span>
+                      <Input
+                        type="number"
+                        inputMode="decimal"
+                        min="0"
+                        step="0.01"
+                        placeholder="Cant."
+                        value={item.quantity}
+                        onChange={(e) => updateItem(idx, { quantity: parseFloat(e.target.value) || 0 })}
+                        disabled={readOnly}
+                      />
+                    </div>
+                    <div>
+                      <span className="mb-1 block text-[10px] font-bold uppercase tracking-[0.16em] text-neutral-600 md:hidden">Precio</span>
+                      <Input
+                        type="number"
+                        inputMode="decimal"
+                        min="0"
+                        step="0.01"
+                        placeholder="Precio"
+                        value={item.unitPrice}
+                        onChange={(e) => updateItem(idx, { unitPrice: parseFloat(e.target.value) || 0 })}
+                        disabled={readOnly}
+                      />
+                    </div>
+                    <div>
+                      <span className="mb-1 block text-[10px] font-bold uppercase tracking-[0.16em] text-neutral-600 md:hidden">Dto %</span>
+                      <Input
+                        type="number"
+                        inputMode="decimal"
+                        min="0"
+                        max="100"
+                        step="1"
+                        placeholder="Dto %"
+                        value={(item.discountRate || 0) * 100 || ''}
+                        onChange={(e) =>
+                          updateItem(idx, {
+                            discountRate: Math.min(1, Math.max(0, (parseFloat(e.target.value) || 0) / 100)),
+                          })
+                        }
+                        disabled={readOnly}
+                      />
+                    </div>
+                    <div>
+                      <span className="mb-1 block text-[10px] font-bold uppercase tracking-[0.16em] text-neutral-600 md:hidden">{profile.taxName}</span>
+                      <select
+                        aria-label={`Impuesto ${profile.taxName} para la línea ${idx + 1}`}
+                        value={item.taxRate ?? 0}
+                        onChange={(e) => updateItem(idx, { taxRate: parseFloat(e.target.value) || 0 })}
+                        disabled={readOnly}
+                        className="h-[46px] w-full rounded-2xl border border-white/10 bg-white/[0.035] px-3 text-sm text-white focus:border-blue-400/40 focus:outline-none"
+                      >
+                        {profile.commonTaxRates.map((rate) => (
+                          <option key={rate} value={rate} className="bg-neutral-950">
+                            {profile.taxName} {rate}%
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                     {!readOnly && (
                       <button
                         type="button"
                         onClick={() => removeItem(idx)}
                         className={cn(
-                          'rounded-xl border border-white/10 bg-white/[0.03] p-2 text-neutral-500 transition-colors hover:text-red-300',
+                          'col-span-2 flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] p-2.5 text-xs font-semibold uppercase tracking-[0.16em] text-neutral-500 transition-colors hover:text-red-300 md:col-span-1 md:gap-0 md:text-[0px]',
                           items.length === 1 && 'pointer-events-none opacity-40'
                         )}
                       >
                         <Trash2 className="h-4 w-4" />
+                        <span className="md:hidden">Quitar línea</span>
                       </button>
                     )}
                   </div>

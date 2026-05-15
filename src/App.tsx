@@ -110,7 +110,9 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
         <Topbar onMenuClick={() => setIsSidebarOpen(true)} />
         <main className="flex-1 px-4 pb-[90px] pt-4 md:px-6 md:pb-8 md:pt-5 lg:pb-8 xl:px-8">
           <div className="mx-auto max-w-[1540px]">
-            {children}
+            <ErrorBoundary key={pathname} variant="inline">
+              {children}
+            </ErrorBoundary>
           </div>
         </main>
         {pathname !== '/pos' && <BetaFeedbackButton />}

@@ -315,6 +315,61 @@ export function Invoices() {
     }
   };
 
+  // Shared by the desktop table and the mobile card list so behaviour stays
+  // identical across breakpoints.
+  const renderActions = (inv: Invoice) => (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <RowAction
+        title="Descargar PDF"
+        onClick={() => handleDownloadPdf(inv)}
+        icon={<Download className="h-3.5 w-3.5" />}
+      />
+      {canManage && (
+        <RowAction
+          title="Duplicar como nuevo borrador"
+          onClick={() => handleDuplicate(inv)}
+          busy={actionBusyId === inv.id}
+          icon={<Copy className="h-3.5 w-3.5" />}
+        />
+      )}
+      {canManage && inv.status === 'issued' && (
+        <RowAction
+          title="Marcar como enviada"
+          onClick={() => runAction(inv, () => markInvoiceSent(inv.id))}
+          busy={actionBusyId === inv.id}
+          icon={<Send className="h-3.5 w-3.5" />}
+        />
+      )}
+      {canManage && (inv.status === 'issued' || inv.status === 'sent' || inv.status === 'overdue') && (
+        <RowAction
+          title="Marcar pagada"
+          onClick={() => runAction(inv, () => markInvoicePaid(inv.id))}
+          busy={actionBusyId === inv.id}
+          tone="emerald"
+          icon={<CheckCircle2 className="h-3.5 w-3.5" />}
+        />
+      )}
+      {canManage && inv.status !== 'paid' && inv.status !== 'cancelled' && (
+        <RowAction
+          title="Cancelar"
+          onClick={() => runAction(inv, () => cancelInvoice(inv.id))}
+          busy={actionBusyId === inv.id}
+          tone="amber"
+          icon={<XCircle className="h-3.5 w-3.5" />}
+        />
+      )}
+      {canManage && inv.status === 'draft' && (
+        <RowAction
+          title="Eliminar borrador"
+          onClick={() => runAction(inv, () => deleteInvoiceDraft(inv.id))}
+          busy={actionBusyId === inv.id}
+          tone="red"
+          icon={<Trash2 className="h-3.5 w-3.5" />}
+        />
+      )}
+    </div>
+  );
+
   if (!company) {
     return (
       <div className="flex items-center justify-center py-32">
@@ -445,120 +500,118 @@ export function Invoices() {
             </p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse">
-              <thead>
-                <tr>
-                  <th className="table-header">Número</th>
-                  <th className="table-header">Tipo</th>
-                  <th className="table-header">Cliente</th>
-                  <th className="table-header">Estado</th>
-                  <th className="table-header">Emisión</th>
-                  <th className="table-header">Vencimiento</th>
-                  <th className="table-header text-right">Total</th>
-                  <th className="table-header text-right">Pendiente</th>
-                  <th className="table-header">Acciones</th>
-                </tr>
-              </thead>
-              <tbody>
-                {visible.map((inv) => {
-                  const profile = getCountryProfile(inv.countryProfile);
-                  return (
-                    <tr
-                      key={inv.id}
-                      className="border-t border-white/[0.04] transition-colors hover:bg-white/[0.02]"
-                    >
-                      <td className="table-cell">
-                        <button
-                          onClick={() => openEdit(inv)}
-                          className="text-left font-mono text-sm font-semibold text-white hover:text-blue-200"
-                        >
+          <>
+            {/* Desktop: full table */}
+            <div className="hidden overflow-x-auto sm:block">
+              <table className="w-full border-collapse">
+                <thead>
+                  <tr>
+                    <th className="table-header">Número</th>
+                    <th className="table-header">Tipo</th>
+                    <th className="table-header">Cliente</th>
+                    <th className="table-header">Estado</th>
+                    <th className="table-header">Emisión</th>
+                    <th className="table-header">Vencimiento</th>
+                    <th className="table-header text-right">Total</th>
+                    <th className="table-header text-right">Pendiente</th>
+                    <th className="table-header">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visible.map((inv) => {
+                    const profile = getCountryProfile(inv.countryProfile);
+                    return (
+                      <tr
+                        key={inv.id}
+                        className="border-t border-white/[0.04] transition-colors hover:bg-white/[0.02]"
+                      >
+                        <td className="table-cell">
+                          <button
+                            type="button"
+                            onClick={() => openEdit(inv)}
+                            className="text-left font-mono text-sm font-semibold text-white hover:text-blue-200"
+                          >
+                            {inv.invoiceNumber || 'Borrador'}
+                          </button>
+                          <p className="mt-1 text-[10px] uppercase tracking-[0.18em] text-neutral-600">
+                            {inv.series}
+                          </p>
+                        </td>
+                        <td className="table-cell text-sm text-neutral-300">
+                          {labelForType(inv.type, profile)}
+                        </td>
+                        <td className="table-cell text-sm text-neutral-300">
+                          <p className="text-white">{inv.customerName}</p>
+                          {inv.customerTaxId && (
+                            <p className="mt-1 font-mono text-[10px] text-neutral-500">{inv.customerTaxId}</p>
+                          )}
+                        </td>
+                        <td className="table-cell">
+                          <InvoiceStatusBadge status={inv.status} />
+                        </td>
+                        <td className="table-cell text-xs text-neutral-400">{formatShortDate(inv.issueDate)}</td>
+                        <td className="table-cell text-xs text-neutral-400">
+                          {inv.dueDate ? formatShortDate(inv.dueDate) : '—'}
+                        </td>
+                        <td className="table-cell text-right font-mono text-sm text-white">
+                          {formatInvoiceCurrency(inv.total, profile)}
+                        </td>
+                        <td className="table-cell text-right font-mono text-sm text-amber-200">
+                          {formatInvoiceCurrency(inv.amountDue, profile)}
+                        </td>
+                        <td className="table-cell">{renderActions(inv)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Mobile: tap-friendly cards */}
+            <div className="divide-y divide-white/[0.05] sm:hidden">
+              {visible.map((inv) => {
+                const profile = getCountryProfile(inv.countryProfile);
+                return (
+                  <div key={inv.id} className="space-y-3 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <button
+                        type="button"
+                        onClick={() => openEdit(inv)}
+                        className="min-w-0 text-left"
+                      >
+                        <p className="truncate font-mono text-sm font-semibold text-white">
                           {inv.invoiceNumber || 'Borrador'}
-                        </button>
-                        <p className="mt-1 text-[10px] uppercase tracking-[0.18em] text-neutral-600">
-                          {inv.series}
                         </p>
-                      </td>
-                      <td className="table-cell text-sm text-neutral-300">
-                        {labelForType(inv.type, profile)}
-                      </td>
-                      <td className="table-cell text-sm text-neutral-300">
-                        <p className="text-white">{inv.customerName}</p>
-                        {inv.customerTaxId && (
-                          <p className="mt-1 font-mono text-[10px] text-neutral-500">{inv.customerTaxId}</p>
+                        <p className="mt-0.5 truncate text-xs text-neutral-400">
+                          {labelForType(inv.type, profile)} · {inv.customerName}
+                        </p>
+                      </button>
+                      <InvoiceStatusBadge status={inv.status} />
+                    </div>
+
+                    <div className="flex items-end justify-between gap-3">
+                      <div className="text-[11px] uppercase tracking-[0.14em] text-neutral-500">
+                        <p>{formatShortDate(inv.issueDate)}</p>
+                        {inv.dueDate && <p className="mt-0.5 text-neutral-600">Vence {formatShortDate(inv.dueDate)}</p>}
+                      </div>
+                      <div className="text-right">
+                        <p className="font-mono text-base font-bold text-white">
+                          {formatInvoiceCurrency(inv.total, profile)}
+                        </p>
+                        {inv.amountDue > 0 && inv.status !== 'cancelled' && (
+                          <p className="mt-0.5 font-mono text-[11px] text-amber-200">
+                            Pend. {formatInvoiceCurrency(inv.amountDue, profile)}
+                          </p>
                         )}
-                      </td>
-                      <td className="table-cell">
-                        <InvoiceStatusBadge status={inv.status} />
-                      </td>
-                      <td className="table-cell text-xs text-neutral-400">{formatShortDate(inv.issueDate)}</td>
-                      <td className="table-cell text-xs text-neutral-400">
-                        {inv.dueDate ? formatShortDate(inv.dueDate) : '—'}
-                      </td>
-                      <td className="table-cell text-right font-mono text-sm text-white">
-                        {formatInvoiceCurrency(inv.total, profile)}
-                      </td>
-                      <td className="table-cell text-right font-mono text-sm text-amber-200">
-                        {formatInvoiceCurrency(inv.amountDue, profile)}
-                      </td>
-                      <td className="table-cell">
-                        <div className="flex items-center gap-1">
-                          <RowAction
-                            title="Descargar PDF"
-                            onClick={() => handleDownloadPdf(inv)}
-                            icon={<Download className="h-3.5 w-3.5" />}
-                          />
-                          {canManage && (
-                            <RowAction
-                              title="Duplicar como nuevo borrador"
-                              onClick={() => handleDuplicate(inv)}
-                              busy={actionBusyId === inv.id}
-                              icon={<Copy className="h-3.5 w-3.5" />}
-                            />
-                          )}
-                          {canManage && inv.status === 'issued' && (
-                            <RowAction
-                              title="Marcar como enviada"
-                              onClick={() => runAction(inv, () => markInvoiceSent(inv.id))}
-                              busy={actionBusyId === inv.id}
-                              icon={<Send className="h-3.5 w-3.5" />}
-                            />
-                          )}
-                          {canManage && (inv.status === 'issued' || inv.status === 'sent' || inv.status === 'overdue') && (
-                            <RowAction
-                              title="Marcar pagada"
-                              onClick={() => runAction(inv, () => markInvoicePaid(inv.id))}
-                              busy={actionBusyId === inv.id}
-                              tone="emerald"
-                              icon={<CheckCircle2 className="h-3.5 w-3.5" />}
-                            />
-                          )}
-                          {canManage && inv.status !== 'paid' && inv.status !== 'cancelled' && (
-                            <RowAction
-                              title="Cancelar"
-                              onClick={() => runAction(inv, () => cancelInvoice(inv.id))}
-                              busy={actionBusyId === inv.id}
-                              tone="amber"
-                              icon={<XCircle className="h-3.5 w-3.5" />}
-                            />
-                          )}
-                          {canManage && inv.status === 'draft' && (
-                            <RowAction
-                              title="Eliminar borrador"
-                              onClick={() => runAction(inv, () => deleteInvoiceDraft(inv.id))}
-                              busy={actionBusyId === inv.id}
-                              tone="red"
-                              icon={<Trash2 className="h-3.5 w-3.5" />}
-                            />
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                      </div>
+                    </div>
+
+                    <div className="border-t border-white/[0.05] pt-3">{renderActions(inv)}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
         )}
       </Card>
 

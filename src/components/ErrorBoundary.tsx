@@ -3,6 +3,10 @@ import { AlertTriangle, RefreshCcw } from 'lucide-react';
 
 interface Props {
   children: ReactNode;
+  // 'fullscreen' (default) is the app-root shell crash screen.
+  // 'inline' keeps the sidebar/topbar alive and only replaces the page body,
+  // so one broken route never tears down the whole session.
+  variant?: 'fullscreen' | 'inline';
 }
 
 interface State {
@@ -23,28 +27,54 @@ export class ErrorBoundary extends Component<Props, State> {
 
   render() {
     if (this.state.hasError) {
-      return (
-        <div className="flex items-center justify-center min-h-screen bg-black text-white flex-col gap-6 p-8">
-          <div className="w-16 h-16 rounded-2xl bg-red-500/10 border border-red-500/20 flex items-center justify-center">
-            <AlertTriangle className="w-8 h-8 text-red-400" />
+      if (this.props.variant === 'inline') {
+        return (
+          <div className="flex min-h-[60vh] flex-col items-center justify-center gap-5 rounded-[28px] border border-white/10 bg-[rgba(10,12,18,0.6)] p-8 text-center">
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-red-500/20 bg-red-500/10">
+              <AlertTriangle className="h-7 w-7 text-red-400" />
+            </div>
+            <div className="max-w-md space-y-2">
+              <h2 className="text-lg font-bold tracking-tight text-white">Esta sección tuvo un problema</h2>
+              <p className="text-sm leading-relaxed text-neutral-500">
+                {this.state.error?.message || 'Ocurrió un error inesperado en este módulo. El resto de la app sigue activa.'}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => this.setState({ hasError: false, error: null })}
+              className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-5 py-2.5 text-sm font-bold text-white transition-all hover:bg-white/[0.08]"
+            >
+              <RefreshCcw className="h-4 w-4" />
+              Reintentar
+            </button>
           </div>
-          <div className="text-center space-y-2 max-w-md">
+        );
+      }
+
+      return (
+        <div className="flex min-h-screen flex-col items-center justify-center gap-6 bg-black p-8 text-white">
+          <div className="flex h-16 w-16 items-center justify-center rounded-2xl border border-red-500/20 bg-red-500/10">
+            <AlertTriangle className="h-8 w-8 text-red-400" />
+          </div>
+          <div className="max-w-md space-y-2 text-center">
             <h1 className="text-xl font-bold tracking-tight">Something went wrong</h1>
-            <p className="text-neutral-500 text-sm leading-relaxed">
+            <p className="text-sm leading-relaxed text-neutral-500">
               {this.state.error?.message || 'An unexpected error occurred. Please refresh the page.'}
             </p>
           </div>
           <div className="flex gap-3">
             <button
+              type="button"
               onClick={() => this.setState({ hasError: false, error: null })}
-              className="px-5 py-2.5 bg-white/5 border border-white/10 rounded-xl text-sm font-bold hover:bg-white/10 transition-all flex items-center gap-2"
+              className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-5 py-2.5 text-sm font-bold transition-all hover:bg-white/10"
             >
-              <RefreshCcw className="w-4 h-4" />
+              <RefreshCcw className="h-4 w-4" />
               Try again
             </button>
             <button
+              type="button"
               onClick={() => { window.location.href = '/dashboard'; }}
-              className="px-5 py-2.5 bg-blue-600 rounded-xl text-sm font-bold hover:bg-blue-500 transition-all"
+              className="rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-bold transition-all hover:bg-blue-500"
             >
               Return to Dashboard
             </button>
