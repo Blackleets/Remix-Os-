@@ -274,6 +274,7 @@ export function Team() {
                           {member.role !== 'owner' && (
                              <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-all">
                                 <select 
+                                  aria-label="Rol del miembro"
                                   className="bg-black border border-white/10 rounded-lg text-[10px] px-2 py-1 outline-none text-neutral-400 focus:border-blue-500 transition-colors mr-2"
                                   value={member.role}
                                   onChange={(e) => handleUpdateRole(member.id, e.target.value)}
@@ -346,6 +347,7 @@ export function Team() {
                     </div>
                     {canManage && member.role !== 'owner' && (
                       <select 
+                        aria-label="Rol del miembro"
                         className="bg-black/40 border border-white/10 rounded px-2 py-1 text-[9px] font-bold text-neutral-400 uppercase tracking-widest outline-none"
                         value={member.role}
                         onChange={(e) => handleUpdateRole(member.id, e.target.value)}
@@ -441,6 +443,7 @@ export function Team() {
                   <Label>{t('team.modal.role')}</Label>
                   <select 
                     className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition-all appearance-none outline-none"
+                    aria-label="Rol de la invitación"
                     value={inviteForm.role}
                     onChange={e => setInviteForm({...inviteForm, role: e.target.value as any})}
                   >

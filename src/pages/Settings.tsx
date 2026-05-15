@@ -202,6 +202,7 @@ export function Settings() {
                         <Label>{t('settings.language')}</Label>
                         <select 
                             className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition-all appearance-none"
+                            aria-label={t('settings.language')}
                             value={userLang}
                             onChange={e => handleUserLangChange(e.target.value)}
                         >
@@ -269,6 +270,7 @@ export function Settings() {
                     <Label>Vertical</Label>
                     <select 
                         className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition-all appearance-none"
+                        aria-label="Vertical"
                         value={form.vertical}
                         onChange={e => setForm({...form, vertical: e.target.value as typeof form.vertical})}
                     >
@@ -284,6 +286,7 @@ export function Settings() {
                     <Label>{t('settings.currency')}</Label>
                     <select 
                       className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition-all appearance-none"
+                      aria-label={t('settings.currency')}
                       value={form.currency}
                       onChange={e => setForm({...form, currency: e.target.value})}
                     >
@@ -299,6 +302,7 @@ export function Settings() {
                     <Label>{t('settings.timezone')}</Label>
                     <select 
                       className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition-all appearance-none"
+                      aria-label={t('settings.timezone')}
                       value={form.timezone}
                       onChange={e => setForm({...form, timezone: e.target.value})}
                     >
@@ -318,6 +322,7 @@ export function Settings() {
                     <Label>{t('settings.default_company_lang')}</Label>
                     <select 
                       className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition-all appearance-none"
+                      aria-label={t('settings.default_company_lang')}
                       value={form.defaultLanguage}
                       onChange={e => setForm({...form, defaultLanguage: e.target.value})}
                     >

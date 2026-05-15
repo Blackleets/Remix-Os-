@@ -1382,6 +1382,7 @@ export function SuperAdmin() {
                           <div>
                             <Label>{t('super_admin.company_panel.lifecycle')}</Label>
                             <select
+                              aria-label="Estado de ciclo de vida de la empresa"
                               value={controlForm.lifecycleStatus}
                               onChange={(event) =>
                                 setControlForm((current) => ({
@@ -1401,6 +1402,7 @@ export function SuperAdmin() {
                           <div>
                             <Label>{t('super_admin.company_panel.priority')}</Label>
                             <select
+                              aria-label="Prioridad de la empresa"
                               value={controlForm.priority}
                               onChange={(event) =>
                                 setControlForm((current) => ({

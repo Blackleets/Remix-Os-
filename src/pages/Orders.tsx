@@ -406,6 +406,7 @@ export function Orders() {
               </div>
               <div className="flex gap-2">
                 <select
+                  aria-label="Filtrar pedidos por estado"
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
                   className="h-12 rounded-2xl border border-white/10 bg-black/30 px-4 text-xs font-bold uppercase tracking-[0.16em] text-white focus:outline-none"
@@ -416,6 +417,7 @@ export function Orders() {
                   <option value="cancelled" className="bg-neutral-900">Cancelled</option>
                 </select>
                 <select
+                  aria-label="Filtrar pedidos por método de pago"
                   value={paymentFilter}
                   onChange={(e) => setPaymentFilter(e.target.value as typeof paymentFilter)}
                   className="h-12 rounded-2xl border border-white/10 bg-black/30 px-4 text-xs font-bold uppercase tracking-[0.16em] text-white focus:outline-none"
@@ -603,14 +605,14 @@ export function Orders() {
                   <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 sm:gap-8">
                     <div className="space-y-2">
                       <Label>{t('orders.modal.customer')}</Label>
-                      <select required className="w-full appearance-none rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none transition-all focus:ring-2 focus:ring-blue-500/30" value={form.customerId} onChange={(e) => setForm({ ...form, customerId: e.target.value })}>
+                      <select aria-label="Cliente del pedido" required className="w-full appearance-none rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none transition-all focus:ring-2 focus:ring-blue-500/30" value={form.customerId} onChange={(e) => setForm({ ...form, customerId: e.target.value })}>
                         <option value="" className="bg-neutral-900">{t('orders.modal.select_customer')}</option>
                         {customers.map((c) => <option key={c.id} value={c.id} className="bg-neutral-900">{c.name}</option>)}
                       </select>
                     </div>
                     <div className="space-y-2">
                       <Label>{t('orders.modal.payment_method')}</Label>
-                      <select className="w-full appearance-none rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none transition-all focus:ring-2 focus:ring-blue-500/30" value={form.paymentMethod} onChange={(e) => setForm({ ...form, paymentMethod: e.target.value })}>
+                      <select aria-label="Método de pago" className="w-full appearance-none rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none transition-all focus:ring-2 focus:ring-blue-500/30" value={form.paymentMethod} onChange={(e) => setForm({ ...form, paymentMethod: e.target.value })}>
                         <option className="bg-neutral-900">{t('common.card') || 'Card'}</option>
                         <option className="bg-neutral-900">{t('common.cash') || 'Cash'}</option>
                         <option className="bg-neutral-900">{t('common.transfer') || 'Transfer'}</option>
@@ -631,6 +633,7 @@ export function Orders() {
                         <div key={index} className="flex flex-col items-start gap-4 rounded-2xl border border-white/[0.05] bg-white/[0.02] p-4 sm:flex-row sm:items-center">
                           <div className="w-full flex-1">
                             <select
+                              aria-label={`Producto de la línea ${index + 1}`}
                               required
                               className="w-full appearance-none border-0 bg-transparent text-sm text-white outline-none focus:ring-0"
                               value={item.productId}

@@ -709,6 +709,7 @@ export function Products() {
                   <div className="col-span-2">
                     <Label>{t('products.status')}</Label>
                     <select
+                      aria-label={t('products.status')}
                       className="w-full appearance-none rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white transition-all focus:outline-none focus:ring-2 focus:ring-blue-500/30"
                       value={form.status}
                       onChange={(e) => setForm({ ...form, status: e.target.value as any })}

@@ -207,6 +207,7 @@ export function Inventory() {
                 <div className="space-y-2">
                   <Label>{t('inventory.target_asset')}</Label>
                   <select
+                    aria-label={t('inventory.target_asset')}
                     className="w-full appearance-none rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white transition-all focus:outline-none focus:ring-2 focus:ring-blue-500/30"
                     value={form.productId}
                     onChange={(e) => setForm({ ...form, productId: e.target.value })}
@@ -224,6 +225,7 @@ export function Inventory() {
                   <div className="space-y-2">
                     <Label>{t('inventory.vector_type')}</Label>
                     <select
+                      aria-label={t('inventory.vector_type')}
                       className="w-full appearance-none rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white transition-all focus:outline-none focus:ring-2 focus:ring-blue-500/30"
                       value={form.type}
                       onChange={(e) => setForm({ ...form, type: e.target.value as any })}

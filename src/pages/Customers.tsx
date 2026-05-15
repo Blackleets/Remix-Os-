@@ -1022,7 +1022,8 @@ export function Customers() {
                         <div className="grid grid-cols-2 gap-4">
                           <div className="space-y-2">
                             <Label>{t('customers.details.reminders.vector_type')}</Label>
-                            <select 
+                            <select
+                              aria-label={t('customers.details.reminders.vector_type')}
                               className="w-full h-11 px-4 rounded-xl bg-neutral-800 border border-white/10 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                               value={reminderForm.type}
                               onChange={e => setReminderForm({...reminderForm, type: e.target.value as any})}

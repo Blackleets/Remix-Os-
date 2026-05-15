@@ -269,6 +269,7 @@ export function Onboarding() {
                     <div className="relative">
                       <select 
                         className="w-full h-14 sm:h-16 bg-white/[0.03] border border-white/10 rounded-2xl px-6 text-lg font-bold text-white outline-none focus:ring-4 focus:ring-white/5 transition-all appearance-none cursor-pointer"
+                        aria-label="Sector / vertical del negocio"
                         value={form.vertical}
                         onChange={(e) => setForm({ ...form, vertical: e.target.value })}
                       >
@@ -283,6 +284,7 @@ export function Onboarding() {
                     <div className="relative">
                       <select 
                         className="w-full h-14 sm:h-16 bg-white/[0.03] border border-white/10 rounded-2xl px-6 text-lg font-bold text-white outline-none focus:ring-4 focus:ring-white/5 transition-all appearance-none cursor-pointer"
+                        aria-label="Moneda"
                         value={form.currency}
                         onChange={(e) => setForm({ ...form, currency: e.target.value })}
                       >
@@ -310,6 +312,7 @@ export function Onboarding() {
                     <div className="relative">
                       <select
                         className="w-full h-14 sm:h-16 bg-white/[0.03] border border-white/10 rounded-2xl px-6 text-lg font-bold text-white outline-none focus:ring-4 focus:ring-white/5 transition-all appearance-none cursor-pointer"
+                        aria-label="Idioma predeterminado"
                         value={form.defaultLanguage}
                         onChange={(e) => setForm({ ...form, defaultLanguage: e.target.value })}
                       >
@@ -374,6 +377,7 @@ export function Onboarding() {
                   <div className="relative">
                     <select
                       className="w-full h-14 sm:h-16 bg-white/[0.03] border border-white/10 rounded-2xl px-6 text-base font-bold text-white outline-none focus:ring-4 focus:ring-white/5 transition-all appearance-none cursor-pointer"
+                      aria-label="Zona horaria"
                       value={form.timezone}
                       onChange={(e) => setForm({ ...form, timezone: e.target.value })}
                     >

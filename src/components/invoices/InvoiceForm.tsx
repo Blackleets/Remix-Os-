@@ -298,6 +298,7 @@ export function InvoiceForm({
               <div>
                 <Label>Tipo de documento</Label>
                 <select
+                  aria-label="Tipo de documento"
                   value={type}
                   onChange={(e) => setType(e.target.value as InvoiceType)}
                   disabled={readOnly}
@@ -313,6 +314,7 @@ export function InvoiceForm({
               <div>
                 <Label>Perfil de país</Label>
                 <select
+                  aria-label="Perfil de país"
                   value={countryProfile}
                   onChange={(e) => setCountryProfile(e.target.value as CountryProfileId)}
                   disabled={readOnly}
@@ -362,6 +364,7 @@ export function InvoiceForm({
                 <p className="text-[10px] font-black uppercase tracking-[0.22em] text-neutral-500">Cliente</p>
                 {customers.length > 0 && (
                   <select
+                    aria-label="Seleccionar cliente existente"
                     value={customerId || ''}
                     onChange={(e) => handleSelectCustomer(e.target.value)}
                     disabled={readOnly}
@@ -403,6 +406,7 @@ export function InvoiceForm({
                 <p className="text-[10px] font-black uppercase tracking-[0.22em] text-neutral-500">Conceptos</p>
                 {products.length > 0 && !readOnly && (
                   <select
+                    aria-label="Añadir producto del catálogo"
                     value=""
                     onChange={(e) => {
                       if (e.target.value) {

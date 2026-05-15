@@ -1501,6 +1501,7 @@ export function POS() {
               <div className="relative">
                 <UserRound className="w-4 h-4 text-neutral-600 absolute left-3 top-1/2 -translate-y-1/2" />
                 <select
+                  aria-label="Cliente de la venta"
                   value={customerId}
                   onChange={(event) => setCustomerId(event.target.value)}
                   className="w-full bg-white/5 border border-white/10 rounded-xl pl-10 pr-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition-all appearance-none"

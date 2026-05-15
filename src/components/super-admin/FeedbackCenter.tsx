@@ -151,6 +151,7 @@ export function SuperAdminFeedbackCenter() {
             />
           </div>
           <select
+            aria-label="Filtrar feedback por estado"
             value={statusFilter}
             onChange={(event) => setStatusFilter(event.target.value as FilterStatus)}
             className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white focus:border-blue-500/50 focus:outline-none"
@@ -161,6 +162,7 @@ export function SuperAdminFeedbackCenter() {
             <option value="resolved" className="bg-neutral-950 text-white">resolved</option>
           </select>
           <select
+            aria-label="Filtrar feedback por severidad"
             value={severityFilter}
             onChange={(event) => setSeverityFilter(event.target.value as FilterSeverity)}
             className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white focus:border-blue-500/50 focus:outline-none"
@@ -280,6 +282,7 @@ export function SuperAdminFeedbackCenter() {
                 <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
                   <Label>Status</Label>
                   <select
+                    aria-label="Cambiar estado del feedback"
                     value={statusDraft}
                     onChange={(event) => setStatusDraft(event.target.value as PlatformFeedbackStatus)}
                     className="w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white focus:border-blue-500/50 focus:outline-none"
