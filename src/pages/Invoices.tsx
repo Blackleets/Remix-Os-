@@ -92,6 +92,8 @@ interface POSQuotePrefill {
   customerAddress?: string;
   customerCountry?: string;
   items: InvoiceItemInput[];
+  terms?: string;
+  notes?: string;
 }
 
 export function Invoices() {
@@ -737,6 +739,8 @@ export function Invoices() {
                     customerAddress: posQuotePrefill.customerAddress,
                     customerCountry: posQuotePrefill.customerCountry,
                     items: posQuotePrefill.items || [],
+                    terms: posQuotePrefill.terms,
+                    notes: posQuotePrefill.notes,
                   }
               : { type: defaultType, countryProfile: 'ES' }
         }

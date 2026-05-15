@@ -43,7 +43,7 @@ import { db } from '../lib/firebase';
 import { createSaleTransaction } from '../services/sales';
 import { exportPOSReceiptToPDF } from '../lib/exportUtils';
 import { getOrderTotal } from '../../shared/orders';
-import type { InvoiceItemInput } from '../../shared/invoices';
+import { roundMoney, type InvoiceItemInput } from '../../shared/invoices';
 
 interface Product {
   id: string;
@@ -65,6 +65,7 @@ interface Customer {
   taxId?: string;
   address?: string;
   country?: string;
+  segment?: 'whale' | 'vip' | 'regular' | 'new' | 'at_risk';
   totalOrders?: number;
   totalSpent?: number;
   rfmTier?: string;
@@ -141,10 +142,77 @@ interface PulseInsight {
 }
 
 type OperationMode = 'retail' | 'wholesale';
+type WholesalePricingProfile = {
+  id: 'base' | 'growth' | 'preferred' | 'strategic' | 'protected';
+  label: string;
+  discountRate: number;
+  paymentTerms: string;
+  guidance: string;
+};
 
 const PAYMENT_METHODS = ['Cash', 'Card', 'Transfer', 'Stripe', 'Crypto'] as const;
 const INTEGRATION_ROADMAP = ['Stripe Terminal', 'Square POS', 'Shopify POS', 'SumUp'];
 const QUICK_DISCOUNT_RATE = 0.1;
+
+function getWholesalePricingProfile(customer: Customer | null): WholesalePricingProfile {
+  if (!customer) {
+    return {
+      id: 'base',
+      label: 'Base',
+      discountRate: 0.03,
+      paymentTerms: 'Pago contra entrega',
+      guidance: 'Aplica un margen conservador hasta validar volumen y recurrencia.',
+    };
+  }
+
+  if (customer.segment === 'whale' || customer.rfmTier === 'champion') {
+    return {
+      id: 'strategic',
+      label: 'Estrategico',
+      discountRate: 0.12,
+      paymentTerms: 'Credito 30 dias',
+      guidance: 'Cliente clave. Conviene priorizar cierre, reposicion y seguimiento directo.',
+    };
+  }
+
+  if (customer.segment === 'vip' || customer.rfmTier === 'loyal') {
+    return {
+      id: 'preferred',
+      label: 'Preferente',
+      discountRate: 0.08,
+      paymentTerms: 'Credito 15 dias',
+      guidance: 'Buen historial. Se puede ofrecer mejor precio y continuidad comercial.',
+    };
+  }
+
+  if (customer.segment === 'at_risk' || customer.rfmTier === 'lost') {
+    return {
+      id: 'protected',
+      label: 'Protegido',
+      discountRate: 0.02,
+      paymentTerms: 'Prepago / transferencia',
+      guidance: 'Cliente sensible. Mantener margen y reducir riesgo de cobro.',
+    };
+  }
+
+  if (customer.segment === 'new' || customer.rfmTier === 'promising') {
+    return {
+      id: 'growth',
+      label: 'Crecimiento',
+      discountRate: 0.04,
+      paymentTerms: 'Pago a 7 dias',
+      guidance: 'Ideal para activar recompra temprana sin ceder demasiado margen.',
+    };
+  }
+
+  return {
+    id: 'base',
+    label: 'Base',
+    discountRate: 0.05,
+    paymentTerms: 'Pago contra entrega',
+    guidance: 'Condicion estandar para clientes sin perfil especial.',
+  };
+}
 
 function getTimestampValue(value: any) {
   if (!value) return 0;
@@ -213,6 +281,7 @@ export function POS() {
         taxId: entry.data().taxId || entry.data().rfc || entry.data().nif,
         address: entry.data().address,
         country: entry.data().country,
+        segment: entry.data().segment,
         totalOrders: entry.data().totalOrders,
         totalSpent: entry.data().totalSpent,
         rfmTier: entry.data().rfmTier,
@@ -362,10 +431,18 @@ export function POS() {
     () => customers.find((customer) => customer.id === customerId) || null,
     [customerId, customers]
   );
+  const wholesalePricingProfile = useMemo(
+    () => getWholesalePricingProfile(selectedCustomer),
+    [selectedCustomer]
+  );
 
   const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const discountRaw = Math.max(0, parseFloat(discountInput) || 0);
-  const discount = discountType === 'pct' ? Math.min(subtotal, subtotal * (discountRaw / 100)) : Math.min(subtotal, discountRaw);
+  const discount = operationMode === 'wholesale'
+    ? roundMoney(subtotal * wholesalePricingProfile.discountRate)
+    : discountType === 'pct'
+      ? Math.min(subtotal, subtotal * (discountRaw / 100))
+      : Math.min(subtotal, discountRaw);
   const tax = Math.max(0, parseFloat(taxInput) || 0);
   const total = Math.max(0, subtotal - discount + tax);
   const cashReceived = Math.max(0, parseFloat(cashReceivedInput) || 0);
@@ -420,10 +497,10 @@ export function POS() {
         name: item.name,
         quantity: item.quantity,
         unitPrice: item.price,
-        discountRate: 0,
+        discountRate: wholesalePricingProfile.discountRate,
         taxRate: 0,
       })),
-    [cart]
+    [cart, wholesalePricingProfile.discountRate]
   );
 
   const latestPOSOrder = useMemo(
@@ -954,6 +1031,8 @@ export function POS() {
           customerAddress: selectedCustomer.address,
           customerCountry: selectedCustomer.country,
           items: wholesaleDraftItems,
+          terms: wholesalePricingProfile.paymentTerms,
+          notes: `Perfil ${wholesalePricingProfile.label}. ${wholesalePricingProfile.guidance}`,
         },
       },
     });
@@ -1797,6 +1876,23 @@ export function POS() {
                         <p className="text-sm font-bold text-white">{daysSince !== null ? `${daysSince}d` : '—'}</p>
                       </div>
                     </div>
+                    {operationMode === 'wholesale' && (
+                      <div className="rounded-2xl border border-blue-500/20 bg-blue-500/[0.08] p-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-blue-200/80">Tarifa mayorista</p>
+                            <p className="mt-1 text-sm font-bold text-white">
+                              {wholesalePricingProfile.label} · {(wholesalePricingProfile.discountRate * 100).toFixed(0)}% neto
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-[10px] uppercase tracking-[0.16em] text-neutral-500">Condicion</p>
+                            <p className="text-xs font-semibold text-blue-100">{wholesalePricingProfile.paymentTerms}</p>
+                          </div>
+                        </div>
+                        <p className="mt-2 text-[11px] leading-relaxed text-blue-100/80">{wholesalePricingProfile.guidance}</p>
+                      </div>
+                    )}
                     {c.phone && (
                       <a
                         href={`https://wa.me/${c.phone.replace(/\D/g, '')}`}
@@ -1887,53 +1983,79 @@ export function POS() {
 
             <div className="space-y-3">
               <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label>{t('pos.summary.discount')}</Label>
-                  <div className="flex rounded-xl border border-white/10 bg-black/30 p-0.5">
-                    {(['fixed', 'pct'] as const).map(type => (
-                      <button
-                        key={type}
-                        onClick={() => { setDiscountType(type); setDiscountInput('0'); }}
-                        className={cn(
-                          'rounded-[9px] px-3 py-1 text-[10px] font-bold uppercase tracking-wide transition-all',
-                          discountType === type
-                            ? 'bg-white/10 text-white'
-                            : 'text-neutral-600 hover:text-neutral-400'
-                        )}
-                      >
-                        {type === 'fixed' ? '$' : '%'}
-                      </button>
-                    ))}
+                {operationMode === 'wholesale' ? (
+                  <div className="rounded-2xl border border-blue-500/15 bg-blue-500/[0.06] p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <Label>Precio por cliente</Label>
+                        <p className="mt-1 text-[11px] text-blue-100/75">
+                          Descuento automatico segun perfil y recurrencia del cliente.
+                        </p>
+                      </div>
+                      <div className="rounded-xl border border-blue-400/20 bg-black/30 px-3 py-2 text-right">
+                        <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-600">Tarifa</p>
+                        <p className="text-sm font-bold text-blue-200">
+                          {wholesalePricingProfile.label} · {(wholesalePricingProfile.discountRate * 100).toFixed(0)}%
+                        </p>
+                      </div>
+                    </div>
+                    <p className="mt-3 text-[11px] text-neutral-400">
+                      {selectedCustomer
+                        ? wholesalePricingProfile.guidance
+                        : 'Selecciona un cliente para fijar precio mayorista y condiciones comerciales.'}
+                    </p>
                   </div>
-                </div>
-                <div className="flex gap-1.5">
-                  {discountType === 'pct'
-                    ? [5, 10, 15, 20].map(pct => (
-                        <button
-                          key={pct}
-                          onClick={() => setDiscountInput(String(pct))}
-                          className={cn(
-                            'flex-1 rounded-xl border py-2 text-[11px] font-bold transition-all',
-                            discountInput === String(pct)
-                              ? 'border-blue-400/30 bg-blue-500/15 text-blue-200'
-                              : 'border-white/8 bg-white/[0.03] text-neutral-500 hover:text-white'
-                          )}
-                        >
-                          {pct}%
-                        </button>
-                      ))
-                    : null}
-                </div>
-                <Input
-                  type="number"
-                  min="0"
-                  step={discountType === 'pct' ? '1' : '0.01'}
-                  max={discountType === 'pct' ? '100' : undefined}
-                  value={discountInput}
-                  onChange={(event) => setDiscountInput(event.target.value)}
-                  placeholder={discountType === 'pct' ? '0' : '0.00'}
-                  className="h-11 bg-black/40 border-white/10"
-                />
+                ) : (
+                  <>
+                    <div className="flex items-center justify-between">
+                      <Label>{t('pos.summary.discount')}</Label>
+                      <div className="flex rounded-xl border border-white/10 bg-black/30 p-0.5">
+                        {(['fixed', 'pct'] as const).map(type => (
+                          <button
+                            key={type}
+                            onClick={() => { setDiscountType(type); setDiscountInput('0'); }}
+                            className={cn(
+                              'rounded-[9px] px-3 py-1 text-[10px] font-bold uppercase tracking-wide transition-all',
+                              discountType === type
+                                ? 'bg-white/10 text-white'
+                                : 'text-neutral-600 hover:text-neutral-400'
+                            )}
+                          >
+                            {type === 'fixed' ? '$' : '%'}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="flex gap-1.5">
+                      {discountType === 'pct'
+                        ? [5, 10, 15, 20].map(pct => (
+                            <button
+                              key={pct}
+                              onClick={() => setDiscountInput(String(pct))}
+                              className={cn(
+                                'flex-1 rounded-xl border py-2 text-[11px] font-bold transition-all',
+                                discountInput === String(pct)
+                                  ? 'border-blue-400/30 bg-blue-500/15 text-blue-200'
+                                  : 'border-white/8 bg-white/[0.03] text-neutral-500 hover:text-white'
+                              )}
+                            >
+                              {pct}%
+                            </button>
+                          ))
+                        : null}
+                    </div>
+                    <Input
+                      type="number"
+                      min="0"
+                      step={discountType === 'pct' ? '1' : '0.01'}
+                      max={discountType === 'pct' ? '100' : undefined}
+                      value={discountInput}
+                      onChange={(event) => setDiscountInput(event.target.value)}
+                      placeholder={discountType === 'pct' ? '0' : '0.00'}
+                      className="h-11 bg-black/40 border-white/10"
+                    />
+                  </>
+                )}
               </div>
               <div className="space-y-2">
                 <Label>{t('pos.summary.tax')}</Label>
@@ -1963,6 +2085,18 @@ export function POS() {
                 <span className="text-neutral-500">Modo</span>
                 <span className="text-white font-mono uppercase">{operationMode}</span>
               </div>
+              {operationMode === 'wholesale' && (
+                <>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-neutral-500">Tarifa cliente</span>
+                    <span className="text-white font-mono">{wholesalePricingProfile.label}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-neutral-500">Condicion</span>
+                    <span className="text-right font-mono text-white">{wholesalePricingProfile.paymentTerms}</span>
+                  </div>
+                </>
+              )}
               <div className="flex items-center justify-between text-sm">
                 <span className="text-neutral-500">Unidades</span>
                 <span className="text-white font-mono">{cartUnits}</span>
@@ -1973,8 +2107,8 @@ export function POS() {
               </div>
               <div className="flex items-center justify-between text-sm">
                 <span className="text-neutral-500">
-                  {t('pos.summary.discount')}
-                  {discountType === 'pct' && discountRaw > 0 && <span className="ml-1 text-[10px] text-neutral-600">({discountRaw}%)</span>}
+                  {operationMode === 'wholesale' ? 'Precio cliente' : t('pos.summary.discount')}
+                  {operationMode !== 'wholesale' && discountType === 'pct' && discountRaw > 0 && <span className="ml-1 text-[10px] text-neutral-600">({discountRaw}%)</span>}
                 </span>
                 <span className={cn('font-mono', discount > 0 ? 'text-emerald-300' : 'text-white')}>
                   {discount > 0 ? `- ${formatCurrency(discount)}` : formatCurrency(0)}
