@@ -172,6 +172,31 @@ service cloud.firestore {
              data.updatedAt == request.time;
     }
 
+    // Bounds invoice payloads so a malicious client can't write a huge
+    // items[] array or megabyte-long strings that would blow up reads and
+    // billing costs for the whole tenant. Optional fields are only checked
+    // when present so older shapes keep working.
+    function isValidInvoicePayload(data) {
+      return data.companyId is string && data.companyId.size() <= 128 &&
+             data.customerName is string &&
+             data.customerName.size() > 0 && data.customerName.size() <= 200 &&
+             data.series is string && data.series.size() <= 12 &&
+             data.items is list && data.items.size() <= 200 &&
+             data.total is number && data.total >= 0 &&
+             data.subtotal is number && data.subtotal >= 0 &&
+             data.taxTotal is number && data.taxTotal >= 0 &&
+             (!('discountTotal' in data) || (data.discountTotal is number && data.discountTotal >= 0)) &&
+             (!('amountPaid' in data) || (data.amountPaid is number && data.amountPaid >= 0)) &&
+             (!('amountDue' in data) || (data.amountDue is number && data.amountDue >= 0)) &&
+             (!('notes' in data) || (data.notes is string && data.notes.size() <= 5000)) &&
+             (!('terms' in data) || (data.terms is string && data.terms.size() <= 5000)) &&
+             (!('customerEmail' in data) || (data.customerEmail is string && data.customerEmail.size() <= 320)) &&
+             (!('customerAddress' in data) || (data.customerAddress is string && data.customerAddress.size() <= 1000)) &&
+             (!('customerTaxId' in data) || (data.customerTaxId is string && data.customerTaxId.size() <= 64)) &&
+             (!('customerCountry' in data) || (data.customerCountry is string && data.customerCountry.size() <= 100)) &&
+             (!('orderId' in data) || (data.orderId is string && data.orderId.size() <= 128));
+    }
+
     // --- Rules ---
 
     // 1. Users
@@ -447,7 +472,8 @@ service cloud.firestore {
                     incoming().companyId is string &&
                     incoming().status == 'draft' &&
                     incoming().type in ['invoice', 'quote', 'receipt', 'sales_note'] &&
-                    incoming().createdBy == request.auth.uid;
+                    incoming().createdBy == request.auth.uid &&
+                    isValidInvoicePayload(incoming());
 
       // Updates: companyId never moves. Once a doc leaves "draft", line items
       // and totals are frozen — only payment + status transitions and notes
@@ -456,8 +482,9 @@ service cloud.firestore {
                     incoming().companyId == existing().companyId &&
                     incoming().createdBy == existing().createdBy &&
                     (
-                      // Draft → free edits, but never change createdAt.
-                      existing().status == 'draft'
+                      // Draft → free edits, but bounded payload and never
+                      // change createdAt.
+                      (existing().status == 'draft' && isValidInvoicePayload(incoming()))
                       ||
                       // Issued / sent / overdue → restricted: only status,
                       // payment fields, notes/terms, pdfUrl/pdfPath and

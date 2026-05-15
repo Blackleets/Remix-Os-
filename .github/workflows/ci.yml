@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main, "claude/**"]
+    branches: [main, "claude/**", "manual/**", "feature/**"]
   pull_request:
-    branches: [main]
+    branches: [main, "manual/**"]
 
 jobs:
   lint-and-build:
@@ -24,6 +24,9 @@ jobs:
 
       - name: Type check
         run: npm run lint
+
+      - name: Unit tests
+        run: npm test
 
       - name: Build
         run: npm run build
