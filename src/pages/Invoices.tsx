@@ -358,7 +358,7 @@ export function Invoices() {
     setActionBusyId(invoice.id);
     setActionError(null);
     try {
-      await duplicateInvoice(invoice.id, user.uid);
+      await duplicateInvoice(invoice.id, user.uid, company?.id);
     } catch (err: any) {
       setActionError(err?.message || 'No se pudo duplicar la factura.');
     } finally {
@@ -405,7 +405,7 @@ export function Invoices() {
       {canManage && inv.status === 'issued' && (
         <RowAction
           title="Marcar como enviada"
-          onClick={() => runAction(inv, () => markInvoiceSent(inv.id))}
+          onClick={() => runAction(inv, () => markInvoiceSent(inv.id, company?.id))}
           busy={actionBusyId === inv.id}
           icon={<Send className="h-3.5 w-3.5" />}
         />
@@ -413,7 +413,7 @@ export function Invoices() {
       {canManage && (inv.status === 'issued' || inv.status === 'sent' || inv.status === 'overdue') && (
         <RowAction
           title="Marcar pagada"
-          onClick={() => runAction(inv, () => markInvoicePaid(inv.id))}
+          onClick={() => runAction(inv, () => markInvoicePaid(inv.id, company?.id))}
           busy={actionBusyId === inv.id}
           tone="emerald"
           icon={<CheckCircle2 className="h-3.5 w-3.5" />}
@@ -422,7 +422,7 @@ export function Invoices() {
       {canManage && inv.status !== 'paid' && inv.status !== 'cancelled' && (
         <RowAction
           title="Cancelar"
-          onClick={() => runAction(inv, () => cancelInvoice(inv.id))}
+          onClick={() => runAction(inv, () => cancelInvoice(inv.id, company?.id))}
           busy={actionBusyId === inv.id}
           tone="amber"
           icon={<XCircle className="h-3.5 w-3.5" />}

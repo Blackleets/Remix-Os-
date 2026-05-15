@@ -183,6 +183,9 @@ export async function updateInvoiceDraft(invoiceId: string, input: InvoiceDraftI
   const snap = await getDoc(ref);
   if (!snap.exists()) throw new Error('Factura no encontrada');
   const existing = snap.data() as Invoice;
+  if (existing.companyId !== input.companyId) {
+    throw new Error('Esta factura no pertenece a tu empresa.');
+  }
   if (!isInvoiceEditable(existing.status)) {
     throw new Error('Esta factura ya fue emitida y no puede editarse.');
   }
@@ -259,11 +262,30 @@ export async function issueInvoice(invoiceId: string): Promise<{ invoiceNumber: 
   return { invoiceNumber, sequentialNumber };
 }
 
-export async function markInvoicePaid(invoiceId: string, amountPaid?: number): Promise<void> {
+// Reads the invoice and validates ownership before any mutation, so the user
+// gets a clear Spanish message instead of a raw Firestore
+// "Missing or insufficient permissions". `companyId` is optional for backward
+// compatibility but every call site passes it.
+async function loadOwnedInvoice(invoiceId: string, companyId?: string): Promise<{ ref: ReturnType<typeof doc>; invoice: Invoice }> {
   const ref = doc(db, INVOICES_COLLECTION, invoiceId);
   const snap = await getDoc(ref);
   if (!snap.exists()) throw new Error('Factura no encontrada');
   const invoice = snap.data() as Invoice;
+  if (companyId && invoice.companyId !== companyId) {
+    throw new Error('Esta factura no pertenece a tu empresa.');
+  }
+  return { ref, invoice };
+}
+
+export async function markInvoicePaid(
+  invoiceId: string,
+  companyId?: string,
+  amountPaid?: number
+): Promise<void> {
+  const { ref, invoice } = await loadOwnedInvoice(invoiceId, companyId);
+  if (invoice.status !== 'issued' && invoice.status !== 'sent' && invoice.status !== 'overdue') {
+    throw new Error('Solo facturas emitidas, enviadas o vencidas pueden marcarse como pagadas.');
+  }
   const paid = typeof amountPaid === 'number' ? amountPaid : invoice.total;
   await updateDoc(ref, {
     status: 'paid',
@@ -273,13 +295,19 @@ export async function markInvoicePaid(invoiceId: string, amountPaid?: number): P
   });
 }
 
-export async function markInvoiceSent(invoiceId: string): Promise<void> {
-  const ref = doc(db, INVOICES_COLLECTION, invoiceId);
+export async function markInvoiceSent(invoiceId: string, companyId?: string): Promise<void> {
+  const { ref, invoice } = await loadOwnedInvoice(invoiceId, companyId);
+  if (invoice.status !== 'issued') {
+    throw new Error('Solo facturas emitidas pueden marcarse como enviadas.');
+  }
   await updateDoc(ref, { status: 'sent', updatedAt: serverTimestamp() });
 }
 
-export async function cancelInvoice(invoiceId: string): Promise<void> {
-  const ref = doc(db, INVOICES_COLLECTION, invoiceId);
+export async function cancelInvoice(invoiceId: string, companyId?: string): Promise<void> {
+  const { ref, invoice } = await loadOwnedInvoice(invoiceId, companyId);
+  if (invoice.status === 'paid' || invoice.status === 'cancelled') {
+    throw new Error('Una factura pagada o ya cancelada no puede cancelarse.');
+  }
   await updateDoc(ref, { status: 'cancelled', updatedAt: serverTimestamp() });
 }
 
@@ -290,11 +318,14 @@ export async function cancelInvoice(invoiceId: string): Promise<void> {
 // - issueDate set to today; dueDate is dropped so the operator re-confirms it.
 // - payment fields reset (amountPaid=0, amountDue=total).
 // - orderId stripped to avoid linking two invoices to the same order.
-export async function duplicateInvoice(invoiceId: string, createdBy: string): Promise<string> {
+export async function duplicateInvoice(invoiceId: string, createdBy: string, companyId?: string): Promise<string> {
   const sourceRef = doc(db, INVOICES_COLLECTION, invoiceId);
   const snap = await getDoc(sourceRef);
   if (!snap.exists()) throw new Error('Factura no encontrada');
   const source = snap.data() as Invoice;
+  if (companyId && source.companyId !== companyId) {
+    throw new Error('Esta factura no pertenece a tu empresa.');
+  }
 
   const newRef = doc(collection(db, INVOICES_COLLECTION));
   const cloneItems: InvoiceLineItem[] = (source.items || []).map((it) => ({

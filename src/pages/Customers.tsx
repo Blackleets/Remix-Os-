@@ -171,7 +171,14 @@ export function Customers() {
       orderBy('dueDate', 'asc')
     );
     const rSnap = await getDocs(rq);
-    setReminders(rSnap.docs.map(d => ({ id: d.id, ...d.data() } as Reminder)));
+    // Defense-in-depth: the query filters by customerId only; drop anything
+    // not belonging to the active company (Firestore rules already block
+    // cross-tenant reads — this keeps the UI correct even at the edges).
+    setReminders(
+      rSnap.docs
+        .filter(d => d.data().companyId === company.id)
+        .map(d => ({ id: d.id, ...d.data() } as Reminder))
+    );
 
     // Fetch messages
     const mq = query(
@@ -180,7 +187,11 @@ export function Customers() {
       orderBy('createdAt', 'desc')
     );
     const mSnap = await getDocs(mq);
-    setMessages(mSnap.docs.map(d => ({ id: d.id, ...d.data() } as CustomerMessage)));
+    setMessages(
+      mSnap.docs
+        .filter(d => d.data().companyId === company.id)
+        .map(d => ({ id: d.id, ...d.data() } as CustomerMessage))
+    );
   };
 
   const handleAddReminder = async (e: React.FormEvent) => {
