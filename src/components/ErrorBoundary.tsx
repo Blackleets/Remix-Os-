@@ -1,5 +1,6 @@
 import { Component, ReactNode } from 'react';
 import { AlertTriangle, RefreshCcw } from 'lucide-react';
+import { captureError } from '../lib/sentry';
 
 interface Props {
   children: ReactNode;
@@ -23,6 +24,10 @@ export class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
     console.error('App error boundary caught:', error, info.componentStack);
+    captureError(error, {
+      componentStack: info.componentStack,
+      boundary: this.props.variant || 'fullscreen',
+    });
   }
 
   render() {

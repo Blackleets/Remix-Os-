@@ -9,8 +9,37 @@ import { getAuth } from 'firebase-admin/auth';
 import { FieldValue, Timestamp, getFirestore } from 'firebase-admin/firestore';
 import type { Firestore } from 'firebase-admin/firestore';
 import { BILLING_CURRENCY, PLAN_DEFINITIONS, PLAN_IDS, PlanId, getBillingPriceMap, getPlanDefinition } from '../shared/plans.js';
+import * as Sentry from '@sentry/node';
 import { getOrderTotal, getOrderItems } from '../shared/orders.js';
 import { formatInvoiceNumber } from '../shared/invoices.js';
+
+// Backend error observability. No-op until SENTRY_DSN is set, so existing
+// deploys are unaffected. captureBackendError is safe to call unconditionally.
+let sentryInitialized = false;
+function initBackendSentry() {
+  const dsn = process.env.SENTRY_DSN;
+  if (!dsn || sentryInitialized) return;
+  try {
+    Sentry.init({
+      dsn,
+      environment: process.env.NODE_ENV || 'development',
+      tracesSampleRate: 0.1,
+      sendDefaultPii: false,
+    });
+    sentryInitialized = true;
+  } catch (err) {
+    console.error('[Sentry] backend init failed (continuing without it):', err);
+  }
+}
+
+function captureBackendError(error: unknown, context?: Record<string, unknown>) {
+  if (!sentryInitialized) return;
+  try {
+    Sentry.captureException(error, context ? { extra: context } : undefined);
+  } catch {
+    /* telemetry must never throw into request handling */
+  }
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1372,6 +1401,7 @@ function enforceAiRateLimit(req: any, res: any): boolean {
 }
 
 export function createApp() {
+  initBackendSentry();
   const app = express();
 
   app.use((req, res, next) => {
@@ -1478,6 +1508,7 @@ export function createApp() {
       res.json(overview);
     } catch (error: any) {
       console.error('[CompanyOverview] Failed to load company overview:', error.message || error);
+      captureBackendError(error, { route: '/api/company/overview' });
       res.status(500).json({ error: error.message || 'Failed to load company overview' });
     }
   });
@@ -1566,6 +1597,7 @@ export function createApp() {
       });
     } catch (error: any) {
       console.error('[Invoices] Failed to issue invoice:', error?.message || error);
+      captureBackendError(error, { route: '/api/invoices/issue' });
       res.status(500).json({ error: error?.message || 'Failed to issue invoice' });
     }
   });
@@ -2123,6 +2155,11 @@ export function createApp() {
         eventId: event.id,
         type: event.type,
         error: processErr?.message || processErr,
+      });
+      captureBackendError(processErr, {
+        route: '/api/billing/webhook',
+        eventId: event.id,
+        eventType: event.type,
       });
       return res.status(500).json({ error: 'Webhook processing failed' });
     }
