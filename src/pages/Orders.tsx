@@ -116,16 +116,22 @@ export function Orders() {
     );
     const unsubscribeOrders = onSnapshot(qOrders, (snap) => {
       setOrders(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Order)));
+    }, (error) => {
+      console.error('Orders listener error:', error);
     });
 
     const qCust = query(collection(db, 'customers'), where('companyId', '==', company.id));
     const unsubscribeCustomers = onSnapshot(qCust, (snap) => {
       setCustomers(snap.docs.map((d) => ({ id: d.id, name: d.data().name })));
+    }, (error) => {
+      console.error('Orders customers listener error:', error);
     });
 
     const qProd = query(collection(db, 'products'), where('companyId', '==', company.id));
     const unsubscribeProducts = onSnapshot(qProd, (snap) => {
       setProducts(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Product)));
+    }, (error) => {
+      console.error('Orders products listener error:', error);
     });
 
     // Track which orders already have a non-cancelled invoice so we can

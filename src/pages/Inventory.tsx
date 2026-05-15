@@ -42,11 +42,15 @@ export function Inventory() {
     );
     const unsubscribeMovements = onSnapshot(qMoved, (snap) => {
       setMovements(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Movement)));
+    }, (error) => {
+      console.error('Inventory movements listener error:', error);
     });
 
     const qProd = query(collection(db, 'products'), where('companyId', '==', company.id));
     const unsubscribeProducts = onSnapshot(qProd, (snap) => {
       setProducts(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+    }, (error) => {
+      console.error('Inventory products listener error:', error);
     });
 
     return () => {
