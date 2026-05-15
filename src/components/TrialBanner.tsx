@@ -37,13 +37,13 @@ export function TrialBanner() {
             <Clock className="h-4 w-4" />
           </div>
           <div className="min-w-0">
-            <p className="text-[10px] font-black uppercase tracking-[0.24em] text-current/80">Trial Protocol</p>
+            <p className="text-[10px] font-black uppercase tracking-[0.24em] text-current/80">Trial activo</p>
             <p className="truncate text-sm font-semibold text-current">
               {daysLeft === 0
-                ? 'Your free trial expires today'
+                ? 'Tu trial gratuito vence hoy'
                 : daysLeft === 1
-                  ? '1 day left in your free trial'
-                  : `${daysLeft} days left in your free trial`}
+                  ? 'Queda 1 dia de trial'
+                  : `Quedan ${daysLeft} dias de trial`}
             </p>
           </div>
         </div>
@@ -54,7 +54,7 @@ export function TrialBanner() {
             className="inline-flex items-center gap-2 rounded-2xl border border-current/18 bg-black/20 px-4 py-2 text-[11px] font-black uppercase tracking-[0.18em] text-current transition-colors hover:bg-black/28"
           >
             <Zap className="h-3 w-3" />
-            Upgrade
+            Ver planes
           </button>
           <button
             onClick={() => setDismissed(true)}

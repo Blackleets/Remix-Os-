@@ -309,7 +309,7 @@ export function Invoices() {
     try {
       await action();
     } catch (err: any) {
-      setActionError(err?.message || 'Acción fallida.');
+      setActionError(err?.message || 'Accion fallida.');
     } finally {
       setActionBusyId(null);
     }
@@ -406,11 +406,11 @@ export function Invoices() {
       >
         <div className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
           <div>
-            <p className="section-kicker mb-3">Facturación</p>
+            <p className="section-kicker mb-3">Facturacion</p>
             <h1 className="section-title text-3xl md:text-4xl">Facturas</h1>
             <p className="mt-3 max-w-2xl text-sm text-neutral-400 md:text-base">
-              Crea facturas, presupuestos y recibos profesionales para España, México, USA, Europa y LATAM.
-              Documento comercial — la certificación fiscal local se conectará luego con proveedores autorizados.
+              Crea facturas, presupuestos y recibos profesionales para Espana, Mexico, USA, Europa y LATAM.
+              Documento comercial. La certificacion fiscal local se conectara luego con proveedores autorizados.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -478,14 +478,14 @@ export function Invoices() {
         {loading ? (
           <div className="flex items-center justify-center px-6 py-16">
             <Loader2 className="h-5 w-5 animate-spin text-blue-300" />
-            <span className="ml-3 text-sm text-neutral-400">Cargando facturas…</span>
+            <span className="ml-3 text-sm text-neutral-400">Cargando facturas...</span>
           </div>
         ) : invoices.length === 0 ? (
           <div className="px-4 py-16 sm:px-6">
             <EmptyStatePanel
-              eyebrow="Facturación"
-              title="Tus facturas aparecerán aquí."
-              description="Crea facturas, presupuestos y recibos profesionales conectados a clientes, productos y pedidos."
+              eyebrow="Facturacion"
+              title="Tus facturas apareceran aqui."
+              description="Crea facturas, presupuestos y recibos conectados a clientes, productos y pedidos."
               icon={<Receipt className="h-7 w-7" />}
               primaryActionLabel={canManage ? 'Crear factura' : undefined}
               onPrimaryAction={canManage ? () => openNew('invoice') : undefined}
@@ -498,6 +498,13 @@ export function Invoices() {
             <p className="text-sm text-neutral-400">
               No hay documentos en estado <span className="text-white">{invoiceStatusLabel(filter as InvoiceStatus)}</span>.
             </p>
+            <button
+              type="button"
+              onClick={() => setFilter('all')}
+              className="mt-4 rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-neutral-300 transition-colors hover:border-white/20 hover:text-white"
+            >
+              Ver todo
+            </button>
           </div>
         ) : (
           <>
@@ -506,11 +513,11 @@ export function Invoices() {
               <table className="w-full border-collapse">
                 <thead>
                   <tr>
-                    <th className="table-header">Número</th>
+                    <th className="table-header">Numero</th>
                     <th className="table-header">Tipo</th>
                     <th className="table-header">Cliente</th>
                     <th className="table-header">Estado</th>
-                    <th className="table-header">Emisión</th>
+                    <th className="table-header">Emision</th>
                     <th className="table-header">Vencimiento</th>
                     <th className="table-header text-right">Total</th>
                     <th className="table-header text-right">Pendiente</th>
@@ -551,7 +558,7 @@ export function Invoices() {
                         </td>
                         <td className="table-cell text-xs text-neutral-400">{formatShortDate(inv.issueDate)}</td>
                         <td className="table-cell text-xs text-neutral-400">
-                          {inv.dueDate ? formatShortDate(inv.dueDate) : '—'}
+                          {inv.dueDate ? formatShortDate(inv.dueDate) : '-'}
                         </td>
                         <td className="table-cell text-right font-mono text-sm text-white">
                           {formatInvoiceCurrency(inv.total, profile)}
@@ -583,7 +590,7 @@ export function Invoices() {
                           {inv.invoiceNumber || 'Borrador'}
                         </p>
                         <p className="mt-0.5 truncate text-xs text-neutral-400">
-                          {labelForType(inv.type, profile)} · {inv.customerName}
+                          {labelForType(inv.type, profile)} / {inv.customerName}
                         </p>
                       </button>
                       <InvoiceStatusBadge status={inv.status} />

@@ -119,7 +119,7 @@ export function Settings() {
       setAvatarSuccess(true);
       setTimeout(() => setAvatarSuccess(false), 3000);
     } catch (err: any) {
-      console.error("Avatar update failed:", err);
+      console.error('Avatar update failed:', err);
       setAvatarError(err?.message || 'No se pudo actualizar el perfil.');
     } finally {
       setAvatarLoading(false);
@@ -146,7 +146,7 @@ export function Settings() {
                         </div>
                         <div>
                             <h2 className="font-display font-bold text-xl text-white">{t('settings.security_credentials')}</h2>
-                            <p className="text-xs text-neutral-500 uppercase tracking-widest font-mono">PERFIL_USUARIO</p>
+                            <p className="text-xs text-neutral-500 uppercase tracking-widest font-mono">PERFIL</p>
                         </div>
                     </div>
                 </div>
@@ -158,7 +158,7 @@ export function Settings() {
                                 value={avatarForm.photoURL}
                                 onChange={url => setAvatarForm({ ...avatarForm, photoURL: url })}
                                 path={`users/${user?.uid}/avatar`}
-                                label="Avatar"
+                                label="Foto"
                             />
                         </div>
                         <div className="flex-1 space-y-4">
@@ -193,7 +193,7 @@ export function Settings() {
                     </div>
                     <div>
                         <h2 className="font-display font-bold text-xl text-white">{t('settings.localization')}</h2>
-                        <p className="text-xs text-neutral-500 uppercase tracking-widest font-mono">PARAMETROS_LOCALES</p>
+                        <p className="text-xs text-neutral-500 uppercase tracking-widest font-mono">IDIOMA Y REGION</p>
                     </div>
                 </div>
 
@@ -232,7 +232,7 @@ export function Settings() {
                 </div>
                 <div>
                   <h2 className="font-display font-bold text-2xl text-white">{t('settings.company_profile')}</h2>
-                  <p className="text-sm text-neutral-500 font-mono">EMPRESA_ID: {company?.id.slice(0, 12).toUpperCase()}</p>
+                  <p className="text-sm text-neutral-500 font-mono">EMPRESA: {company?.id.slice(0, 12).toUpperCase()}</p>
                 </div>
               </div>
               <div className="flex flex-col md:flex-row items-center gap-4">
@@ -263,7 +263,7 @@ export function Settings() {
                         required 
                         value={form.name} 
                         onChange={e => setForm({...form, name: e.target.value})} 
-                        placeholder="e.g. Acme Industrials"
+                        placeholder="Ej. Acme Industrials"
                     />
                     </div>
                     <div className="space-y-2">
@@ -290,7 +290,7 @@ export function Settings() {
                       value={form.currency}
                       onChange={e => setForm({...form, currency: e.target.value})}
                     >
-                      <option value="USD" className="bg-neutral-900">USD ($) - US Dollars</option>
+                      <option value="USD" className="bg-neutral-900">USD ($) - Dolares</option>
                       <option value="EUR" className="bg-neutral-900">EUR (€) - Euros</option>
                       <option value="MXN" className="bg-neutral-900">MXN ($) - Pesos Mexicanos</option>
                       <option value="COP" className="bg-neutral-900">COP ($) - Pesos Colombianos</option>
@@ -311,7 +311,7 @@ export function Settings() {
                       <option value="America/Mexico_City" className="bg-neutral-900">CST (Mexico City)</option>
                       <option value="America/Bogota" className="bg-neutral-900">COT (Bogota)</option>
                       <option value="America/Sao_Paulo" className="bg-neutral-900">BRT (Sao Paulo)</option>
-                      <option value="Europe/London" className="bg-neutral-900">GMT (London)</option>
+                      <option value="Europe/London" className="bg-neutral-900">GMT (Londres)</option>
                       <option value="Europe/Madrid" className="bg-neutral-900">CET (Madrid)</option>
                     </select>
                   </div>
@@ -336,7 +336,7 @@ export function Settings() {
                     <Input 
                       value={form.phone} 
                       onChange={e => setForm({...form, phone: e.target.value})} 
-                      placeholder="+1 (555) OS-BLOCK"
+                      placeholder="+1 (555) 010-2020"
                     />
                   </div>
                 </div>
@@ -355,7 +355,7 @@ export function Settings() {
                     <div className="space-y-3 pt-4">
                         <div className="flex items-center justify-between py-2 border-b border-white/[0.03]">
                             <span className="text-[10px] uppercase font-bold text-neutral-600 tracking-widest">{t('settings.node_tier')}</span>
-                            <span className="text-[10px] font-mono bg-blue-500/10 text-blue-400 px-2 py-0.5 rounded border border-blue-500/20 uppercase font-bold text-center">Prioridad V1</span>
+                            <span className="text-[10px] font-mono bg-blue-500/10 text-blue-400 px-2 py-0.5 rounded border border-blue-500/20 uppercase font-bold text-center">Prioridad v1</span>
                         </div>
                         <div className="flex items-center justify-between py-2">
                             <span className="text-[10px] uppercase font-bold text-neutral-600 tracking-widest">{t('settings.entity_health')}</span>
@@ -387,7 +387,7 @@ export function Settings() {
             </div>
             <div className="md:ml-auto">
                 <Button variant="secondary" disabled className="text-[10px] uppercase tracking-widest font-bold opacity-50 px-6">
-                    Multi-admin disponible en v2.4
+                    Multi-admin disponible en proxima fase
                 </Button>
             </div>
           </div>

@@ -47,7 +47,7 @@ interface ActivityItem {
 type ActivityTone = 'signal' | 'client' | 'inventory' | 'ops';
 
 function formatChangeValue(value: string) {
-  return value === '—' || value === '' ? 'Estable' : value;
+  return value === 'â€”' || value === '—' || value === '-' || value === '' ? 'Estable' : value;
 }
 
 export function Dashboard() {
@@ -60,7 +60,7 @@ export function Dashboard() {
     products: 0,
     orders: 0,
     revenue: 0,
-    revenueChange: '—',
+    revenueChange: '-',
   });
   const [chartData, setChartData] = useState<{ name: string; sales: number }[]>([]);
   const [activities, setActivities] = useState<ActivityItem[]>([]);

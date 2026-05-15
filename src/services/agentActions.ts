@@ -13,7 +13,7 @@ async function authedPost(url: string, body: Record<string, any>) {
 
   if (!res.ok) {
     const err = await res.text();
-    throw new Error(err || `Action failed (${res.status})`);
+    throw new Error(err || `Accion fallida (${res.status})`);
   }
 
   return res.json();

@@ -166,7 +166,7 @@ export function Products() {
       setForm({ name: '', price: '', stockLevel: '', category: '', sku: '', description: '', status: 'active', imageURL: '' });
       fetchProducts();
     } catch (err: any) {
-      setFormError(err?.message || 'Failed to save product.');
+      setFormError(err?.message || 'No se pudo guardar el producto.');
     } finally {
       setLoading(false);
     }
@@ -305,13 +305,13 @@ export function Products() {
         where('productId', '==', id)
       ));
       if (!movementsSnap.empty) {
-        setFormError('This product has sales history and cannot be deleted. Mark it inactive instead.');
+        setFormError('Este producto tiene historial de ventas y no se puede eliminar. Marcalo como inactivo.');
         return;
       }
       await deleteDoc(doc(db, 'products', id));
       fetchProducts();
     } catch (err: any) {
-      setFormError(err?.message || 'Failed to delete product.');
+      setFormError(err?.message || 'No se pudo eliminar el producto.');
     }
   };
 
@@ -319,9 +319,23 @@ export function Products() {
     p.name.toLowerCase().includes(search.toLowerCase()) ||
     p.sku?.toLowerCase().includes(search.toLowerCase())
   );
+  const hasActiveFilters = search.trim().length > 0;
 
   const activeProducts = products.filter((p) => p.status === 'active').length;
   const lowStockProducts = products.filter((p) => p.stockLevel <= 10).length;
+
+  const getStatusLabel = (status: Product['status']) => {
+    switch (status) {
+      case 'active':
+        return 'Activo';
+      case 'draft':
+        return 'Borrador';
+      case 'archived':
+        return 'Archivado';
+      default:
+        return status;
+    }
+  };
 
   const getStatusClasses = (status: Product['status']) => {
     switch (status) {
@@ -344,16 +358,16 @@ export function Products() {
             <div className="mb-4 flex flex-wrap items-center gap-2">
               <span className="operator-badge">
                 <span className="status-dot bg-blue-400 text-blue-400" />
-                Product Registry
+                Catalogo activo
               </span>
               <span className="telemetry-chip">
                 <Radar className="h-3 w-3 text-blue-300" />
-                Catalog Watch
+                Stock en vigilancia
               </span>
             </div>
             <h1 className="section-title text-4xl md:text-5xl">{t('products.title')}</h1>
             <p className="mt-3 max-w-2xl text-sm leading-relaxed text-neutral-300 md:text-base">
-              Structured catalog control for pricing, stock posture and asset readiness across your operating graph.
+              Organiza precios, stock y disponibilidad comercial desde un solo catalogo operativo.
             </p>
           </div>
           <div className="flex flex-col gap-3 sm:flex-row">
@@ -388,31 +402,31 @@ export function Products() {
 
         <div className="mt-6 grid gap-3 md:grid-cols-3">
           <div className="data-tile">
-            <p className="section-kicker mb-2 !text-neutral-500">Total Assets</p>
+            <p className="section-kicker mb-2 !text-neutral-500">Productos</p>
             <div className="flex items-end justify-between gap-4">
               <div>
                 <p className="text-3xl font-bold text-white">{products.length}</p>
-                <p className="mt-1 text-sm text-neutral-400">Registered product nodes in the catalog.</p>
+                <p className="mt-1 text-sm text-neutral-400">Items registrados en el catalogo.</p>
               </div>
               <Package className="h-5 w-5 text-blue-300" />
             </div>
           </div>
           <div className="data-tile">
-            <p className="section-kicker mb-2 !text-neutral-500">Active Catalog</p>
+            <p className="section-kicker mb-2 !text-neutral-500">Activos</p>
             <div className="flex items-end justify-between gap-4">
               <div>
                 <p className="text-3xl font-bold text-white">{activeProducts}</p>
-                <p className="mt-1 text-sm text-neutral-400">Assets ready for active commercial flow.</p>
+                <p className="mt-1 text-sm text-neutral-400">Productos listos para vender.</p>
               </div>
               <Sparkles className="h-5 w-5 text-emerald-300" />
             </div>
           </div>
           <div className="data-tile">
-            <p className="section-kicker mb-2 !text-neutral-500">Low Stock Watch</p>
+            <p className="section-kicker mb-2 !text-neutral-500">Stock bajo</p>
             <div className="flex items-end justify-between gap-4">
               <div>
                 <p className="text-3xl font-bold text-white">{lowStockProducts}</p>
-                <p className="mt-1 text-sm text-neutral-400">Products below recommended stock threshold.</p>
+                <p className="mt-1 text-sm text-neutral-400">Items por debajo del nivel sugerido.</p>
               </div>
               <Archive className="h-5 w-5 text-amber-300" />
             </div>
@@ -432,10 +446,10 @@ export function Products() {
         <Card className="space-y-6">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
-              <p className="section-kicker mb-2">Importación masiva</p>
+              <p className="section-kicker mb-2">Importacion masiva</p>
               <h2 className="section-title text-2xl">Importar productos</h2>
               <p className="mt-2 max-w-2xl text-sm text-neutral-400">
-                Soporta CSV y JSON. Límite inicial: 1000 filas por importación. El `companyId` se toma de tu sesión actual.
+                Soporta CSV y JSON. Limite inicial: 1000 filas por importacion. El `companyId` se toma de tu sesion actual.
               </p>
             </div>
             <div className="flex flex-col gap-3 sm:flex-row">
@@ -460,7 +474,7 @@ export function Products() {
 
           {importResult && (
             <p className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
-              Importación completada. Procesadas: {importResult.total_processed}. Creados: {importResult.created}. Inválidos: {importResult.invalid}. Duplicados en archivo: {importResult.duplicates_in_file}. Duplicados existentes: {importResult.duplicates_existing}.
+              Importacion completada. Procesadas: {importResult.total_processed}. Creados: {importResult.created}. Invalidos: {importResult.invalid}. Duplicados en archivo: {importResult.duplicates_in_file}. Duplicados existentes: {importResult.duplicates_existing}.
             </p>
           )}
 
@@ -469,8 +483,8 @@ export function Products() {
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
                 <div className="data-tile"><p className="section-kicker mb-2 !text-neutral-500">Archivo</p><p className="text-sm font-semibold text-white">{importPreview.fileName}</p></div>
                 <div className="data-tile"><p className="section-kicker mb-2 !text-neutral-500">Filas</p><p className="text-3xl font-bold text-white">{importPreview.totalRows}</p></div>
-                <div className="data-tile"><p className="section-kicker mb-2 !text-neutral-500">Válidas</p><p className="text-3xl font-bold text-emerald-300">{importPreview.validRows}</p></div>
-                <div className="data-tile"><p className="section-kicker mb-2 !text-neutral-500">Inválidas</p><p className="text-3xl font-bold text-red-300">{importPreview.invalidRows}</p></div>
+                <div className="data-tile"><p className="section-kicker mb-2 !text-neutral-500">Validas</p><p className="text-3xl font-bold text-emerald-300">{importPreview.validRows}</p></div>
+                <div className="data-tile"><p className="section-kicker mb-2 !text-neutral-500">Invalidas</p><p className="text-3xl font-bold text-red-300">{importPreview.invalidRows}</p></div>
                 <div className="data-tile"><p className="section-kicker mb-2 !text-neutral-500">Dup. archivo</p><p className="text-3xl font-bold text-amber-300">{importPreview.duplicateInFileRows}</p></div>
                 <div className="data-tile"><p className="section-kicker mb-2 !text-neutral-500">Dup. existentes</p><p className="text-3xl font-bold text-orange-300">{importPreview.duplicateExistingRows}</p></div>
               </div>
@@ -479,7 +493,7 @@ export function Products() {
                 {importPreview.rows.filter((row) => row.issues.length > 0 || row.duplicateKeys.length > 0).slice(0, 20).map((row) => (
                   <div key={`${row.index}-${row.raw.sku || row.raw.name}`} className="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
                     <p className="text-xs font-black uppercase tracking-[0.2em] text-white">Fila {row.index}</p>
-                    <p className="mt-2 text-sm text-neutral-300">{row.raw.name || 'Sin nombre'} · {row.raw.sku || 'Sin SKU'}</p>
+                    <p className="mt-2 text-sm text-neutral-300">{row.raw.name || 'Sin nombre'} / {row.raw.sku || 'Sin SKU'}</p>
                     <p className="mt-2 text-xs leading-relaxed text-amber-200">{[...row.issues, ...row.duplicateKeys].join(' | ')}</p>
                   </div>
                 ))}
@@ -490,7 +504,7 @@ export function Products() {
                   Limpiar preview
                 </Button>
                 <Button type="button" disabled={importing || importPreview.validRows === 0} onClick={handleConfirmProductImport}>
-                  {importing ? 'Importando...' : 'Confirmar importación'}
+                  {importing ? 'Importando...' : 'Confirmar importacion'}
                 </Button>
               </div>
             </div>
@@ -502,9 +516,9 @@ export function Products() {
         <div className="border-b border-white/[0.06] bg-white/[0.02] p-6">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <p className="section-kicker mb-2">Catalog Filters</p>
+              <p className="section-kicker mb-2">Filtros</p>
               <h2 className="section-title text-2xl">{t('products.table.identity')}</h2>
-              <p className="mt-2 text-sm text-neutral-400">Search the catalog and inspect price, stock and operating readiness.</p>
+              <p className="mt-2 text-sm text-neutral-400">Busca productos y revisa precio, stock y disponibilidad comercial.</p>
             </div>
             <div className="relative group w-full max-w-sm">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-600 transition-colors group-focus-within:text-blue-500" />
@@ -550,7 +564,7 @@ export function Products() {
                       <div>
                         <p className="font-bold text-neutral-100">{product.name}</p>
                         <span className={cn('mt-1 inline-flex rounded-full border px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.18em]', getStatusClasses(product.status))}>
-                          {product.status}
+                          {getStatusLabel(product.status)}
                         </span>
                       </div>
                     </div>
@@ -614,7 +628,7 @@ export function Products() {
                   </div>
                   <div className="min-w-0">
                     <p className="truncate font-bold text-neutral-200">{product.name}</p>
-                    <p className="truncate font-mono text-[10px] text-neutral-600">{product.sku || 'NO_SKU'}</p>
+                    <p className="truncate font-mono text-[10px] text-neutral-600">{product.sku || 'Sin SKU'}</p>
                   </div>
                 </div>
                 <div className="shrink-0 text-right">
@@ -624,7 +638,7 @@ export function Products() {
               </div>
               <div className="flex items-center justify-between">
                 <span className={cn('rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.16em]', getStatusClasses(product.status))}>
-                  {product.status}
+                  {getStatusLabel(product.status)}
                 </span>
                 {canEditProducts && (
                   <div className="flex gap-1">
@@ -641,14 +655,20 @@ export function Products() {
         {filtered.length === 0 && (
           <div className="px-4 py-16 sm:px-6">
             <EmptyStatePanel
-              eyebrow="Catálogo"
-              title="Tu catálogo empieza aquí."
-              description="Añade productos para activar inventario, ventas y análisis de IA."
+              eyebrow={hasActiveFilters ? 'Sin resultados' : 'Catalogo'}
+              title={hasActiveFilters ? 'No hay productos para esta busqueda.' : 'Tu catalogo empieza aqui.'}
+              description={hasActiveFilters ? 'Prueba otro termino o limpia la busqueda para ver mas productos.' : 'Anade productos para activar inventario, ventas y analisis de IA.'}
               icon={<Box className="h-7 w-7" />}
-              primaryActionLabel={canEditProducts ? 'Añadir producto' : undefined}
+              primaryActionLabel={canEditProducts ? 'Anadir producto' : undefined}
               onPrimaryAction={canEditProducts ? handleCreateNew : undefined}
-              secondaryActionLabel="Importar CSV"
-              onSecondaryAction={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+              secondaryActionLabel={hasActiveFilters ? 'Limpiar busqueda' : 'Importar CSV'}
+              onSecondaryAction={() => {
+                if (hasActiveFilters) {
+                  setSearch('');
+                  return;
+                }
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
             />
           </div>
         )}

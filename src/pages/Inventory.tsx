@@ -65,7 +65,7 @@ export function Inventory() {
     if (!form.productId || !form.quantity || !company) return;
     const qty = parseInt(form.quantity);
     if (!qty || qty < 1) {
-      setAdjustError('Quantity must be at least 1.');
+      setAdjustError('La cantidad debe ser mayor o igual a 1.');
       return;
     }
 
@@ -118,6 +118,9 @@ export function Inventory() {
   const inflowCount = movements.filter((m) => m.type === 'in').length;
   const outflowCount = movements.filter((m) => m.type === 'out').length;
   const lowStockProducts = products.filter((p) => (p.stockLevel || 0) <= 10).length;
+  const criticalStockProducts = products.filter((p) => (p.stockLevel || 0) <= 3).slice(0, 4);
+
+  const getMovementLabel = (type: Movement['type']) => (type === 'in' ? 'Entrada' : 'Salida');
 
   return (
     <div className="space-y-6 md:space-y-8">
@@ -127,16 +130,16 @@ export function Inventory() {
             <div className="mb-4 flex flex-wrap items-center gap-2">
               <span className="operator-badge">
                 <span className="status-dot bg-blue-400 text-blue-400" />
-                Inventory Control
+                Control de inventario
               </span>
               <span className="telemetry-chip">
                 <Radar className="h-3 w-3 text-blue-300" />
-                Stock Watch
+                Stock en vigilancia
               </span>
             </div>
             <h1 className="section-title text-4xl md:text-5xl">{t('inventory.title')}</h1>
             <p className="mt-3 max-w-2xl text-sm leading-relaxed text-neutral-300 md:text-base">
-              Track inventory pressure, execute manual adjustments and inspect movement history from a single operating surface.
+              Controla existencias, registra ajustes y revisa movimientos desde una sola vista operativa.
             </p>
           </div>
           <Button
@@ -158,31 +161,31 @@ export function Inventory() {
 
         <div className="mt-6 grid gap-3 md:grid-cols-3">
           <div className="data-tile">
-            <p className="section-kicker mb-2 !text-neutral-500">Inbound Events</p>
+            <p className="section-kicker mb-2 !text-neutral-500">Entradas</p>
             <div className="flex items-end justify-between gap-4">
               <div>
                 <p className="text-3xl font-bold text-white">{inflowCount}</p>
-                <p className="mt-1 text-sm text-neutral-400">Recent stock replenishment movements in the ledger.</p>
+                <p className="mt-1 text-sm text-neutral-400">Reposiciones registradas en el historial reciente.</p>
               </div>
               <ArrowDownLeft className="h-5 w-5 text-emerald-300" />
             </div>
           </div>
           <div className="data-tile">
-            <p className="section-kicker mb-2 !text-neutral-500">Outbound Events</p>
+            <p className="section-kicker mb-2 !text-neutral-500">Salidas</p>
             <div className="flex items-end justify-between gap-4">
               <div>
                 <p className="text-3xl font-bold text-white">{outflowCount}</p>
-                <p className="mt-1 text-sm text-neutral-400">Stock reductions registered by operational activity.</p>
+                <p className="mt-1 text-sm text-neutral-400">Reducciones de stock registradas por la operacion.</p>
               </div>
               <ArrowUpRight className="h-5 w-5 text-amber-300" />
             </div>
           </div>
           <div className="data-tile">
-            <p className="section-kicker mb-2 !text-neutral-500">Low Stock Watch</p>
+            <p className="section-kicker mb-2 !text-neutral-500">Stock bajo</p>
             <div className="flex items-end justify-between gap-4">
               <div>
                 <p className="text-3xl font-bold text-white">{lowStockProducts}</p>
-                <p className="mt-1 text-sm text-neutral-400">Product nodes currently under recommended coverage.</p>
+                <p className="mt-1 text-sm text-neutral-400">Productos por debajo del nivel recomendado.</p>
               </div>
               <Sparkles className="h-5 w-5 text-blue-300" />
             </div>
@@ -192,11 +195,40 @@ export function Inventory() {
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <div className="lg:col-span-1">
+          {criticalStockProducts.length > 0 && (
+            <Card className="mb-6">
+              <div className="mb-4 flex items-start justify-between gap-3">
+                <div>
+                  <p className="section-kicker mb-2">Alerta</p>
+                  <h2 className="section-title text-2xl">Reposicion prioritaria</h2>
+                </div>
+                <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-amber-400/14 bg-amber-500/10">
+                  <ShieldAlert className="w-4 h-4 text-amber-300" />
+                </div>
+              </div>
+              <div className="space-y-3">
+                {criticalStockProducts.map((product) => (
+                  <div key={product.id} className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-bold text-white">{product.name}</p>
+                        <p className="mt-1 text-[11px] text-neutral-400">SKU: {product.sku || '-'}</p>
+                      </div>
+                      <span className="rounded-full border border-amber-400/20 bg-amber-500/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-amber-200">
+                        {product.stockLevel || 0} {t('inventory.units')}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
+
           {canEditInventory ? (
             <Card className="h-fit">
               <div className="mb-6 flex items-start justify-between gap-4 border-b border-white/[0.05] pb-4">
                 <div>
-                  <p className="section-kicker mb-2">Adjustment Console</p>
+                  <p className="section-kicker mb-2">Ajuste</p>
                   <h2 className="section-title text-2xl">{t('inventory.manual_adjustment')}</h2>
                 </div>
                 <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-blue-400/14 bg-blue-500/10">
@@ -281,11 +313,11 @@ export function Inventory() {
                 <History className="w-4 h-4 text-neutral-300" />
               </div>
               <div>
-                <p className="section-kicker mb-1">Movement Ledger</p>
+                <p className="section-kicker mb-1">Movimientos</p>
                 <h2 className="section-title text-2xl">{t('inventory.movement_logs')}</h2>
               </div>
             </div>
-            <span className="telemetry-chip !px-2.5 !py-1">{movements.length} events</span>
+            <span className="telemetry-chip !px-2.5 !py-1">{movements.length} eventos</span>
           </div>
           <div className="hidden max-h-[600px] overflow-x-auto overflow-y-auto sm:block">
             <table className="w-full border-collapse">
@@ -314,7 +346,7 @@ export function Inventory() {
                           : 'border-red-400/16 bg-red-500/8 text-red-200'
                       )}>
                         {move.type === 'in' ? <ArrowDownLeft className="w-3 h-3" /> : <ArrowUpRight className="w-3 h-3" />}
-                        {move.type === 'in' ? t('inventory.table.in') : t('inventory.table.out')}:{move.quantity}
+                        {getMovementLabel(move.type)}: {move.quantity}
                       </span>
                     </td>
                     <td className="table-cell">
@@ -344,7 +376,7 @@ export function Inventory() {
                 </div>
                 <div>
                   <p className="text-sm font-bold text-neutral-200">{move.productName}</p>
-                  <p className="mt-0.5 truncate text-[10px] italic text-neutral-500">{move.reason || t('inventory.manual_adjustment')}</p>
+                  <p className="mt-0.5 truncate text-[10px] italic text-neutral-500">{move.reason || 'Ajuste manual'}</p>
                 </div>
               </div>
             ))}

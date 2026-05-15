@@ -31,9 +31,9 @@ const SuperAdmin = lazy(() => import('./pages/SuperAdmin').then((module) => ({ d
 const RouteLoading = () => (
   <div className="flex h-[60vh] items-center justify-center">
     <div className="shell-panel min-w-[260px] px-6 py-10 text-center">
-      <p className="section-kicker mb-3">Cargador de módulos</p>
+      <p className="section-kicker mb-3">Cargador de modulos</p>
       <p className="text-base font-semibold text-white">Inicializando la siguiente superficie...</p>
-      <p className="mt-2 text-sm text-neutral-500">Preparando el próximo módulo operativo.</p>
+      <p className="mt-2 text-sm text-neutral-500">Preparando el proximo modulo operativo.</p>
     </div>
   </div>
 );

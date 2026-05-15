@@ -12,6 +12,30 @@ import { Button, Card, Input, Label, cn } from '../Common';
 type FilterStatus = 'all' | PlatformFeedbackStatus;
 type FilterSeverity = 'all' | PlatformFeedbackSeverity;
 
+const STATUS_LABELS: Record<FilterStatus, string> = {
+  all: 'Todos',
+  open: 'Abierto',
+  reviewed: 'Revisado',
+  resolved: 'Resuelto',
+};
+
+const SEVERITY_LABELS: Record<FilterSeverity, string> = {
+  all: 'Todas',
+  low: 'Baja',
+  medium: 'Media',
+  high: 'Alta',
+  critical: 'Critica',
+};
+
+const TYPE_LABELS: Record<PlatformFeedbackItem['type'], string> = {
+  bug: 'Bug',
+  idea: 'Idea',
+  ux: 'UX',
+  billing: 'Billing',
+  copilot: 'Copilot',
+  other: 'Otro',
+};
+
 function toDate(value?: string | number | null) {
   if (!value) return null;
   const parsed = new Date(value);
@@ -136,7 +160,7 @@ export function SuperAdminFeedbackCenter() {
           </div>
           <div className="telemetry-chip !px-3 !py-2">
             <MessageSquareText className="h-4 w-4" />
-            <span>{items.length} items</span>
+            <span>{items.length} registros</span>
           </div>
         </div>
 
@@ -146,7 +170,7 @@ export function SuperAdminFeedbackCenter() {
             <Input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Buscar por título, mensaje, usuario o empresa"
+              placeholder="Buscar por titulo, mensaje, usuario o empresa"
               className="pl-11"
             />
           </div>
@@ -156,10 +180,10 @@ export function SuperAdminFeedbackCenter() {
             onChange={(event) => setStatusFilter(event.target.value as FilterStatus)}
             className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white focus:border-blue-500/50 focus:outline-none"
           >
-            <option value="all" className="bg-neutral-950 text-white">Status: all</option>
-            <option value="open" className="bg-neutral-950 text-white">open</option>
-            <option value="reviewed" className="bg-neutral-950 text-white">reviewed</option>
-            <option value="resolved" className="bg-neutral-950 text-white">resolved</option>
+            <option value="all" className="bg-neutral-950 text-white">Estado: {STATUS_LABELS.all}</option>
+            <option value="open" className="bg-neutral-950 text-white">{STATUS_LABELS.open}</option>
+            <option value="reviewed" className="bg-neutral-950 text-white">{STATUS_LABELS.reviewed}</option>
+            <option value="resolved" className="bg-neutral-950 text-white">{STATUS_LABELS.resolved}</option>
           </select>
           <select
             aria-label="Filtrar feedback por severidad"
@@ -167,11 +191,11 @@ export function SuperAdminFeedbackCenter() {
             onChange={(event) => setSeverityFilter(event.target.value as FilterSeverity)}
             className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white focus:border-blue-500/50 focus:outline-none"
           >
-            <option value="all" className="bg-neutral-950 text-white">Severity: all</option>
-            <option value="low" className="bg-neutral-950 text-white">low</option>
-            <option value="medium" className="bg-neutral-950 text-white">medium</option>
-            <option value="high" className="bg-neutral-950 text-white">high</option>
-            <option value="critical" className="bg-neutral-950 text-white">critical</option>
+            <option value="all" className="bg-neutral-950 text-white">Severidad: {SEVERITY_LABELS.all}</option>
+            <option value="low" className="bg-neutral-950 text-white">{SEVERITY_LABELS.low}</option>
+            <option value="medium" className="bg-neutral-950 text-white">{SEVERITY_LABELS.medium}</option>
+            <option value="high" className="bg-neutral-950 text-white">{SEVERITY_LABELS.high}</option>
+            <option value="critical" className="bg-neutral-950 text-white">{SEVERITY_LABELS.critical}</option>
           </select>
         </div>
 
@@ -182,7 +206,17 @@ export function SuperAdminFeedbackCenter() {
           </div>
         ) : error ? (
           <div className="rounded-2xl border border-red-500/20 bg-red-500/[0.08] px-4 py-4 text-sm text-red-200">
-            {error}
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <span>{error}</span>
+              <Button
+                type="button"
+                variant="secondary"
+                className="w-fit border-red-400/20 bg-black/30 text-red-100"
+                onClick={() => setReloadKey((current) => current + 1)}
+              >
+                Reintentar
+              </Button>
+            </div>
           </div>
         ) : filteredItems.length === 0 ? (
           <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-8 text-center text-sm text-neutral-500">
@@ -194,10 +228,10 @@ export function SuperAdminFeedbackCenter() {
               <thead>
                 <tr>
                   <th className="table-header">Fecha</th>
-                  <th className="table-header">Status</th>
-                  <th className="table-header">Severity</th>
-                  <th className="table-header">Type</th>
-                  <th className="table-header">Title</th>
+                  <th className="table-header">Estado</th>
+                  <th className="table-header">Severidad</th>
+                  <th className="table-header">Tipo</th>
+                  <th className="table-header">Titulo</th>
                   <th className="table-header">Usuario</th>
                   <th className="table-header">Empresa</th>
                   <th className="table-header">Ruta</th>
@@ -214,9 +248,9 @@ export function SuperAdminFeedbackCenter() {
                     onClick={() => setSelectedItem(item)}
                   >
                     <td className="table-cell text-neutral-400">{toDate(item.createdAt)?.toLocaleString() || '-'}</td>
-                    <td className="table-cell uppercase text-neutral-300">{item.status}</td>
-                    <td className="table-cell uppercase text-neutral-300">{item.severity}</td>
-                    <td className="table-cell uppercase text-neutral-300">{item.type}</td>
+                    <td className="table-cell uppercase text-neutral-300">{STATUS_LABELS[item.status]}</td>
+                    <td className="table-cell uppercase text-neutral-300">{SEVERITY_LABELS[item.severity]}</td>
+                    <td className="table-cell uppercase text-neutral-300">{TYPE_LABELS[item.type]}</td>
                     <td className="table-cell text-white">{item.title}</td>
                     <td className="table-cell text-neutral-300">{item.userEmail}</td>
                     <td className="table-cell text-neutral-300">{item.companyName || item.companyId}</td>
@@ -235,7 +269,7 @@ export function SuperAdminFeedbackCenter() {
           <div className="relative z-10 h-full w-full max-w-xl overflow-y-auto border-l border-white/10 bg-neutral-950 px-6 py-6 shadow-2xl">
             <div className="mb-5 flex items-start justify-between gap-4">
               <div>
-                <p className="section-kicker text-neutral-500">Feedback Detail</p>
+                <p className="section-kicker text-neutral-500">Detalle</p>
                 <h3 className="mt-2 text-xl font-bold text-white">{selectedItem.title}</h3>
               </div>
               <button
@@ -251,9 +285,9 @@ export function SuperAdminFeedbackCenter() {
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-sm text-neutral-300">
                   <p className="text-[10px] font-black uppercase tracking-[0.22em] text-neutral-600">Contexto</p>
-                  <p className="mt-3">Type: <span className="uppercase text-white">{selectedItem.type}</span></p>
-                  <p>Severity: <span className="uppercase text-white">{selectedItem.severity}</span></p>
-                  <p>Status: <span className="uppercase text-white">{selectedItem.status}</span></p>
+                  <p className="mt-3">Tipo: <span className="uppercase text-white">{TYPE_LABELS[selectedItem.type]}</span></p>
+                  <p>Severidad: <span className="uppercase text-white">{SEVERITY_LABELS[selectedItem.severity]}</span></p>
+                  <p>Estado: <span className="uppercase text-white">{STATUS_LABELS[selectedItem.status]}</span></p>
                   <p className="mt-3">Ruta:</p>
                   <p className="font-mono text-[11px] text-neutral-500">{selectedItem.pagePath}</p>
                 </div>
@@ -274,32 +308,32 @@ export function SuperAdminFeedbackCenter() {
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-sm text-neutral-300">
                   <p className="text-[10px] font-black uppercase tracking-[0.22em] text-neutral-600">Timestamps</p>
-                  <p className="mt-3">Created: {toDate(selectedItem.createdAt)?.toLocaleString() || '-'}</p>
-                  <p>Updated: {toDate(selectedItem.updatedAt)?.toLocaleString() || '-'}</p>
-                  <p>Reviewed: {toDate(selectedItem.reviewedAt)?.toLocaleString() || '-'}</p>
-                  <p>Resolved: {toDate(selectedItem.resolvedAt)?.toLocaleString() || '-'}</p>
+                  <p className="mt-3">Creado: {toDate(selectedItem.createdAt)?.toLocaleString() || '-'}</p>
+                  <p>Actualizado: {toDate(selectedItem.updatedAt)?.toLocaleString() || '-'}</p>
+                  <p>Revisado: {toDate(selectedItem.reviewedAt)?.toLocaleString() || '-'}</p>
+                  <p>Resuelto: {toDate(selectedItem.resolvedAt)?.toLocaleString() || '-'}</p>
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                  <Label>Status</Label>
+                  <Label>Estado</Label>
                   <select
                     aria-label="Cambiar estado del feedback"
                     value={statusDraft}
                     onChange={(event) => setStatusDraft(event.target.value as PlatformFeedbackStatus)}
                     className="w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white focus:border-blue-500/50 focus:outline-none"
                   >
-                    <option value="open" className="bg-neutral-950 text-white">open</option>
-                    <option value="reviewed" className="bg-neutral-950 text-white">reviewed</option>
-                    <option value="resolved" className="bg-neutral-950 text-white">resolved</option>
+                    <option value="open" className="bg-neutral-950 text-white">{STATUS_LABELS.open}</option>
+                    <option value="reviewed" className="bg-neutral-950 text-white">{STATUS_LABELS.reviewed}</option>
+                    <option value="resolved" className="bg-neutral-950 text-white">{STATUS_LABELS.resolved}</option>
                   </select>
                 </div>
               </div>
 
               <div>
-                <Label>Admin Notes</Label>
+                <Label>Notas internas</Label>
                 <textarea
                   value={notesDraft}
                   onChange={(event) => setNotesDraft(event.target.value)}
-                  placeholder="Notas internas de seguimiento, causa o decisión."
+                  placeholder="Notas internas de seguimiento, causa o decision."
                   className="min-h-[140px] w-full rounded-2xl border border-white/10 bg-white/[0.035] px-4 py-3 text-sm text-white placeholder:text-neutral-600 transition-all duration-200 focus:border-blue-400/40 focus:outline-none focus:ring-2 focus:ring-blue-400/24"
                 />
               </div>

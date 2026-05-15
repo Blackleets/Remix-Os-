@@ -132,6 +132,8 @@ interface PulseInsight {
   tone: 'info' | 'success' | 'warning';
 }
 
+type OperationMode = 'retail' | 'wholesale';
+
 const PAYMENT_METHODS = ['Cash', 'Card', 'Transfer', 'Stripe', 'Crypto'] as const;
 const INTEGRATION_ROADMAP = ['Stripe Terminal', 'Square POS', 'Shopify POS', 'SumUp'];
 const QUICK_DISCOUNT_RATE = 0.1;
@@ -162,6 +164,7 @@ export function POS() {
   const [saleError, setSaleError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDuplicating, setIsDuplicating] = useState(false);
+  const [operationMode, setOperationMode] = useState<OperationMode>('retail');
   const [latestReceipt, setLatestReceipt] = useState<POSReceipt | null>(null);
   const [receiptFooterMessage, setReceiptFooterMessage] = useState(t('pos.checkout.receipt_placeholder'));
   const [openingCashInput, setOpeningCashInput] = useState('100');
@@ -239,6 +242,30 @@ export function POS() {
     const saved = window.localStorage.getItem(`pos_receipt_footer_${company.id}`);
     if (saved) setReceiptFooterMessage(saved);
   }, [company?.id]);
+
+  useEffect(() => {
+    if (!company?.id) return;
+    const saved = window.localStorage.getItem(`pos_operation_mode_${company.id}`) as OperationMode | null;
+    if (saved === 'retail' || saved === 'wholesale') {
+      setOperationMode(saved);
+      return;
+    }
+
+    const profile = `${company.vertical || ''} ${company.industry || ''}`.toLowerCase();
+    const inferredMode: OperationMode =
+      profile.includes('wholesale') ||
+      profile.includes('mayor') ||
+      profile.includes('distrib') ||
+      profile.includes('manufacturer')
+        ? 'wholesale'
+        : 'retail';
+    setOperationMode(inferredMode);
+  }, [company?.id, company?.industry, company?.vertical]);
+
+  useEffect(() => {
+    if (!company?.id) return;
+    window.localStorage.setItem(`pos_operation_mode_${company.id}`, operationMode);
+  }, [company?.id, operationMode]);
 
   useEffect(() => {
     if (!company) return;
@@ -332,6 +359,25 @@ export function POS() {
   const activeCashSession = useMemo(
     () => sortedCashSessions.find((session) => session.status === 'open') || null,
     [sortedCashSessions]
+  );
+
+  const availablePaymentMethods = useMemo<readonly (typeof PAYMENT_METHODS)[number][]>(
+    () =>
+      operationMode === 'wholesale'
+        ? PAYMENT_METHODS.filter((method) => method !== 'Crypto')
+        : PAYMENT_METHODS,
+    [operationMode]
+  );
+
+  useEffect(() => {
+    if (!availablePaymentMethods.includes(paymentMethod)) {
+      setPaymentMethod(availablePaymentMethods[0]);
+    }
+  }, [availablePaymentMethods, paymentMethod]);
+
+  const cartUnits = useMemo(
+    () => cart.reduce((sum, item) => sum + item.quantity, 0),
+    [cart]
   );
 
   const latestPOSOrder = useMemo(
@@ -435,6 +481,12 @@ export function POS() {
   const removeItem = (productId: string) => {
     setSaleError(null);
     setCart((current) => current.filter((item) => item.productId !== productId));
+  };
+
+  const applyPackQuantity = (productId: string, packSize: number) => {
+    const currentItem = cart.find((item) => item.productId === productId);
+    if (!currentItem) return;
+    updateQuantity(productId, currentItem.quantity + packSize);
   };
 
   const applyQuickDiscount = () => {
@@ -774,6 +826,10 @@ export function POS() {
     setSaleError(null);
 
     try {
+      if (operationMode === 'wholesale' && !customerId) {
+        throw new Error('Selecciona un cliente para completar una venta mayorista.');
+      }
+
       const receiptItems = cart.map((item) => ({ ...item }));
       const result = await createSaleTransaction({
         companyId: company.id,
@@ -816,7 +872,7 @@ export function POS() {
 
       clearCart();
       setCustomerId('');
-      setPaymentMethod('Cash');
+      setPaymentMethod(operationMode === 'wholesale' ? 'Transfer' : 'Cash');
     } catch (error) {
       setSaleError(error instanceof Error ? error.message : t('pos.errors.sale_failed'));
     } finally {
@@ -972,11 +1028,37 @@ export function POS() {
       <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-6">
         <div>
           <h1 className="font-display text-4xl font-bold tracking-tight mb-2 text-white">{t('pos.title')}</h1>
-          <p className="text-neutral-500 text-sm">{t('pos.subtitle')}</p>
+          <p className="text-neutral-500 text-sm">
+            {operationMode === 'retail'
+              ? 'Flujo rapido para tienda minorista, caja y ticket inmediato.'
+              : 'Flujo orientado a pedidos por volumen, cliente y cierre comercial.'}
+          </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <div className="px-4 py-2 rounded-2xl border border-white/10 bg-white/[0.03] text-xs uppercase tracking-[0.25em] text-neutral-400 font-bold">
             {company?.name || 'Remix Node'}
+          </div>
+          <div className="flex rounded-2xl border border-white/10 bg-white/[0.03] p-1">
+            <button
+              type="button"
+              onClick={() => setOperationMode('retail')}
+              className={cn(
+                'rounded-xl px-3 py-2 text-[10px] font-black uppercase tracking-[0.18em] transition-all',
+                operationMode === 'retail' ? 'bg-white/10 text-white' : 'text-neutral-500 hover:text-neutral-200'
+              )}
+            >
+              Retail
+            </button>
+            <button
+              type="button"
+              onClick={() => setOperationMode('wholesale')}
+              className={cn(
+                'rounded-xl px-3 py-2 text-[10px] font-black uppercase tracking-[0.18em] transition-all',
+                operationMode === 'wholesale' ? 'bg-white/10 text-white' : 'text-neutral-500 hover:text-neutral-200'
+              )}
+            >
+              Wholesale
+            </button>
           </div>
           <button
             type="button"
@@ -987,7 +1069,7 @@ export function POS() {
             className="px-4 py-2 rounded-2xl border border-blue-500/20 bg-blue-500/10 text-xs uppercase tracking-[0.25em] text-blue-300 font-bold flex items-center gap-2"
           >
             <Command className="w-3.5 h-3.5" />
-            {t('pos.command.title')}
+            {operationMode === 'retail' ? t('pos.command.title') : 'Buscar catalogo'}
           </button>
         </div>
       </div>
@@ -1246,6 +1328,11 @@ export function POS() {
               <div>
                 <p className="mb-2 text-[10px] font-black uppercase tracking-[0.35em] text-neutral-600">{t('pos.cart.label')}</p>
                 <h2 className="text-white font-bold text-lg">{t('pos.cart.title')}</h2>
+                <p className="mt-2 text-xs text-neutral-500">
+                  {operationMode === 'retail'
+                    ? 'Venta rapida con cantidades simples.'
+                    : 'Preparado para cajas, volumen y reposicion.'}
+                </p>
               </div>
               <div className="w-11 h-11 rounded-2xl bg-blue-600/10 border border-blue-500/20 flex items-center justify-center">
                 <ShoppingCart className="w-5 h-5 text-blue-400" />
@@ -1297,6 +1384,21 @@ export function POS() {
                         </p>
                       </div>
                     </div>
+
+                    {operationMode === 'wholesale' && (
+                      <div className="flex flex-wrap gap-2">
+                        {[6, 12, 24].map((packSize) => (
+                          <button
+                            key={packSize}
+                            type="button"
+                            onClick={() => applyPackQuantity(item.productId, packSize)}
+                            className="rounded-xl border border-white/10 bg-black/30 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-neutral-300 transition-colors hover:border-blue-400/20 hover:text-white"
+                          >
+                            +{packSize}
+                          </button>
+                        ))}
+                      </div>
+                    )}
 
                     {stockExceeded && (
                       <div className="flex items-center gap-2 rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-amber-300 text-xs">
@@ -1363,15 +1465,25 @@ export function POS() {
               <div>
                 <p className="mb-2 text-[10px] font-black uppercase tracking-[0.35em] text-neutral-600">{t('pos.quick.label')}</p>
                 <h2 className="text-white font-bold text-lg">{t('pos.quick.title')}</h2>
+                <p className="mt-2 text-xs text-neutral-500">
+                  {operationMode === 'retail'
+                    ? 'Atajos para caja y atencion mostrador.'
+                    : 'Atajos para pedido recurrente y cierre mayorista.'}
+                </p>
               </div>
               <div className="w-11 h-11 rounded-2xl bg-white/[0.03] border border-white/10 flex items-center justify-center">
                 <Command className="w-5 h-5 text-neutral-300" />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <Button variant="secondary" className="h-12 gap-2" onClick={applyQuickDiscount} disabled={subtotal <= 0}>
+              <Button
+                variant="secondary"
+                className="h-12 gap-2"
+                onClick={applyQuickDiscount}
+                disabled={subtotal <= 0 || operationMode === 'wholesale'}
+              >
                 <BadgeDollarSign className="w-4 h-4" />
-                {t('pos.quick.discount')}
+                {operationMode === 'wholesale' ? 'Precio neto' : t('pos.quick.discount')}
               </Button>
               <Button variant="secondary" className="h-12 gap-2" onClick={setGuestCheckout}>
                 <UserRound className="w-4 h-4" />
@@ -1498,6 +1610,9 @@ export function POS() {
 
             <div className="space-y-2">
               <Label>{t('pos.checkout.customer')}</Label>
+              {operationMode === 'wholesale' && (
+                <p className="text-[11px] text-amber-300">Requerido para ventas por volumen.</p>
+              )}
               <div className="relative">
                 <UserRound className="w-4 h-4 text-neutral-600 absolute left-3 top-1/2 -translate-y-1/2" />
                 <select
@@ -1571,7 +1686,7 @@ export function POS() {
             <div className="space-y-2">
               <Label>{t('pos.checkout.payment_method')}</Label>
               <div className="grid grid-cols-2 gap-2">
-                {PAYMENT_METHODS.map((method) => (
+                {availablePaymentMethods.map((method) => (
                   <button
                     key={method}
                     type="button"
@@ -1663,6 +1778,14 @@ export function POS() {
             </div>
 
             <div className="rounded-2xl border border-white/10 bg-black/30 p-4 space-y-3">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-neutral-500">Modo</span>
+                <span className="text-white font-mono uppercase">{operationMode}</span>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-neutral-500">Unidades</span>
+                <span className="text-white font-mono">{cartUnits}</span>
+              </div>
               <div className="flex items-center justify-between text-sm">
                 <span className="text-neutral-500">{t('pos.summary.subtotal')}</span>
                 <span className="text-white font-mono">{formatCurrency(subtotal)}</span>

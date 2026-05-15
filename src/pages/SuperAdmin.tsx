@@ -408,6 +408,7 @@ export function SuperAdmin() {
   const { platformAdmin } = usePlatformAdmin();
   const [refreshKey, setRefreshKey] = useState(0);
   const [companySearch, setCompanySearch] = useState('');
+  const [userSearch, setUserSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'trialing' | 'past_due' | 'canceled'>('all');
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -472,6 +473,7 @@ export function SuperAdmin() {
     const loadPlatformData = async () => {
       setLoading(true);
       setError(null);
+      setSupportError(null);
 
       try {
         const payload = await fetchPlatformOverview();
@@ -515,6 +517,7 @@ export function SuperAdmin() {
     }
     setLoadingSupport(true);
     setSupportError(null);
+    setSupportView(null);
     try {
       const payload = await fetchPlatformSupportView(companyId, targetUserId);
       setSupportView(payload as SupportViewPayload);
@@ -686,12 +689,26 @@ export function SuperAdmin() {
     });
   }, [companiesTable, companySearch, statusFilter]);
 
+  const filteredUsers = useMemo(() => {
+    const normalized = userSearch.trim().toLowerCase();
+    if (!normalized) return usersTable;
+    return usersTable.filter((user) =>
+      [user.email, user.displayName, user.companyName, user.companyId, user.currentCompanyId]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(normalized))
+    );
+  }, [usersTable, userSearch]);
+
   const selectedCompany =
     filteredCompanies.find((company) => company.id === selectedCompanyId) ||
     companiesTable.find((company) => company.id === selectedCompanyId) ||
     filteredCompanies[0] ||
     companiesTable[0] ||
     null;
+
+  useEffect(() => {
+    setControlFeedback(null);
+  }, [selectedCompanyId]);
 
   const selectedCompanyHealth = useMemo(() => {
     if (!selectedCompany) return 'neutral';
@@ -925,7 +942,16 @@ export function SuperAdmin() {
         </Card>
       ) : error ? (
         <Card className="border-red-500/20 bg-red-500/10 p-6 text-red-200">
-          {error}
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <span>{error}</span>
+            <Button
+              variant="secondary"
+              onClick={() => setRefreshKey((current) => current + 1)}
+              className="border-red-400/20 bg-black/30 text-red-100"
+            >
+              Reintentar
+            </Button>
+          </div>
         </Card>
       ) : (
         <>
@@ -1167,11 +1193,17 @@ export function SuperAdmin() {
                       <th className="table-header">{t('super_admin.tables.orders')}</th>
                       <th className="table-header">{t('super_admin.tables.revenue')}</th>
                       <th className="table-header">{t('super_admin.tables.created_at')}</th>
-                      <th className="table-header">Support</th>
+                      <th className="table-header">Soporte</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredCompanies.slice(0, 10).map((company) => (
+                    {filteredCompanies.length === 0 ? (
+                      <tr className="border-t border-white/[0.04]">
+                        <td colSpan={11} className="px-4 py-6 text-center text-sm text-neutral-500">
+                          No hay empresas que coincidan con los filtros actuales.
+                        </td>
+                      </tr>
+                    ) : filteredCompanies.slice(0, 10).map((company) => (
                       <tr
                         key={company.id}
                         className={cn(
@@ -1547,6 +1579,14 @@ export function SuperAdmin() {
                 <p className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-600">{t('super_admin.tables.users_label')}</p>
                 <h2 className="mt-2 text-lg font-bold text-white">{t('super_admin.tables.users_title')}</h2>
               </div>
+              <div className="mb-4">
+                <Input
+                  value={userSearch}
+                  onChange={(event) => setUserSearch(event.target.value)}
+                  placeholder="Buscar usuario, empresa o currentCompanyId"
+                  className="border-white/10 bg-black/30"
+                />
+              </div>
               <div className="overflow-x-auto">
                 <table className="w-full border-collapse">
                   <thead>
@@ -1555,9 +1595,9 @@ export function SuperAdmin() {
                       <th className="table-header">{t('super_admin.tables.user_email')}</th>
                       <th className="table-header">{t('super_admin.tables.user_name')}</th>
                       <th className="table-header">{t('super_admin.tables.company')}</th>
-                      <th className="table-header">Current Company</th>
+                      <th className="table-header">Empresa actual</th>
                       <th className="table-header">{t('super_admin.tables.user_role')}</th>
-                      <th className="table-header">Suscripción</th>
+                      <th className="table-header">Suscripcion</th>
                       <th className="table-header">Onboarding</th>
                       <th className="table-header">Volumen</th>
                       <th className="table-header">{t('super_admin.tables.registered_at')}</th>
@@ -1565,7 +1605,13 @@ export function SuperAdmin() {
                     </tr>
                   </thead>
                   <tbody>
-                    {usersTable.slice(0, 12).map((user) => (
+                    {filteredUsers.length === 0 ? (
+                      <tr className="border-t border-white/[0.04]">
+                        <td colSpan={11} className="px-4 py-6 text-center text-sm text-neutral-500">
+                          No hay usuarios que coincidan con la busqueda actual.
+                        </td>
+                      </tr>
+                    ) : filteredUsers.slice(0, 12).map((user) => (
                       <tr key={user.id} className="border-t border-white/[0.04]">
                         <td className="table-cell font-mono text-[11px] text-neutral-400">{user.id}</td>
                         <td className="table-cell text-white">{user.email}</td>
@@ -1597,11 +1643,11 @@ export function SuperAdmin() {
                         <td className="table-cell"><StatusChip value={user.onboardingStatus} dict={ONBOARDING_LABELS} /></td>
                         <td className="table-cell text-[11px] text-neutral-300">
                           <span className="font-semibold text-white">{user.products || 0}</span>
-                          <span className="text-neutral-600"> · </span>
+                          <span className="text-neutral-600"> / </span>
                           <span className="font-semibold text-white">{user.customers || 0}</span>
-                          <span className="text-neutral-600"> · </span>
+                          <span className="text-neutral-600"> / </span>
                           <span className="font-semibold text-white">{user.orders || 0}</span>
-                          <div className="mt-1 font-mono text-[9px] uppercase tracking-[0.2em] text-neutral-600">Prod · Clt · Ped</div>
+                          <div className="mt-1 font-mono text-[9px] uppercase tracking-[0.2em] text-neutral-600">Prod / Clt / Ped</div>
                         </td>
                         <td className="table-cell text-neutral-400">{toDate(user.createdAt)?.toLocaleDateString() || '-'}</td>
                         <td className="table-cell">
@@ -1625,8 +1671,8 @@ export function SuperAdmin() {
               <Card className="border-white/5 bg-neutral-900/40 p-5">
                 <div className="mb-4 flex items-center justify-between gap-3">
                   <div>
-                    <p className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-600">Support View</p>
-                    <h2 className="mt-2 text-lg font-bold text-white">Vista readonly de soporte</h2>
+                    <p className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-600">Vista de soporte</p>
+                    <h2 className="mt-2 text-lg font-bold text-white">Vista de soporte en solo lectura</h2>
                   </div>
                   <div className="flex items-center gap-2">
                     {loadingSupport ? <Loader2 className="h-4 w-4 animate-spin text-blue-300" /> : null}
@@ -1648,7 +1694,22 @@ export function SuperAdmin() {
 
                 {supportError ? (
                   <div className="rounded-2xl border border-red-500/20 bg-red-500/[0.08] px-4 py-3 text-sm text-red-200">
-                    {supportError}
+                    <div className="flex flex-col gap-3">
+                      <span>{supportError}</span>
+                      <Button
+                        variant="secondary"
+                        className="w-fit border-red-400/20 bg-black/30 px-3 py-2 text-xs text-red-100"
+                        onClick={() => {
+                          if (supportView?.company?.id) {
+                            void openSupportView(supportView.company.id, supportView.targetUser?.uid || null);
+                          } else if (selectedCompany?.id) {
+                            void openSupportView(selectedCompany.id, selectedCompany.ownerId || null);
+                          }
+                        }}
+                      >
+                        Reintentar soporte
+                      </Button>
+                    </div>
                   </div>
                 ) : null}
 
@@ -1657,8 +1718,23 @@ export function SuperAdmin() {
                     <div className="rounded-2xl border border-amber-500/20 bg-amber-500/[0.08] px-4 py-3">
                       <p className="text-[11px] font-black uppercase tracking-[0.22em] text-amber-300">Modo soporte activo</p>
                       <p className="mt-1 text-sm text-neutral-200">
-                        Vista readonly como platform admin. No cambia la sesión ni la autenticación del usuario real.
+                        Vista en solo lectura como admin de plataforma. No cambia la sesion ni la autenticacion del usuario real.
                       </p>
+                    </div>
+
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                        <p className="text-[10px] font-black uppercase tracking-[0.18em] text-neutral-600">Issues</p>
+                        <p className="mt-2 text-xl font-bold text-white">{supportView.issues.length}</p>
+                      </div>
+                      <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                        <p className="text-[10px] font-black uppercase tracking-[0.18em] text-neutral-600">Miembros</p>
+                        <p className="mt-2 text-xl font-bold text-white">{supportView.memberships.length}</p>
+                      </div>
+                      <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                        <p className="text-[10px] font-black uppercase tracking-[0.18em] text-neutral-600">Actividad</p>
+                        <p className="mt-2 text-xl font-bold text-white">{supportView.activity.recentActivities.length}</p>
+                      </div>
                     </div>
 
                     <div className="grid gap-4 md:grid-cols-2">
@@ -1673,7 +1749,7 @@ export function SuperAdmin() {
                             <p>Creado: {toDate(supportView.targetUser.createdAt)?.toLocaleString() || '-'}</p>
                           </div>
                         ) : (
-                          <p className="mt-3 text-sm text-neutral-500">No se encontró usuario objetivo.</p>
+                          <p className="mt-3 text-sm text-neutral-500">No se encontro usuario objetivo.</p>
                         )}
                       </div>
 
@@ -1684,9 +1760,9 @@ export function SuperAdmin() {
                           <p>{supportView.company.industry}</p>
                           <p className="font-mono text-[11px] text-neutral-500">{supportView.company.id}</p>
                           <p>Plan: <span className="uppercase">{supportView.company.planId}</span></p>
-                          <p>Subscription: <span className="uppercase">{supportView.company.subscriptionStatus}</span></p>
+                          <p>Suscripcion: <span className="uppercase">{supportView.company.subscriptionStatus}</span></p>
                           <p>Owner: {supportView.company.ownerEmail}</p>
-                          <p>Onboarding: {supportView.company.onboardingComplete ? 'complete' : `step ${supportView.company.onboardingStep}`}</p>
+                          <p>Onboarding: {supportView.company.onboardingComplete ? 'completo' : `paso ${supportView.company.onboardingStep}`}</p>
                         </div>
                       </div>
                     </div>
@@ -1694,20 +1770,20 @@ export function SuperAdmin() {
                     <div className="grid gap-4 md:grid-cols-3">
                       <div className="rounded-2xl border border-white/10 bg-black/30 p-4 text-sm text-neutral-300">
                         <p className="text-[10px] font-black uppercase tracking-[0.22em] text-neutral-600">Totales</p>
-                        <p className="mt-3">Users: <span className="font-semibold text-white">{supportView.company.totals.users}</span></p>
-                        <p>Products: <span className="font-semibold text-white">{supportView.company.totals.products}</span></p>
-                        <p>Customers: <span className="font-semibold text-white">{supportView.company.totals.customers}</span></p>
-                        <p>Orders: <span className="font-semibold text-white">{supportView.company.totals.orders}</span></p>
-                        <p>Revenue: <span className="font-semibold text-white">{formatCurrency(supportView.company.totals.revenue)}</span></p>
+                        <p className="mt-3">Usuarios: <span className="font-semibold text-white">{supportView.company.totals.users}</span></p>
+                        <p>Productos: <span className="font-semibold text-white">{supportView.company.totals.products}</span></p>
+                        <p>Clientes: <span className="font-semibold text-white">{supportView.company.totals.customers}</span></p>
+                        <p>Pedidos: <span className="font-semibold text-white">{supportView.company.totals.orders}</span></p>
+                        <p>Ingresos: <span className="font-semibold text-white">{formatCurrency(supportView.company.totals.revenue)}</span></p>
                       </div>
 
                       <div className="rounded-2xl border border-white/10 bg-black/30 p-4 text-sm text-neutral-300">
                         <p className="text-[10px] font-black uppercase tracking-[0.22em] text-neutral-600">Membership objetivo</p>
                         {supportView.membership ? (
                           <div className="mt-3 space-y-1">
-                            <p>Role: <span className="font-semibold uppercase text-white">{supportView.membership.role}</span></p>
-                            <p>User: <span className="font-mono text-[11px]">{supportView.membership.userId}</span></p>
-                            <p>Company: <span className="font-mono text-[11px]">{supportView.membership.companyId}</span></p>
+                            <p>Rol: <span className="font-semibold uppercase text-white">{supportView.membership.role}</span></p>
+                            <p>Usuario: <span className="font-mono text-[11px]">{supportView.membership.userId}</span></p>
+                            <p>Empresa: <span className="font-mono text-[11px]">{supportView.membership.companyId}</span></p>
                           </div>
                         ) : (
                           <p className="mt-3 text-neutral-500">No hay membership enlazada.</p>
@@ -1734,7 +1810,7 @@ export function SuperAdmin() {
                             </div>
                           )) : (
                             <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/[0.08] px-3 py-2 text-xs text-emerald-200">
-                              Sin inconsistencias críticas detectadas.
+                              Sin inconsistencias criticas detectadas.
                             </div>
                           )}
                         </div>
@@ -1746,19 +1822,19 @@ export function SuperAdmin() {
                       <div className="mt-3 space-y-2">
                         {supportView.activity.recentActivities.length > 0 ? supportView.activity.recentActivities.map((item) => (
                           <div key={item.id} className="rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2 text-xs text-neutral-300">
-                            <p className="font-semibold text-white">{item.title || item.type || 'Activity'}</p>
+                            <p className="font-semibold text-white">{item.title || item.type || 'Actividad'}</p>
                             <p className="mt-1 text-neutral-400">{item.subtitle || '-'}</p>
                             <p className="mt-1 text-neutral-500">{toDate(item.createdAt)?.toLocaleString() || '-'}</p>
                           </div>
                         )) : (
-                          <p className="text-sm text-neutral-500">No hay actividad registrada todavía.</p>
+                          <p className="text-sm text-neutral-500">No hay actividad registrada todavia.</p>
                         )}
                       </div>
                     </div>
                   </div>
                 ) : (
                   <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-8 text-center text-sm text-neutral-500">
-                    Abre una empresa o usuario desde Super Admin para inspección readonly.
+                    Abre una empresa o usuario desde Super Admin para inspeccion en solo lectura.
                   </div>
                 )}
               </Card>

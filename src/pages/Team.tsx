@@ -101,7 +101,7 @@ export function Team() {
     e.preventDefault();
     if (!company || !inviteForm.email) return;
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(inviteForm.email)) {
-      setInviteError('Please enter a valid email address.');
+      setInviteError('Ingresa un email valido.');
       return;
     }
     setInviteError(null);
@@ -299,6 +299,13 @@ export function Team() {
                       )}
                     </motion.tr>
                   ))}
+                  {members.length === 0 && (
+                    <tr>
+                      <td className="table-cell text-sm text-neutral-500" colSpan={canManage ? 3 : 2}>
+                        No hay miembros cargados todavia.
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -360,6 +367,11 @@ export function Team() {
                   </div>
                 </div>
               ))}
+              {members.length === 0 && (
+                <div className="p-6 text-center text-sm text-neutral-500">
+                  No hay miembros cargados todavia.
+                </div>
+              )}
             </div>
           </Card>
         </div>
@@ -443,7 +455,7 @@ export function Team() {
                   <Label>{t('team.modal.role')}</Label>
                   <select 
                     className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition-all appearance-none outline-none"
-                    aria-label="Rol de la invitación"
+                    aria-label="Rol de la invitacion"
                     value={inviteForm.role}
                     onChange={e => setInviteForm({...inviteForm, role: e.target.value as any})}
                   >
