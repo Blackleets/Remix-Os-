@@ -187,6 +187,8 @@ export function POS() {
 
     const unsubscribeProducts = onSnapshot(productsQuery, (snapshot) => {
       setProducts(snapshot.docs.map((entry) => ({ id: entry.id, ...entry.data() } as Product)));
+    }, (error) => {
+      console.error('POS products listener error:', error);
     });
 
     const unsubscribeCustomers = onSnapshot(customersQuery, (snapshot) => {
@@ -199,10 +201,14 @@ export function POS() {
         rfmTier: entry.data().rfmTier,
         lastOrderAt: entry.data().lastOrderAt,
       })));
+    }, (error) => {
+      console.error('POS customers listener error:', error);
     });
 
     const unsubscribeOrders = onSnapshot(ordersQuery, (snapshot) => {
       setOrders(snapshot.docs.map((entry) => ({ id: entry.id, ...entry.data() } as OrderDoc)));
+    }, (error) => {
+      console.error('POS orders listener error:', error);
     });
 
     const unsubscribeSessions = onSnapshot(
