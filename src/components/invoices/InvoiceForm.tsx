@@ -109,6 +109,7 @@ export function InvoiceForm({
     (initial?.issueDate ? toInputDate(initial.issueDate) : toInputDate(new Date()))
   );
   const [dueDate, setDueDate] = useState<string>(initial?.dueDate ? toInputDate(initial.dueDate) : '');
+  const [orderId, setOrderId] = useState(initial?.orderId);
   const [items, setItems] = useState<InvoiceItemInput[]>(initial?.items?.length ? initial.items : [emptyItem()]);
   const [notes, setNotes] = useState(initial?.notes || '');
   const [terms, setTerms] = useState(initial?.terms || '');
@@ -127,6 +128,7 @@ export function InvoiceForm({
     setCustomerCountry(initial?.customerCountry || '');
     setIssueDate(initial?.issueDate ? toInputDate(initial.issueDate) : toInputDate(new Date()));
     setDueDate(initial?.dueDate ? toInputDate(initial.dueDate) : '');
+    setOrderId(initial?.orderId);
     setItems(initial?.items?.length ? initial.items : [emptyItem()]);
     setNotes(initial?.notes || '');
     setTerms(initial?.terms || '');
@@ -216,30 +218,37 @@ export function InvoiceForm({
     const filledItems = items
       .filter((it) => it.name.trim())
       .map((it) => ({
-        ...it,
+        ...(it.id ? { id: it.id } : {}),
+        ...(it.productId?.trim() ? { productId: it.productId.trim() } : {}),
+        ...(it.description?.trim() ? { description: it.description.trim() } : {}),
         discountRate: it.discountRate || 0,
+        name: it.name.trim(),
         taxRate: it.taxRate || 0,
+        ...(it.taxName?.trim() ? { taxName: it.taxName.trim() } : {}),
+        quantity: it.quantity,
+        unitPrice: it.unitPrice,
       }));
 
     return {
       type,
-      series,
+      series: series.trim().toUpperCase() || 'A',
       countryProfile,
-      customerId,
+      customerId: customerId?.trim() || undefined,
       customerName: customerName.trim(),
       customerEmail: customerEmail.trim() || undefined,
       customerTaxId: customerTaxId.trim() || undefined,
       customerAddress: customerAddress.trim() || undefined,
       customerCountry: customerCountry.trim() || undefined,
-      issuerName: defaultIssuer.name,
-      issuerTaxId: defaultIssuer.taxId,
-      issuerAddress: defaultIssuer.address,
-      issuerCountry: defaultIssuer.country,
+      issuerName: defaultIssuer.name.trim(),
+      issuerTaxId: defaultIssuer.taxId?.trim() || undefined,
+      issuerAddress: defaultIssuer.address?.trim() || undefined,
+      issuerCountry: defaultIssuer.country?.trim() || undefined,
       issueDate: issue,
       dueDate: due,
       items: filledItems,
       notes: notes.trim() || undefined,
       terms: terms.trim() || undefined,
+      orderId: orderId?.trim() || undefined,
     };
   };
 

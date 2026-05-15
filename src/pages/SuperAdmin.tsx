@@ -220,6 +220,8 @@ interface BetaUserOpsDoc {
   updatedAt?: any;
 }
 
+type BetaConversionPriority = 'low' | 'medium' | 'high';
+
 interface SupportViewPayload {
   mode: 'support';
   company: {
@@ -290,6 +292,36 @@ function hasMissingOwnerEmail(ownerEmail?: string | null) {
 
 function displayOwnerEmail(ownerEmail?: string | null) {
   return hasMissingOwnerEmail(ownerEmail) ? 'Sin owner asignado' : ownerEmail;
+}
+
+function getBetaActivationScore(entry: BetaUserRow, ops?: BetaUserOpsDoc | null) {
+  let score = 0;
+  if (entry.companyId) score += 20;
+  if (entry.activationStage === 'company_created') score += 15;
+  if (entry.activationStage === 'data_seeded') score += 35;
+  if (entry.activationStage === 'active') score += 45;
+  if (entry.onboardingStatus === 'ready') score += 20;
+  if ((entry.feedbackCount || 0) > 0) score += Math.min(15, (entry.feedbackCount || 0) * 5);
+  if (entry.needsAttention) score += 5;
+  if (ops?.followUpStatus === 'contacted') score += 5;
+  if (ops?.followUpStatus === 'qualified') score += 15;
+  return Math.min(100, score);
+}
+
+function getBetaConversionPriority(score: number): BetaConversionPriority {
+  if (score >= 75) return 'high';
+  if (score >= 40) return 'medium';
+  return 'low';
+}
+
+function getBetaNextAction(entry: BetaUserRow, score: number, ops?: BetaUserOpsDoc | null) {
+  if (!entry.companyId) return 'Llevar a onboarding y creacion de empresa.';
+  if (entry.activationStage === 'company_created') return 'Empujar carga base: productos, clientes y primer pedido.';
+  if (entry.activationStage === 'data_seeded' && (entry.feedbackCount || 0) === 0) return 'Pedir feedback temprano y validar friccion.';
+  if (score >= 75 && ops?.followUpStatus !== 'contacted') return 'Contactar owner y empujar cierre de trial.';
+  if (ops?.followUpStatus === 'contacted') return 'Calificar potencial y mapear necesidad comercial.';
+  if (entry.needsAttention) return 'Revisar soporte o feedback antes de perder activacion.';
+  return 'Mantener seguimiento ligero y observar uso.';
 }
 
 interface PlatformAlert {
@@ -490,6 +522,9 @@ export function SuperAdmin() {
   const [betaUserSearch, setBetaUserSearch] = useState('');
   const [betaStageFilter, setBetaStageFilter] = useState<'all' | 'signed_up' | 'company_created' | 'data_seeded' | 'active'>('all');
   const [betaFollowUpFilter, setBetaFollowUpFilter] = useState<'all' | 'new' | 'watching' | 'contacted' | 'qualified'>('all');
+  const [betaPriorityFilter, setBetaPriorityFilter] = useState<'all' | 'high' | 'medium' | 'low'>('all');
+  const [selectedBetaUserId, setSelectedBetaUserId] = useState<string | null>(null);
+  const [betaUserNoteDraft, setBetaUserNoteDraft] = useState('');
   const [savingBetaOpsId, setSavingBetaOpsId] = useState<string | null>(null);
   const [companyControls, setCompanyControls] = useState<Record<string, PlatformCompanyControlDoc>>({});
   const [companyStats, setCompanyStats] = useState<Record<string, CompanyStatsDoc>>({});
@@ -864,38 +899,76 @@ export function SuperAdmin() {
   const betaFeedbackSignals = betaUsers.reduce((sum, entry) => sum + (entry.feedbackCount || 0), 0);
   const betaAttentionCount = betaUsers.filter((entry) => entry.needsAttention).length;
   const betaQualifiedCount = betaUsers.filter((entry) => betaUserOps[entry.uid]?.followUpStatus === 'qualified').length;
+  const betaHighPotentialCount = betaUsers.filter((entry) => getBetaConversionPriority(getBetaActivationScore(entry, betaUserOps[entry.uid])) === 'high').length;
+  const betaContactedCount = betaUsers.filter((entry) => betaUserOps[entry.uid]?.followUpStatus === 'contacted').length;
   const filteredBetaUsers = useMemo(() => {
     const normalized = betaUserSearch.trim().toLowerCase();
-    return betaUsers.filter((entry) => {
-      const matchesStage = betaStageFilter === 'all' || entry.activationStage === betaStageFilter;
-      const followUpStatus = betaUserOps[entry.uid]?.followUpStatus || 'new';
-      const matchesFollowUp = betaFollowUpFilter === 'all' || followUpStatus === betaFollowUpFilter;
-      const matchesSearch = !normalized || [
-        entry.displayName,
-        entry.email,
-        entry.companyName,
-        entry.companyId,
-        entry.uid,
-      ]
-        .filter(Boolean)
-        .some((value) => String(value).toLowerCase().includes(normalized));
-      return matchesStage && matchesFollowUp && matchesSearch;
-    });
-  }, [betaFollowUpFilter, betaStageFilter, betaUserOps, betaUserSearch, betaUsers]);
+    return betaUsers
+      .filter((entry) => {
+        const matchesStage = betaStageFilter === 'all' || entry.activationStage === betaStageFilter;
+        const followUpStatus = betaUserOps[entry.uid]?.followUpStatus || 'new';
+        const matchesFollowUp = betaFollowUpFilter === 'all' || followUpStatus === betaFollowUpFilter;
+        const priority = getBetaConversionPriority(getBetaActivationScore(entry, betaUserOps[entry.uid]));
+        const matchesPriority = betaPriorityFilter === 'all' || priority === betaPriorityFilter;
+        const matchesSearch = !normalized || [
+          entry.displayName,
+          entry.email,
+          entry.companyName,
+          entry.companyId,
+          entry.uid,
+        ]
+          .filter(Boolean)
+          .some((value) => String(value).toLowerCase().includes(normalized));
+        return matchesStage && matchesFollowUp && matchesPriority && matchesSearch;
+      })
+      .sort((left, right) => {
+        const rightScore = getBetaActivationScore(right, betaUserOps[right.uid]);
+        const leftScore = getBetaActivationScore(left, betaUserOps[left.uid]);
+        return rightScore - leftScore;
+      });
+  }, [betaFollowUpFilter, betaPriorityFilter, betaStageFilter, betaUserOps, betaUserSearch, betaUsers]);
+  const selectedBetaUser = useMemo(
+    () => filteredBetaUsers.find((entry) => entry.uid === selectedBetaUserId) || filteredBetaUsers[0] || null,
+    [filteredBetaUsers, selectedBetaUserId]
+  );
+  const selectedBetaOps = selectedBetaUser ? betaUserOps[selectedBetaUser.uid] || null : null;
+  const betaNoteDirty = (betaUserNoteDraft.trim() || '') !== ((selectedBetaOps?.notes || '').trim());
+  const selectedBetaScore = selectedBetaUser ? getBetaActivationScore(selectedBetaUser, selectedBetaOps) : 0;
+  const selectedBetaPriority = selectedBetaUser ? getBetaConversionPriority(selectedBetaScore) : 'low';
+  const selectedBetaNextAction = selectedBetaUser ? getBetaNextAction(selectedBetaUser, selectedBetaScore, selectedBetaOps) : '';
+
+  useEffect(() => {
+    if (!selectedBetaUserId && filteredBetaUsers.length > 0) {
+      setSelectedBetaUserId(filteredBetaUsers[0].uid);
+      return;
+    }
+    if (selectedBetaUserId && !filteredBetaUsers.some((entry) => entry.uid === selectedBetaUserId)) {
+      setSelectedBetaUserId(filteredBetaUsers[0]?.uid || null);
+    }
+  }, [filteredBetaUsers, selectedBetaUserId]);
+
+  useEffect(() => {
+    setBetaUserNoteDraft(selectedBetaOps?.notes || '');
+  }, [selectedBetaOps?.notes, selectedBetaUser?.uid]);
 
   const saveBetaUserFollowUp = async (
     entry: BetaUserRow,
-    followUpStatus: 'new' | 'watching' | 'contacted' | 'qualified'
+    payload: {
+      followUpStatus?: 'new' | 'watching' | 'contacted' | 'qualified';
+      notes?: string;
+    }
   ) => {
     if (!platformAdmin?.uid) return;
     setSavingBetaOpsId(entry.uid);
+    const resolvedStatus = payload.followUpStatus || betaUserOps[entry.uid]?.followUpStatus || 'new';
     try {
       await setDoc(
         doc(db, 'betaUserOps', entry.uid),
         {
           userId: entry.uid,
           targetCompanyId: entry.companyId || null,
-          followUpStatus,
+          followUpStatus: resolvedStatus,
+          notes: payload.notes !== undefined ? payload.notes.trim() : (betaUserOps[entry.uid]?.notes || null),
           updatedBy: platformAdmin.uid,
           updatedAt: serverTimestamp(),
         },
@@ -906,8 +979,9 @@ export function SuperAdmin() {
         actorUid: platformAdmin.uid,
         payload: {
           betaUserId: entry.uid,
-          followUpStatus,
+          followUpStatus: resolvedStatus,
           companyId: entry.companyId || null,
+          noteUpdated: payload.notes !== undefined,
         },
         createdAt: serverTimestamp(),
       } as PlatformAuditLog);
@@ -2179,14 +2253,32 @@ export function SuperAdmin() {
                     <option value="qualified" className="bg-neutral-950 text-white">Alto potencial</option>
                   </select>
                 </div>
+                <div className="mt-3">
+                  <select
+                    aria-label="Filtrar base beta por prioridad"
+                    value={betaPriorityFilter}
+                    onChange={(event) => setBetaPriorityFilter(event.target.value as typeof betaPriorityFilter)}
+                    className="w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white focus:border-blue-500/50 focus:outline-none"
+                  >
+                    <option value="all" className="bg-neutral-950 text-white">Prioridad: todas</option>
+                    <option value="high" className="bg-neutral-950 text-white">Alta</option>
+                    <option value="medium" className="bg-neutral-950 text-white">Media</option>
+                    <option value="low" className="bg-neutral-950 text-white">Baja</option>
+                  </select>
+                </div>
                 <div className="mt-4 rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-neutral-300">
                   <p>Pendientes: <span className="font-semibold text-white">{betaUserPendingCount}</span></p>
                   <p className="mt-1">Seguimiento: <span className="font-semibold text-white">{betaAttentionCount}</span></p>
+                  <p className="mt-1">Contactados: <span className="font-semibold text-white">{betaContactedCount}</span></p>
                   <p className="mt-1">Potencial: <span className="font-semibold text-white">{betaQualifiedCount}</span></p>
+                  <p className="mt-1">Listos para cerrar: <span className="font-semibold text-white">{betaHighPotentialCount}</span></p>
                   <p className="mt-1 text-xs text-neutral-500">Usuarios beta registrados, activacion y senal de feedback sobre Firestore.</p>
                 </div>
                 <div className="mt-4 space-y-3">
-                  {filteredBetaUsers.length > 0 ? filteredBetaUsers.slice(0, 6).map((entry) => (
+                  {filteredBetaUsers.length > 0 ? filteredBetaUsers.slice(0, 6).map((entry) => {
+                    const score = getBetaActivationScore(entry, betaUserOps[entry.uid]);
+                    const priority = getBetaConversionPriority(score);
+                    return (
                     <div key={entry.id} className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
@@ -2196,10 +2288,20 @@ export function SuperAdmin() {
                         </div>
                         <div className="text-right">
                           <p className="text-[10px] font-black uppercase tracking-[0.18em] text-cyan-300">{entry.activationStage || entry.onboardingStatus || 'no_company'}</p>
-                          <p className="mt-1 text-[10px] text-neutral-500">{entry.feedbackCount || 0} feedback</p>
+                          <p className="mt-1 text-[10px] text-neutral-500">{entry.feedbackCount || 0} feedback / {score} pts</p>
                         </div>
                       </div>
                       <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <span className={cn(
+                          'rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.18em]',
+                          priority === 'high'
+                            ? 'border-emerald-500/20 bg-emerald-500/[0.08] text-emerald-200'
+                            : priority === 'medium'
+                              ? 'border-amber-500/20 bg-amber-500/[0.08] text-amber-200'
+                              : 'border-white/10 bg-white/[0.04] text-neutral-300'
+                        )}>
+                          {priority === 'high' ? 'cierre alto' : priority === 'medium' ? 'conversion media' : 'frio'}
+                        </span>
                         <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-neutral-300">
                           {betaUserOps[entry.uid]?.followUpStatus === 'qualified'
                             ? 'alto potencial'
@@ -2220,7 +2322,19 @@ export function SuperAdmin() {
                         ) : null}
                         <button
                           type="button"
-                          onClick={() => saveBetaUserFollowUp(entry, 'watching')}
+                          onClick={() => setSelectedBetaUserId(entry.uid)}
+                          className={cn(
+                            'rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.18em] transition-colors',
+                            selectedBetaUser?.uid === entry.uid
+                              ? 'border-white/20 bg-white/[0.1] text-white'
+                              : 'border-white/10 bg-white/[0.04] text-neutral-300 hover:border-white/20 hover:bg-white/[0.08]'
+                          )}
+                        >
+                          Seguimiento
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => saveBetaUserFollowUp(entry, { followUpStatus: 'watching' })}
                           disabled={savingBetaOpsId === entry.uid}
                           className="rounded-full border border-amber-500/20 bg-amber-500/[0.08] px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-amber-200 transition-colors hover:border-amber-400/30 hover:bg-amber-500/[0.14] disabled:cursor-not-allowed disabled:opacity-60"
                         >
@@ -2228,7 +2342,7 @@ export function SuperAdmin() {
                         </button>
                         <button
                           type="button"
-                          onClick={() => saveBetaUserFollowUp(entry, 'contacted')}
+                          onClick={() => saveBetaUserFollowUp(entry, { followUpStatus: 'contacted' })}
                           disabled={savingBetaOpsId === entry.uid}
                           className="rounded-full border border-cyan-500/20 bg-cyan-500/[0.08] px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-cyan-200 transition-colors hover:border-cyan-400/30 hover:bg-cyan-500/[0.14] disabled:cursor-not-allowed disabled:opacity-60"
                         >
@@ -2236,7 +2350,7 @@ export function SuperAdmin() {
                         </button>
                         <button
                           type="button"
-                          onClick={() => saveBetaUserFollowUp(entry, 'qualified')}
+                          onClick={() => saveBetaUserFollowUp(entry, { followUpStatus: 'qualified' })}
                           disabled={savingBetaOpsId === entry.uid}
                           className="rounded-full border border-emerald-500/20 bg-emerald-500/[0.08] px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-emerald-200 transition-colors hover:border-emerald-400/30 hover:bg-emerald-500/[0.14] disabled:cursor-not-allowed disabled:opacity-60"
                         >
@@ -2244,12 +2358,94 @@ export function SuperAdmin() {
                         </button>
                       </div>
                     </div>
-                  )) : (
+                    );
+                  }) : (
                     <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-6 text-center text-sm text-neutral-500">
                       {betaUsers.length === 0 ? 'Aun no hay usuarios beta registrados.' : 'No hay usuarios beta para el filtro actual.'}
                     </div>
                   )}
                 </div>
+                {selectedBetaUser ? (
+                  <div className="mt-4 rounded-[28px] border border-white/10 bg-neutral-950/70 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-600">Seguimiento beta</p>
+                        <h3 className="mt-2 truncate text-base font-bold text-white">{selectedBetaUser.displayName || selectedBetaUser.email}</h3>
+                        <p className="mt-1 text-xs text-neutral-400">{selectedBetaUser.email}</p>
+                        <p className="mt-1 text-xs text-neutral-500">{selectedBetaUser.companyName || 'Sin empresa activa'} / {selectedBetaUser.activationStage || selectedBetaUser.onboardingStatus || 'no_company'}</p>
+                      </div>
+                      <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-white">
+                        {selectedBetaOps?.followUpStatus === 'qualified'
+                          ? 'alto potencial'
+                          : selectedBetaOps?.followUpStatus === 'contacted'
+                            ? 'contactado'
+                            : selectedBetaOps?.followUpStatus === 'watching'
+                              ? 'en seguimiento'
+                              : 'nuevo'}
+                      </span>
+                    </div>
+                    <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+                      <div className="rounded-2xl border border-white/10 bg-black/30 px-3 py-3">
+                        <p className="text-[10px] font-black uppercase tracking-[0.18em] text-neutral-600">Feedback</p>
+                        <p className="mt-2 text-lg font-bold text-white">{selectedBetaUser.feedbackCount || 0}</p>
+                      </div>
+                      <div className="rounded-2xl border border-white/10 bg-black/30 px-3 py-3">
+                        <p className="text-[10px] font-black uppercase tracking-[0.18em] text-neutral-600">Atencion</p>
+                        <p className="mt-2 text-lg font-bold text-white">{selectedBetaUser.needsAttention ? 'Alta' : 'Normal'}</p>
+                      </div>
+                      <div className="rounded-2xl border border-white/10 bg-black/30 px-3 py-3">
+                        <p className="text-[10px] font-black uppercase tracking-[0.18em] text-neutral-600">Empresa</p>
+                        <p className="mt-2 truncate text-sm font-bold text-white">{selectedBetaUser.companyId || '-'}</p>
+                      </div>
+                      <div className="rounded-2xl border border-white/10 bg-black/30 px-3 py-3">
+                        <p className="text-[10px] font-black uppercase tracking-[0.18em] text-neutral-600">Score</p>
+                        <p className="mt-2 text-lg font-bold text-white">{selectedBetaScore}/100</p>
+                      </div>
+                    </div>
+                    <div className="mt-3 rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                      <p className="text-[10px] font-black uppercase tracking-[0.18em] text-neutral-600">Prioridad de conversion</p>
+                      <p className={cn(
+                        'mt-2 text-sm font-bold uppercase tracking-[0.16em]',
+                        selectedBetaPriority === 'high'
+                          ? 'text-emerald-300'
+                          : selectedBetaPriority === 'medium'
+                            ? 'text-amber-300'
+                            : 'text-neutral-300'
+                      )}>
+                        {selectedBetaPriority === 'high' ? 'Alta' : selectedBetaPriority === 'medium' ? 'Media' : 'Baja'}
+                      </p>
+                      <p className="mt-2 text-sm text-neutral-400">{selectedBetaNextAction}</p>
+                    </div>
+                    <div className="mt-4">
+                      <Label>Notas internas</Label>
+                      <textarea
+                        value={betaUserNoteDraft}
+                        onChange={(event) => setBetaUserNoteDraft(event.target.value)}
+                        rows={4}
+                        placeholder="Anota friccion, potencial de conversion o siguiente contacto."
+                        className="w-full rounded-2xl border border-white/10 bg-white/[0.035] px-4 py-3 text-sm text-white placeholder:text-neutral-600 transition-all duration-200 focus:border-blue-400/40 focus:outline-none focus:ring-2 focus:ring-blue-400/24"
+                      />
+                    </div>
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <Button
+                        variant="secondary"
+                        onClick={() => saveBetaUserFollowUp(selectedBetaUser, { notes: betaUserNoteDraft })}
+                        disabled={savingBetaOpsId === selectedBetaUser.uid || !betaNoteDirty}
+                      >
+                        Guardar nota
+                      </Button>
+                      {selectedBetaUser.companyId ? (
+                        <Button
+                          variant="secondary"
+                          onClick={() => openSupportView(selectedBetaUser.companyId || null, selectedBetaUser.uid)}
+                          disabled={loadingSupport}
+                        >
+                          Abrir soporte
+                        </Button>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
               </Card>
 
               <Card className="border-white/5 bg-neutral-900/40 p-5">

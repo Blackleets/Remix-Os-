@@ -70,6 +70,39 @@ function counterId(companyId: string, series: string): string {
   return `${companyId}_${(series || 'A').toUpperCase()}`;
 }
 
+function normalizeOptionalText(value: string | undefined | null): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function normalizeRequiredText(value: string | undefined | null, fallback = ''): string {
+  if (typeof value !== 'string') return fallback;
+  const trimmed = value.trim();
+  return trimmed || fallback;
+}
+
+function sanitizeFirestoreValue<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value
+      .filter((entry) => entry !== undefined)
+      .map((entry) => sanitizeFirestoreValue(entry)) as T;
+  }
+  if (value && typeof value === 'object') {
+    const proto = Object.getPrototypeOf(value);
+    const isPlainObject = proto === Object.prototype || proto === null;
+    if (!isPlainObject) return value;
+    const result: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(value)) {
+      if (entry !== undefined) {
+        result[key] = sanitizeFirestoreValue(entry);
+      }
+    }
+    return result as T;
+  }
+  return value;
+}
+
 function buildInvoicePayload(input: InvoiceDraftInput, status: InvoiceStatus): {
   payload: Omit<Invoice, 'id' | 'createdAt' | 'updatedAt' | 'invoiceNumber' | 'sequentialNumber'> & {
     invoiceNumber: string;
@@ -82,36 +115,36 @@ function buildInvoicePayload(input: InvoiceDraftInput, status: InvoiceStatus): {
   const computed = calculateInvoiceTotals(input.items || []);
   const items: InvoiceLineItem[] = computed.items.map((it) => ({
     id: it.id,
-    productId: it.productId,
-    name: it.name,
-    description: it.description,
+    productId: normalizeOptionalText(it.productId),
+    name: normalizeRequiredText(it.name),
+    description: normalizeOptionalText(it.description),
     quantity: it.quantity,
     unitPrice: it.unitPrice,
     discountRate: it.discountRate ?? 0,
     taxRate: it.taxRate ?? 0,
-    taxName: it.taxName || profile.taxName,
+    taxName: normalizeOptionalText(it.taxName) || profile.taxName,
     subtotal: it.subtotal,
     taxTotal: it.taxTotal,
     total: it.total,
   }));
 
   const payload = {
-    companyId: input.companyId,
+    companyId: normalizeRequiredText(input.companyId),
     type: input.type,
     status,
     invoiceNumber: '',
-    series: (input.series || 'A').toUpperCase(),
+    series: normalizeRequiredText(input.series, 'A').toUpperCase(),
     sequentialNumber: 0,
-    customerId: input.customerId,
-    customerName: input.customerName,
-    customerEmail: input.customerEmail,
-    customerTaxId: input.customerTaxId,
-    customerAddress: input.customerAddress,
-    customerCountry: input.customerCountry,
-    issuerName: input.issuerName,
-    issuerTaxId: input.issuerTaxId,
-    issuerAddress: input.issuerAddress,
-    issuerCountry: input.issuerCountry,
+    customerId: normalizeOptionalText(input.customerId),
+    customerName: normalizeRequiredText(input.customerName),
+    customerEmail: normalizeOptionalText(input.customerEmail),
+    customerTaxId: normalizeOptionalText(input.customerTaxId),
+    customerAddress: normalizeOptionalText(input.customerAddress),
+    customerCountry: normalizeOptionalText(input.customerCountry),
+    issuerName: normalizeRequiredText(input.issuerName),
+    issuerTaxId: normalizeOptionalText(input.issuerTaxId),
+    issuerAddress: normalizeOptionalText(input.issuerAddress),
+    issuerCountry: normalizeOptionalText(input.issuerCountry),
     currency: profile.currency,
     locale: profile.locale,
     countryProfile: input.countryProfile,
@@ -124,16 +157,16 @@ function buildInvoicePayload(input: InvoiceDraftInput, status: InvoiceStatus): {
     total: computed.totals.total,
     amountPaid: 0,
     amountDue: computed.totals.total,
-    notes: input.notes,
-    terms: input.terms,
-    orderId: input.orderId,
+    notes: normalizeOptionalText(input.notes),
+    terms: normalizeOptionalText(input.terms),
+    orderId: normalizeOptionalText(input.orderId),
     complianceMode: input.complianceMode || 'commercial_only',
     fiscalProvider: 'none' as const,
     fiscalStatus: 'not_required' as const,
-    createdBy: input.createdBy,
+    createdBy: normalizeRequiredText(input.createdBy),
   };
 
-  return { payload: payload as any, items, totals: computed.totals };
+  return { payload: sanitizeFirestoreValue(payload) as any, items, totals: computed.totals };
 }
 
 // Save a draft invoice. No sequential number assigned yet — the document
@@ -143,7 +176,7 @@ export async function saveInvoiceDraft(input: InvoiceDraftInput): Promise<string
   const { payload } = buildInvoicePayload(input, 'draft');
 
   await setDoc(newRef, {
-    ...stripUndefined(payload),
+    ...payload,
     invoiceNumber: '',
     sequentialNumber: 0,
     createdAt: serverTimestamp(),
@@ -162,7 +195,7 @@ export async function updateInvoiceDraft(invoiceId: string, input: InvoiceDraftI
   }
   const { payload } = buildInvoicePayload(input, existing.status);
   await updateDoc(ref, {
-    ...stripUndefined(payload),
+    ...payload,
     invoiceNumber: existing.invoiceNumber,
     sequentialNumber: existing.sequentialNumber,
     updatedAt: serverTimestamp(),
@@ -304,7 +337,7 @@ export async function duplicateInvoice(invoiceId: string, createdBy: string): Pr
       : `inv_${Math.random().toString(36).slice(2, 10)}`,
   }));
 
-  await setDoc(newRef, stripUndefined({
+  await setDoc(newRef, sanitizeFirestoreValue({
     companyId: source.companyId,
     type: source.type,
     status: 'draft' as const,
@@ -386,14 +419,6 @@ export async function getInvoice(invoiceId: string): Promise<Invoice | null> {
   const snap = await getDoc(ref);
   if (!snap.exists()) return null;
   return { id: snap.id, ...(snap.data() as Omit<Invoice, 'id'>) };
-}
-
-function stripUndefined<T extends Record<string, any>>(obj: T): Partial<T> {
-  const result: Record<string, any> = {};
-  for (const [key, value] of Object.entries(obj)) {
-    if (value !== undefined) result[key] = value;
-  }
-  return result as Partial<T>;
 }
 
 export { isInvoiceEditable, canDeleteByStatus };

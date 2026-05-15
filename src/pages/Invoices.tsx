@@ -412,6 +412,14 @@ export function Invoices() {
               Crea facturas, presupuestos y recibos profesionales para Espana, Mexico, USA, Europa y LATAM.
               Documento comercial. La certificacion fiscal local se conectara luego con proveedores autorizados.
             </p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <span className="rounded-full border border-blue-400/20 bg-blue-500/[0.08] px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-blue-200">
+                PDF beta activo
+              </span>
+              <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-neutral-300">
+                Factura, presupuesto y recibo
+              </span>
+            </div>
           </div>
           <div className="flex flex-wrap gap-2">
             {canManage && (
@@ -423,6 +431,10 @@ export function Invoices() {
                 <Button onClick={() => openNew('quote')} variant="secondary" className="gap-2">
                   <FileText className="h-4 w-4" />
                   Nuevo presupuesto
+                </Button>
+                <Button onClick={() => openNew('receipt')} variant="secondary" className="gap-2">
+                  <Receipt className="h-4 w-4" />
+                  Nuevo recibo
                 </Button>
               </>
             )}
@@ -455,6 +467,22 @@ export function Invoices() {
           {actionError}
         </div>
       )}
+
+      <Card className="border-white/10 bg-white/[0.025] p-4">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-500">Modo beta</p>
+            <p className="mt-2 text-sm text-neutral-300">
+              Ya puedes crear borradores, emitir documentos comerciales y descargar PDF para validar flujo operativo.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2 text-[11px] text-neutral-400">
+            <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1">Borradores editables</span>
+            <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1">PDF descargable</span>
+            <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1">Desde pedidos</span>
+          </div>
+        </div>
+      </Card>
 
       <div className="flex flex-wrap gap-2">
         {STATUS_FILTERS.map((opt) => (

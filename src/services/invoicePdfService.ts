@@ -12,6 +12,12 @@ export interface InvoicePdfCompanyContext {
   logoDataUrl?: string;
 }
 
+function safeText(value: unknown, fallback = ''): string {
+  if (typeof value !== 'string') return fallback;
+  const trimmed = value.trim();
+  return trimmed || fallback;
+}
+
 function toDate(value: any): Date | null {
   if (!value) return null;
   if (typeof value?.toDate === 'function') return value.toDate();
@@ -21,7 +27,7 @@ function toDate(value: any): Date | null {
 
 function formatDate(value: any, locale: string): string {
   const date = toDate(value);
-  if (!date) return '—';
+  if (!date) return '-';
   try {
     return new Intl.DateTimeFormat(locale, { dateStyle: 'medium' }).format(date);
   } catch {
@@ -38,7 +44,6 @@ export function generateInvoicePdf(invoice: Invoice, company?: InvoicePdfCompany
   const pageWidth = doc.internal.pageSize.getWidth();
   const margin = 40;
 
-  // Header bar
   doc.setFillColor(15, 18, 26);
   doc.rect(0, 0, pageWidth, 90, 'F');
 
@@ -51,72 +56,86 @@ export function generateInvoicePdf(invoice: Invoice, company?: InvoicePdfCompany
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(10);
   doc.setTextColor(180, 188, 202);
-  doc.text(invoice.invoiceNumber || 'BORRADOR', margin, 62);
+  doc.text(safeText(invoice.invoiceNumber, 'BORRADOR'), margin, 62);
 
   doc.setFontSize(9);
   doc.setTextColor(120, 130, 145);
-  const issuerLine = [company?.name || invoice.issuerName, company?.taxId || invoice.issuerTaxId]
+  const issuerLine = [
+    safeText(company?.name) || safeText(invoice.issuerName),
+    safeText(company?.taxId) || safeText(invoice.issuerTaxId),
+  ]
     .filter(Boolean)
-    .join('  ·  ');
+    .join('  |  ');
   doc.text(issuerLine, pageWidth - margin, 42, { align: 'right' });
-  if (company?.address || invoice.issuerAddress) {
-    doc.text(String(company?.address || invoice.issuerAddress), pageWidth - margin, 56, { align: 'right' });
+  const issuerAddress = safeText(company?.address) || safeText(invoice.issuerAddress);
+  if (issuerAddress) {
+    doc.text(issuerAddress, pageWidth - margin, 56, { align: 'right' });
   }
 
-  // Reset
   doc.setTextColor(20, 22, 28);
 
-  // Meta block
   let y = 120;
   doc.setFontSize(9);
   doc.setFont('helvetica', 'bold');
-  doc.text('FECHA DE EMISIÓN', margin, y);
+  doc.text('FECHA DE EMISION', margin, y);
   doc.text('VENCIMIENTO', margin + 180, y);
   doc.text('ESTADO', margin + 340, y);
   doc.setFont('helvetica', 'normal');
   doc.text(formatDate(invoice.issueDate, profile.locale), margin, y + 14);
-  doc.text(invoice.dueDate ? formatDate(invoice.dueDate, profile.locale) : '—', margin + 180, y + 14);
-  doc.text(invoice.status.toUpperCase(), margin + 340, y + 14);
+  doc.text(invoice.dueDate ? formatDate(invoice.dueDate, profile.locale) : '-', margin + 180, y + 14);
+  doc.text(safeText(invoice.status, 'draft').toUpperCase(), margin + 340, y + 14);
 
-  // Customer block
   y = 170;
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(9);
   doc.text('FACTURAR A', margin, y);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(10);
-  doc.text(invoice.customerName || '—', margin, y + 16);
+  doc.text(safeText(invoice.customerName, '-'), margin, y + 16);
   let lineY = y + 30;
   if (invoice.customerTaxId) {
     doc.setFontSize(9);
-    doc.text(`${profile.taxIdLabel}: ${invoice.customerTaxId}`, margin, lineY);
+    doc.text(`${profile.taxIdLabel}: ${safeText(invoice.customerTaxId)}`, margin, lineY);
     lineY += 12;
   }
   if (invoice.customerEmail) {
     doc.setFontSize(9);
-    doc.text(invoice.customerEmail, margin, lineY);
+    doc.text(safeText(invoice.customerEmail), margin, lineY);
     lineY += 12;
   }
   if (invoice.customerAddress) {
     doc.setFontSize(9);
-    doc.text(invoice.customerAddress, margin, lineY);
+    doc.text(safeText(invoice.customerAddress), margin, lineY);
     lineY += 12;
   }
   if (invoice.customerCountry) {
     doc.setFontSize(9);
-    doc.text(invoice.customerCountry, margin, lineY);
+    doc.text(safeText(invoice.customerCountry), margin, lineY);
     lineY += 12;
   }
 
-  // Items table
   const tableStart = Math.max(lineY + 16, 250);
+  const pdfItems = invoice.items?.length
+    ? invoice.items
+    : [
+        {
+          id: 'placeholder',
+          name: 'Sin conceptos',
+          quantity: 0,
+          unitPrice: 0,
+          subtotal: 0,
+          taxTotal: 0,
+          total: 0,
+        },
+      ];
+
   autoTable(doc, {
     startY: tableStart,
     margin: { left: margin, right: margin },
     head: [['#', 'Concepto', 'Cant.', 'Precio', 'Dto. %', `${profile.taxName} %`, 'Total']],
-    body: invoice.items.map((it, idx) => [
+    body: pdfItems.map((it, idx) => [
       String(idx + 1),
-      [it.name, it.description].filter(Boolean).join('\n'),
+      [safeText(it.name, 'Sin concepto'), safeText(it.description)].filter(Boolean).join('\n'),
       String(it.quantity),
       formatInvoiceCurrency(it.unitPrice, profile),
       `${((it.discountRate ?? 0) * 100).toFixed(0)}%`,
@@ -146,7 +165,6 @@ export function generateInvoicePdf(invoice: Invoice, company?: InvoicePdfCompany
     },
   });
 
-  // Totals block (right aligned)
   const lastY = (doc as any).lastAutoTable?.finalY || tableStart + 100;
   const totalsX = pageWidth - margin - 180;
   let ty = lastY + 16;
@@ -173,28 +191,26 @@ export function generateInvoicePdf(invoice: Invoice, company?: InvoicePdfCompany
     ty += 16;
   }
 
-  // Notes + terms
   let footerY = ty + 30;
   if (invoice.notes) {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(9);
     doc.text('NOTAS', margin, footerY);
     doc.setFont('helvetica', 'normal');
-    const split = doc.splitTextToSize(invoice.notes, pageWidth - margin * 2);
+    const split = doc.splitTextToSize(safeText(invoice.notes), pageWidth - margin * 2);
     doc.text(split, margin, footerY + 14);
     footerY += 14 + split.length * 12;
   }
   if (invoice.terms) {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(9);
-    doc.text('TÉRMINOS', margin, footerY);
+    doc.text('TERMINOS', margin, footerY);
     doc.setFont('helvetica', 'normal');
-    const split = doc.splitTextToSize(invoice.terms, pageWidth - margin * 2);
+    const split = doc.splitTextToSize(safeText(invoice.terms), pageWidth - margin * 2);
     doc.text(split, margin, footerY + 14);
     footerY += 14 + split.length * 12;
   }
 
-  // Compliance warning at the bottom
   const pageHeight = doc.internal.pageSize.getHeight();
   doc.setDrawColor(225, 228, 235);
   doc.setLineWidth(0.5);
@@ -221,6 +237,6 @@ function labelForType(type: Invoice['type'], profile: ReturnType<typeof getCount
 
 export function downloadInvoicePdf(invoice: Invoice, company?: InvoicePdfCompanyContext): void {
   const doc = generateInvoicePdf(invoice, company);
-  const filename = `${(invoice.invoiceNumber || 'borrador').replace(/[^A-Za-z0-9_-]/g, '-')}.pdf`;
+  const filename = `${safeText(invoice.invoiceNumber, 'borrador').replace(/[^A-Za-z0-9_-]/g, '-')}.pdf`;
   doc.save(filename);
 }
