@@ -1497,7 +1497,14 @@ export function SuperAdmin() {
                         )}
                         onClick={() => setSelectedCompanyId(company.id)}
                       >
-                        <td className="table-cell font-semibold text-white">{company.name}</td>
+                        <td className="table-cell font-semibold text-white">
+                          <span>{company.name}</span>
+                          {(company as any).internalTesting && (
+                            <span className="ml-2 inline-flex items-center rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-amber-300">
+                              Test
+                            </span>
+                          )}
+                        </td>
                         <td className="table-cell text-neutral-400">{displayOwnerEmail(company.ownerEmail)}</td>
                         <td className="table-cell uppercase text-neutral-300">{company.plan}</td>
                         <td className="table-cell uppercase text-neutral-300">{companyBillingStats[company.id]?.subscriptionStatus || company.subscriptionStatus}</td>
@@ -1562,7 +1569,14 @@ export function SuperAdmin() {
                 {selectedCompany ? (
                   <div className="space-y-4">
                     <div className="rounded-3xl border border-white/10 bg-black/30 p-4">
-                      <p className="text-lg font-bold text-white">{selectedCompany.name}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="text-lg font-bold text-white">{selectedCompany.name}</p>
+                        {(selectedCompany as any).internalTesting && (
+                          <span className="inline-flex items-center rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-amber-300">
+                            Modo interno
+                          </span>
+                        )}
+                      </div>
                       <p className="mt-1 text-xs uppercase tracking-[0.2em] text-neutral-500">{selectedCompany.industry}</p>
                       <div className="mt-4 grid grid-cols-2 gap-3">
                         <div>
