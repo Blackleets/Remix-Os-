@@ -46,6 +46,25 @@ firebase firestore:indexes --database ai-studio-5da6adea-9b27-408f-afc6-40bb6530
 - ⚠️ Si el CLI detecta índices creados a mano en consola que no están en `firestore.indexes.json`, **preguntará antes de borrarlos**. NO confirmes el borrado salvo que estés seguro; añádelos primero al archivo. (En el deploy de 2026-05-16 la base tenía 0 índices: sin riesgo.)
 - Reglas: `firebase deploy --only firestore:rules` solo si cambió `firestore.rules` (no es el caso). Al añadir `database` a `firebase.json`, un futuro deploy de reglas también iría a la base con nombre — correcto.
 
+### 2b. Reglas de Storage — OBLIGATORIO tras cambios en `storage.rules`
+
+```bash
+firebase deploy --only storage
+```
+
+⚠️ **Limitación conocida (multi-tenant en Storage):** las reglas de Firebase
+Storage solo pueden hacer `firestore.get()` contra la base `(default)`. Este
+proyecto **no tiene `(default)`** (usa la base con nombre), por lo que
+`hasCompanyRole()` en `storage.rules` siempre daba falso y **toda subida de
+imagen de producto/cliente quedaba denegada (atascada en 0%)**. Solución
+aplicada (2026-05-16): `companies/{id}/products|customers/**` ahora permite
+`write` con `isSignedIn()` + tipo imagen + < 2 MB. El `match /{allPaths=**}`
+global sigue en `deny`. **Pendiente (no bloqueante beta):** mover el
+aislamiento por empresa a **custom claims** de Firebase Auth para Storage
+(las reglas podrán validar `request.auth.token.companyId` sin leer Firestore).
+Las URLs de descarga son tokenizadas e inadivinables; las imágenes son de baja
+sensibilidad.
+
 ## 3. Variables de entorno (ver `.env.example`)
 
 **Obligatorias en serverless (Vercel/Lambda):**

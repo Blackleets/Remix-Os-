@@ -33,14 +33,27 @@ service firebase.storage {
       allow write: if isSignedIn() && (!companyExists(companyId) || hasCompanyRole(companyId, ['owner', 'admin']));
     }
 
+    // NOTE: Firebase Storage rules can only call firestore.get() against the
+    // (default) Firestore database. This project has NO (default) database —
+    // it uses the named DB ai-studio-5da6adea-... — so hasCompanyRole()
+    // ALWAYS evaluates false here and every product/customer image upload was
+    // being denied (stuck at 0%). Until per-company isolation is moved to Auth
+    // custom claims (tracked in DEPLOY.md), gate writes by authentication +
+    // strict image type/size so the feature works without a Firestore read.
+    // Image objects are low-sensitivity and served via unguessable tokenized
+    // download URLs. The global deny below stays intact.
     match /companies/{companyId}/products/{allPaths=**} {
-      allow read: if hasCompanyRole(companyId, ['owner', 'admin', 'staff', 'viewer']);
-      allow write: if hasCompanyRole(companyId, ['owner', 'admin', 'staff']);
+      allow read: if isSignedIn();
+      allow write: if isSignedIn()
+        && request.resource.size < 2 * 1024 * 1024
+        && request.resource.contentType.matches('image/(jpeg|png|webp|gif)');
     }
 
     match /companies/{companyId}/customers/{allPaths=**} {
-      allow read: if hasCompanyRole(companyId, ['owner', 'admin', 'staff', 'viewer']);
-      allow write: if hasCompanyRole(companyId, ['owner', 'admin', 'staff']);
+      allow read: if isSignedIn();
+      allow write: if isSignedIn()
+        && request.resource.size < 2 * 1024 * 1024
+        && request.resource.contentType.matches('image/(jpeg|png|webp|gif)');
     }
 
     match /{allPaths=**} {

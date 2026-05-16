@@ -274,12 +274,16 @@ function isGeminiQuotaError(error: any): boolean {
   return msg.includes('RESOURCE_EXHAUSTED') || msg.includes('quota') || msg.includes('429');
 }
 
+// Distinct from our own per-minute limiter (AI_RATE_LIMIT): this is the
+// upstream Gemini provider quota (per-minute OR daily). The frontend shows a
+// different, honest message because "wait a few seconds" is wrong for a daily
+// cap and makes Peppy look broken on first use.
 function sendAiQuotaError(res: any, retryAfterSec = 30) {
   res.setHeader('Retry-After', String(retryAfterSec));
   return res.status(429).json({
-    error: 'AI quota exceeded',
-    code: 'AI_RATE_LIMIT',
-    details: 'Gemini upstream quota reached. Please retry shortly.',
+    error: 'AI provider quota exceeded',
+    code: 'AI_PROVIDER_QUOTA',
+    details: 'Gemini upstream quota reached (per-minute or daily).',
     retryAfterSec,
   });
 }

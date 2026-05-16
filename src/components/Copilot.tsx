@@ -28,6 +28,9 @@ function describeCopilotError(err: unknown): string {
     if (err.code === 'AI_NOT_CONFIGURED' || err.status === 503) {
       return 'La IA no está configurada en el backend. Añade GEMINI_API_KEY en Vercel y vuelve a desplegar.';
     }
+    if (err.code === 'AI_PROVIDER_QUOTA') {
+      return 'El proveedor de IA (Gemini) alcanzó su cuota. Puede ser temporal: reinténtalo en un momento. Si persiste, la clave de API necesita más cuota o un plan superior.';
+    }
     if (err.code === 'AI_RATE_LIMIT' || err.status === 429) {
       return 'Has alcanzado el límite de consultas a Peppy. Espera unos segundos e inténtalo de nuevo.';
     }
@@ -479,14 +482,12 @@ export function Copilot() {
         )}
       </AnimatePresence>
 
+      {!isOpen && (
       <div className={cn('fixed bottom-6 z-[60]', isPOSRoute ? 'left-6' : 'right-6')}>
         <motion.button
-          onClick={() => {
-            if (isOpen) setIsOpen(false);
-            else openPanel();
-          }}
+          onClick={openPanel}
           type="button"
-          aria-label={isOpen ? 'Cerrar Copilot' : 'Abrir Copilot'}
+          aria-label="Abrir Copilot"
           whileHover={{ scale: 1.035 }}
           whileTap={{ scale: 0.97 }}
           className={cn(
@@ -496,9 +497,7 @@ export function Copilot() {
               : 'border-blue-400/18 bg-[linear-gradient(180deg,rgba(89,133,255,0.96),rgba(43,88,211,0.96))] shadow-[0_22px_56px_rgba(43,88,211,0.36)] before:absolute before:inset-0 before:bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.24),transparent_45%)] before:opacity-90'
           )}
         >
-          {isOpen ? (
-            <X className="relative h-5 w-5 text-white" />
-          ) : (
+          {(
             <>
               <BrainCircuit className="relative h-6 w-6 text-white" />
               <span className="absolute bottom-1.5 rounded-full border border-white/14 bg-black/20 px-1.5 py-0.5 font-mono text-[8px] font-bold uppercase tracking-[0.18em] text-blue-100" title="Peppy AI">
@@ -523,6 +522,7 @@ export function Copilot() {
           )}
         </motion.button>
       </div>
+      )}
 
       <AnimatePresence>
         {isOpen && (
