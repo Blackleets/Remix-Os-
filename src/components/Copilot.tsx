@@ -464,7 +464,7 @@ export function Copilot() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 10, scale: 0.96 }}
             className={cn(
-              'fixed bottom-[164px] lg:bottom-24 z-[60] max-w-[340px] rounded-[24px] border border-blue-400/14 bg-[rgba(8,12,18,0.94)] p-4 shadow-[0_18px_56px_rgba(0,0,0,0.44)] backdrop-blur-2xl cursor-pointer',
+              'peppy-toast-pos fixed z-[60] max-w-[340px] rounded-[24px] border border-blue-400/14 bg-[rgba(8,12,18,0.94)] p-4 shadow-[0_18px_56px_rgba(0,0,0,0.44)] backdrop-blur-2xl cursor-pointer',
               isPOSRoute ? 'left-6 right-6 sm:right-auto' : 'right-6'
             )}
             onClick={openPanel}
@@ -483,7 +483,7 @@ export function Copilot() {
       </AnimatePresence>
 
       {!isOpen && (
-      <div className={cn('fixed bottom-[82px] lg:bottom-6 z-[60]', isPOSRoute ? 'left-6' : 'right-6')}>
+      <div className={cn('peppy-btn-pos fixed z-[60]', isPOSRoute ? 'left-6' : 'right-6')}>
         <motion.button
           onClick={openPanel}
           type="button"
@@ -491,7 +491,7 @@ export function Copilot() {
           whileHover={{ scale: 1.035 }}
           whileTap={{ scale: 0.97 }}
           className={cn(
-            'group relative flex h-16 w-16 items-center justify-center overflow-hidden rounded-[22px] border transition-all duration-300',
+            'group relative flex h-14 w-14 items-center justify-center overflow-hidden rounded-[20px] border transition-all duration-300 lg:h-16 lg:w-16 lg:rounded-[22px]',
             isOpen
               ? 'border-white/12 bg-[rgba(14,18,24,0.96)] shadow-[0_18px_48px_rgba(0,0,0,0.42)]'
               : 'border-blue-400/18 bg-[linear-gradient(180deg,rgba(89,133,255,0.96),rgba(43,88,211,0.96))] shadow-[0_22px_56px_rgba(43,88,211,0.36)] before:absolute before:inset-0 before:bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.24),transparent_45%)] before:opacity-90'

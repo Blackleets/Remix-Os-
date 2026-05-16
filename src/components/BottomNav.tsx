@@ -11,7 +11,7 @@ const PRIMARY_ROUTES = [
   { icon: Grip, labelKey: 'nav.dashboard', path: '/dashboard' },
   { icon: Store, labelKey: 'nav.pos', path: '/pos' },
   { icon: Receipt, labelKey: 'nav.orders', path: '/orders' },
-  { icon: Database, labelKey: 'nav.inventory', path: '/inventory' },
+  { icon: User, labelKey: 'nav.customers', path: '/customers' },
 ];
 
 export function BottomNav() {
@@ -22,7 +22,7 @@ export function BottomNav() {
   const [isMoreOpen, setIsMoreOpen] = useState(false);
 
   const moreItems = [
-    { icon: User, labelKey: 'nav.customers', path: '/customers' },
+    { icon: Database, labelKey: 'nav.inventory', path: '/inventory' },
     { icon: Package, labelKey: 'nav.products', path: '/products' },
     { icon: Sparkle, labelKey: 'nav.insights', path: '/insights', restricted: ['owner', 'admin'] },
     { icon: Shield, labelKey: 'nav.team', path: '/team' },
@@ -50,7 +50,7 @@ export function BottomNav() {
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: 20 }}
           transition={{ type: 'spring', damping: 24, stiffness: 280 }}
-          className="fixed bottom-[72px] left-4 right-4 z-[60] rounded-3xl border border-white/10 bg-[rgba(6,8,12,0.96)] p-3 shadow-2xl backdrop-blur-2xl lg:hidden"
+          className="bottom-nav-sheet-pos fixed left-4 right-4 z-[60] rounded-3xl border border-white/10 bg-[rgba(6,8,12,0.96)] p-3 shadow-2xl backdrop-blur-2xl lg:hidden"
         >
           <div className="mb-2 flex items-center justify-between px-2 pb-1">
             <p className="text-[10px] font-black uppercase tracking-[0.22em] text-neutral-600">Más opciones</p>

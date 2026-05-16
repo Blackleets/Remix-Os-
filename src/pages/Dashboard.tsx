@@ -463,36 +463,38 @@ export function Dashboard() {
   ];
 
   return (
-    <div className="space-y-6 md:space-y-8">
+    <div className="space-y-4 md:space-y-6">
       <motion.section
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.35 }}
-        className="hero-gradient overflow-hidden rounded-[32px] border border-white/10 p-6 md:p-8 xl:p-10"
+        className="hero-gradient overflow-hidden rounded-[28px] border border-white/10 p-4 md:p-7 md:rounded-[32px] xl:p-10"
       >
-        <div className="grid gap-8 xl:grid-cols-[1.3fr_0.7fr]">
+        <div className="grid gap-4 md:gap-8 xl:grid-cols-[1.3fr_0.7fr]">
           <div className="relative">
-            <div className="mb-4 flex flex-wrap items-center gap-2">
+            <div className="mb-3 flex flex-wrap items-center gap-2">
               <span className="operator-badge">
                 <span className="status-dot pulse-live bg-emerald-400 text-emerald-400" />
-                Estado operativo en vivo
+                <span className="hidden sm:inline">Estado operativo en vivo</span>
+                <span className="sm:hidden">En vivo</span>
               </span>
-              <span className="telemetry-chip">
+              <span className="hidden sm:inline-flex telemetry-chip">
                 <Fingerprint className="h-3.5 w-3.5 text-blue-300" />
                 Núcleo operativo IA
               </span>
             </div>
 
-            <h1 className="section-title glow-text max-w-3xl text-3xl leading-none md:text-4xl xl:text-5xl">
-              {company?.name || 'Remix OS'} opera ahora como un centro operativo vivo.
+            <h1 className="section-title glow-text max-w-3xl text-xl leading-tight md:text-4xl xl:text-5xl">
+              {company?.name || 'Remix OS'}
+              <span className="hidden sm:inline"> opera ahora como un centro operativo vivo.</span>
             </h1>
-            <p className="mt-4 max-w-2xl text-base leading-relaxed text-neutral-300 md:text-lg">
+            <p className="mt-2 hidden max-w-2xl text-sm leading-relaxed text-neutral-400 sm:block md:mt-4 md:text-base lg:text-lg">
               {operatingBrief}
             </p>
 
-            <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+            <div className="mt-3 flex flex-col gap-2 sm:mt-5 sm:flex-row sm:gap-3">
               <Button
-                className="h-12 gap-2 px-6"
+                className="h-10 gap-2 px-5 sm:h-12 sm:px-6"
                 onClick={() => navigate('/orders', { state: { action: 'create' } })}
               >
                 <Plus className="h-4 w-4" />
@@ -500,15 +502,16 @@ export function Dashboard() {
               </Button>
               <Button
                 variant="secondary"
-                className="h-12 gap-2 px-6"
+                className="h-10 gap-2 px-5 sm:h-12 sm:px-6"
                 onClick={() => window.dispatchEvent(new CustomEvent('open-copilot'))}
               >
                 <Cpu className="h-4 w-4" />
-                Abrir operador IA
+                <span className="hidden sm:inline">Abrir operador IA</span>
+                <span className="sm:hidden">Peppy IA</span>
               </Button>
               <Button
                 variant="ghost"
-                className="h-12 gap-2 px-4"
+                className="hidden h-10 gap-2 px-4 sm:inline-flex sm:h-12"
                 onClick={handleExportPDF}
                 disabled={exporting}
               >
@@ -518,7 +521,7 @@ export function Dashboard() {
             </div>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-3 xl:grid-cols-1">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-1">
             <div className="data-tile">
               <p className="section-kicker mb-2 !text-neutral-400">Integridad del sistema</p>
               <div className="flex items-end justify-between gap-4">
@@ -611,14 +614,14 @@ export function Dashboard() {
       {showChecklist && (
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
           <Card className="overflow-hidden border-blue-400/14 bg-[linear-gradient(180deg,rgba(32,67,138,0.18),rgba(12,16,24,0.96))]">
-            <div className="grid gap-6 lg:grid-cols-[0.8fr_1.2fr]">
+            <div className="grid gap-4 lg:gap-6 lg:grid-cols-[0.8fr_1.2fr]">
               <div>
-                <p className="section-kicker mb-3">Secuencia de activación</p>
-                <h2 className="section-title text-2xl md:text-3xl">{t('dashboard.setup.title')}</h2>
-                <p className="mt-3 section-subtitle">{t('dashboard.setup.description')}</p>
+                <p className="section-kicker mb-2">Secuencia de activación</p>
+                <h2 className="section-title text-xl md:text-3xl">{t('dashboard.setup.title')}</h2>
+                <p className="mt-2 section-subtitle hidden sm:block">{t('dashboard.setup.description')}</p>
               </div>
 
-              <div className="grid gap-4 md:grid-cols-3">
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-4">
                 {[
                   {
                     label: t('dashboard.setup.register_product'),
@@ -671,8 +674,8 @@ export function Dashboard() {
         </motion.div>
       )}
 
-      <div className="grid gap-6 xl:grid-cols-[1.3fr_0.7fr]">
-        <div className="space-y-6">
+      <div className="grid gap-4 md:gap-6 xl:grid-cols-[1.3fr_0.7fr]">
+        <div className="space-y-4 md:space-y-6">
           <div className="grid grid-cols-2 gap-3 md:gap-4 xl:grid-cols-4">
             {statCards.map((stat, index) => (
               <motion.div
@@ -693,9 +696,9 @@ export function Dashboard() {
                         <stat.icon className={cn('h-5 w-5', stat.accent)} />
                       </div>
                     </div>
-                    <p className="text-2xl font-bold tracking-tight text-white md:text-3xl">{stat.value}</p>
-                    <div className="mt-4 flex items-center justify-between text-xs">
-                      <span className="font-mono uppercase tracking-[0.18em] text-neutral-500">Señal</span>
+                    <p className="text-xl font-bold tracking-tight text-white md:text-3xl">{stat.value}</p>
+                    <div className="mt-3 flex items-center justify-between text-xs md:mt-4">
+                      <span className="hidden font-mono uppercase tracking-[0.18em] text-neutral-500 sm:inline">Señal</span>
                       <span className="font-mono text-blue-200">{stat.change}</span>
                     </div>
                   </div>
@@ -704,13 +707,13 @@ export function Dashboard() {
             ))}
           </div>
 
-          <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
+          <div className="grid gap-4 md:gap-6 lg:grid-cols-[1.1fr_0.9fr]">
             <Card className="overflow-hidden">
-              <div className="mb-6 flex items-center justify-between gap-4">
+              <div className="mb-4 flex items-center justify-between gap-4 md:mb-6">
                 <div>
-                  <p className="section-kicker mb-2">Telemetría financiera</p>
-                  <h3 className="section-title text-2xl">{t('dashboard.financial_intelligence')}</h3>
-                  <p className="section-subtitle mt-2">{t('dashboard.revenue_optimization')}</p>
+                  <p className="section-kicker mb-1 md:mb-2">Telemetría financiera</p>
+                  <h3 className="section-title text-xl md:text-2xl">{t('dashboard.financial_intelligence')}</h3>
+                  <p className="section-subtitle mt-1 hidden sm:block md:mt-2">{t('dashboard.revenue_optimization')}</p>
                 </div>
                 <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-blue-400/14 bg-blue-500/10">
                   <TrendingUp className="h-5 w-5 text-blue-300" />
@@ -768,11 +771,11 @@ export function Dashboard() {
             </Card>
 
             <Card className="overflow-hidden">
-              <div className="mb-6 flex items-center justify-between gap-4">
+              <div className="mb-4 flex items-center justify-between gap-4 md:mb-6">
                 <div>
-                  <p className="section-kicker mb-2">Flujo operativo</p>
-                  <h3 className="section-title text-2xl">{t('dashboard.system_log')}</h3>
-                  <p className="section-subtitle mt-2">Eventos en vivo priorizados por relevancia operativa.</p>
+                  <p className="section-kicker mb-1 md:mb-2">Flujo operativo</p>
+                  <h3 className="section-title text-xl md:text-2xl">{t('dashboard.system_log')}</h3>
+                  <p className="section-subtitle mt-1 hidden sm:block md:mt-2">Eventos en vivo priorizados por relevancia operativa.</p>
                 </div>
                 <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-amber-400/14 bg-amber-500/10">
                   <History className="h-5 w-5 text-amber-300" />
@@ -819,9 +822,9 @@ export function Dashboard() {
           </div>
         </div>
 
-        <div className="space-y-6">
+        <div className="space-y-4 md:space-y-6">
           <Card className="overflow-hidden border-blue-400/14 bg-[linear-gradient(180deg,rgba(28,43,90,0.52),rgba(8,11,16,0.96))]">
-            <div className="mb-5 flex items-center gap-3">
+            <div className="mb-4 flex items-center gap-3 md:mb-5">
               <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-blue-300/16 bg-blue-500/12">
                 <Cpu className="h-5 w-5 text-blue-200" />
               </div>

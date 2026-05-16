@@ -263,6 +263,32 @@
   display: none;
 }
 
+/* ── Mobile safe-area positioning ────────────────────────────────────────── */
+.peppy-btn-pos {
+  bottom: calc(84px + env(safe-area-inset-bottom, 0px));
+}
+@media (min-width: 1024px) {
+  .peppy-btn-pos { bottom: 1.5rem; }
+}
+
+.peppy-toast-pos {
+  bottom: calc(156px + env(safe-area-inset-bottom, 0px));
+}
+@media (min-width: 1024px) {
+  .peppy-toast-pos { bottom: 6rem; }
+}
+
+.bottom-nav-sheet-pos {
+  bottom: calc(80px + env(safe-area-inset-bottom, 0px));
+}
+
+.main-content-pb {
+  padding-bottom: calc(90px + env(safe-area-inset-bottom, 0px));
+}
+@media (min-width: 768px) {
+  .main-content-pb { padding-bottom: 2rem; }
+}
+
 .ai-message-content {
   @apply leading-relaxed;
 }
