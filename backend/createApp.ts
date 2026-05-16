@@ -1523,90 +1523,6 @@ export function createApp() {
   // issuers in the same company can never collide. Idempotent: re-issuing
   // an already-issued invoice returns the existing number instead of
   // burning a new one.
-  app.post('/api/invoices/issue', async (req, res) => {
-    try {
-      const access = await requireCompanyAccess(req, res, ['owner', 'admin', 'staff']);
-      if (!access) return;
-
-      const invoiceId = req.body?.invoiceId;
-      if (!invoiceId || typeof invoiceId !== 'string') {
-        res.status(400).json({ error: 'invoiceId is required' });
-        return;
-      }
-
-      const db = getDb();
-      if (!db) throw new Error('Database not initialized');
-
-      const result = await db.runTransaction(async (tx) => {
-        const invRef = db.collection('invoices').doc(invoiceId);
-        const invSnap = await tx.get(invRef);
-        if (!invSnap.exists) {
-          return { status: 404 as const, error: 'Invoice not found' };
-        }
-        const invoice = invSnap.data() || {};
-        if (invoice.companyId !== access.companyId) {
-          return { status: 403 as const, error: 'Invoice belongs to a different company' };
-        }
-
-        // Idempotency: if already issued, return what's there.
-        if (invoice.status && invoice.status !== 'draft') {
-          return {
-            status: 200 as const,
-            invoiceNumber: invoice.invoiceNumber || '',
-            sequentialNumber: invoice.sequentialNumber || 0,
-            alreadyIssued: true,
-          };
-        }
-
-        const series = String(invoice.series || 'A').toUpperCase();
-        const counterRef = db.collection('invoiceCounters').doc(`${access.companyId}_${series}`);
-        const counterSnap = await tx.get(counterRef);
-        const current = counterSnap.exists ? Number(counterSnap.data()?.nextNumber || 1) : 1;
-        const invoiceNumber = formatInvoiceNumber(series, current);
-
-        tx.set(
-          counterRef,
-          {
-            companyId: access.companyId,
-            series,
-            nextNumber: current + 1,
-            updatedAt: FieldValue.serverTimestamp(),
-          },
-          { merge: true }
-        );
-
-        tx.update(invRef, {
-          status: 'issued',
-          invoiceNumber,
-          sequentialNumber: current,
-          issuedAt: FieldValue.serverTimestamp(),
-          updatedAt: FieldValue.serverTimestamp(),
-        });
-
-        return {
-          status: 200 as const,
-          invoiceNumber,
-          sequentialNumber: current,
-          alreadyIssued: false,
-        };
-      });
-
-      if (result.status !== 200) {
-        res.status(result.status).json({ error: result.error });
-        return;
-      }
-      res.json({
-        invoiceNumber: result.invoiceNumber,
-        sequentialNumber: result.sequentialNumber,
-        alreadyIssued: result.alreadyIssued,
-      });
-    } catch (error: any) {
-      console.error('[Invoices] Failed to issue invoice:', error?.message || error);
-      captureBackendError(error, { route: '/api/invoices/issue' });
-      res.status(500).json({ error: error?.message || 'Failed to issue invoice' });
-    }
-  });
-
   app.post('/api/platform/overview', async (req, res) => {
     try {
       const access = await requirePlatformAdmin(req, res);
@@ -2858,6 +2774,16 @@ CURRENT BUSINESS DATA:
 
         if (invoice.companyId !== access.companyId) {
           const e: any = new Error('La factura no pertenece a esta empresa'); e.code = 'FORBIDDEN'; throw e;
+        }
+        if (invoice.status === 'issued') {
+          console.info('[Invoices] already issued', {
+            companyId: access.companyId,
+            invoiceId,
+            invoiceNumber: invoice.invoiceNumber || '',
+            sequentialNumber: invoice.sequentialNumber || 0,
+          });
+          const e: any = new Error(`La factura ya fue emitida. Número: ${invoice.invoiceNumber}`);
+          e.code = 'INVALID_STATUS'; throw e;
         }
         if (invoice.status !== 'draft') {
           const e: any = new Error(`Solo borradores pueden emitirse. Estado: ${invoice.status}`);
