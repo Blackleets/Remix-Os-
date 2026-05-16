@@ -20,15 +20,31 @@ El commit `febe2b4` introdujo queries en **Clientes → pestañas Recordatorios/
 - `reminders`: `companyId ASC, customerId ASC, dueDate ASC`
 - `customerMessages`: `companyId ASC, customerId ASC, createdAt DESC`
 
+> **IMPORTANTE — base Firestore con nombre.** Este proyecto NO usa la base
+> `(default)`. La app opera contra la base **`ai-studio-5da6adea-9b27-408f-afc6-40bb653047c8`**
+> (ver `firestoreDatabaseId` en `firebase-applet-config.json`). Por eso
+> `firebase.json` declara `"firestore": { "database": "ai-studio-...", ... }`.
+> Sin ese campo, `firebase deploy --only firestore:indexes` falla con
+> `HTTP 404 ... database '(default)' does not exist`.
+
 **Desplegar los índices:**
 
 ```bash
-firebase deploy --only firestore:indexes
+firebase use default                         # gen-lang-client-0995266506
+firebase deploy --only firestore:indexes --non-interactive
 ```
 
-- Los índices tardan unos minutos en construirse. Hasta que terminen, esas dos pestañas mostrarán un **banner "No se pudieron cargar… Reintentar"** (resiliencia añadida) en vez de romperse — el resto de Clientes y la app funcionan normal.
-- ⚠️ Si el CLI detecta índices creados a mano en la consola que no están en `firestore.indexes.json`, **preguntará antes de borrarlos**. NO confirmes el borrado salvo que estés seguro; si hay índices manuales en uso, añádelos primero al archivo.
-- Reglas: `firebase deploy --only firestore:rules` solo si cambió `firestore.rules` (no es el caso en este pase).
+Estado actual: **desplegado** el 2026-05-16 — los 2 índices
+(`reminders`, `customerMessages`) están registrados y construidos en la base
+con nombre. Para re-verificar:
+
+```bash
+firebase firestore:indexes --database ai-studio-5da6adea-9b27-408f-afc6-40bb653047c8
+```
+
+- Los índices tardan minutos en construirse en colecciones grandes; en colecciones pequeñas es casi inmediato. Mientras construyen, las pestañas Recordatorios/Mensajes muestran el **banner "No se pudieron cargar… Reintentar"** (resiliencia añadida) en vez de romperse — el resto de la app funciona normal.
+- ⚠️ Si el CLI detecta índices creados a mano en consola que no están en `firestore.indexes.json`, **preguntará antes de borrarlos**. NO confirmes el borrado salvo que estés seguro; añádelos primero al archivo. (En el deploy de 2026-05-16 la base tenía 0 índices: sin riesgo.)
+- Reglas: `firebase deploy --only firestore:rules` solo si cambió `firestore.rules` (no es el caso). Al añadir `database` a `firebase.json`, un futuro deploy de reglas también iría a la base con nombre — correcto.
 
 ## 3. Variables de entorno (ver `.env.example`)
 
