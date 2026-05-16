@@ -2755,16 +2755,18 @@ CURRENT BUSINESS DATA:
       const db = getDb();
       if (!db) throw new Error('Database not initialized');
 
-      let invoiceNumber = '';
-      let sequentialNumber = 0;
-
-      await db.runTransaction(async (tx) => {
+      const result = await db.runTransaction(async (tx) => {
         const invRef = db.collection('invoices').doc(invoiceId);
         const invSnap = await tx.get(invRef);
         if (!invSnap.exists) {
-          const e: any = new Error('Factura no encontrada'); e.code = 'NOT_FOUND'; throw e;
+          return { status: 404 as const, error: 'Invoice not found' };
         }
-        const invoice = invSnap.data()!;
+        const invoice = invSnap.data() || {};
+
+        if (invoice.companyId !== access.companyId) {
+          return { status: 403 as const, error: 'Invoice belongs to a different company' };
+        }
+
         console.info('[Invoices] invoice loaded', {
           companyId: access.companyId,
           invoiceId,
@@ -2772,37 +2774,31 @@ CURRENT BUSINESS DATA:
           series: invoice.series || 'A',
         });
 
-        if (invoice.companyId !== access.companyId) {
-          const e: any = new Error('La factura no pertenece a esta empresa'); e.code = 'FORBIDDEN'; throw e;
-        }
-        if (invoice.status === 'issued') {
+        // Idempotency: already issued — return existing data, no second numbering.
+        if (invoice.status && invoice.status !== 'draft') {
           console.info('[Invoices] already issued', {
             companyId: access.companyId,
             invoiceId,
             invoiceNumber: invoice.invoiceNumber || '',
             sequentialNumber: invoice.sequentialNumber || 0,
           });
-          const e: any = new Error(`La factura ya fue emitida. Número: ${invoice.invoiceNumber}`);
-          e.code = 'INVALID_STATUS'; throw e;
+          return {
+            status: 200 as const,
+            invoiceNumber: invoice.invoiceNumber || '',
+            sequentialNumber: invoice.sequentialNumber || 0,
+            alreadyIssued: true,
+          };
         }
-        if (invoice.status !== 'draft') {
-          const e: any = new Error(`Solo borradores pueden emitirse. Estado: ${invoice.status}`);
-          e.code = 'INVALID_STATUS'; throw e;
-        }
 
-        const series = String(invoice.series || 'A').toUpperCase().replace(/[^A-Z0-9\-]/g, '') || 'A';
-        const ctrId = `${access.companyId}_${series}`;
-        const ctrRef = db.collection('invoiceCounters').doc(ctrId);
-        const ctrSnap = await tx.get(ctrRef);
-        const current = ctrSnap.exists ? Number(ctrSnap.data()!.nextNumber || 1) : 1;
+        const series = String(invoice.series || 'A').toUpperCase();
+        const counterRef = db.collection('invoiceCounters').doc(`${access.companyId}_${series}`);
+        const counterSnap = await tx.get(counterRef);
+        const current = counterSnap.exists ? Number(counterSnap.data()?.nextNumber || 1) : 1;
+        const invoiceNumber = formatInvoiceNumber(series, current);
 
-        // Same format as shared/invoices.ts formatInvoiceNumber(series, num, pad=4)
-        const padded = String(Math.max(0, Math.floor(current))).padStart(4, '0');
-        invoiceNumber = `${series}-${padded}`;
-        sequentialNumber = current;
-
-        tx.set(ctrRef, {
-          companyId: access.companyId, series,
+        tx.set(counterRef, {
+          companyId: access.companyId,
+          series,
           nextNumber: current + 1,
           updatedAt: FieldValue.serverTimestamp(),
         }, { merge: true });
@@ -2814,28 +2810,34 @@ CURRENT BUSINESS DATA:
           issuedAt: FieldValue.serverTimestamp(),
           updatedAt: FieldValue.serverTimestamp(),
         });
+
+        console.info('[Invoices] issued', {
+          companyId: access.companyId,
+          invoiceId,
+          invoiceNumber,
+          sequentialNumber: current,
+        });
+
+        return {
+          status: 200 as const,
+          invoiceNumber,
+          sequentialNumber: current,
+          alreadyIssued: false,
+        };
       });
 
-      console.info('[Invoices] issued', {
-        companyId: access.companyId,
-        invoiceId,
-        invoiceNumber,
-        sequentialNumber,
+      if (result.status !== 200) {
+        return res.status(result.status).json({ error: result.error });
+      }
+      res.json({
+        invoiceNumber: result.invoiceNumber,
+        sequentialNumber: result.sequentialNumber,
+        alreadyIssued: result.alreadyIssued,
       });
-      res.json({ invoiceNumber, sequentialNumber });
     } catch (error: any) {
-      const reason = error?.code || error?.message || String(error);
-      console.error('[Invoices] failed', { message: reason });
-      if (error?.code === 'NOT_FOUND')
-        return res.status(404).json({ error: error.message, code: 'INVOICE_NOT_FOUND' });
-      if (error?.code === 'FORBIDDEN')
-        return res.status(403).json({ error: error.message, code: 'FORBIDDEN' });
-      if (error?.code === 'INVALID_STATUS')
-        return res.status(409).json({ error: error.message, code: 'INVALID_STATUS' });
-      res.status(500).json({
-        error: 'No se pudo emitir la factura. Verifica FIREBASE_SERVICE_ACCOUNT en Vercel.',
-        code: 'ISSUE_FAILED',
-      });
+      console.error('[Invoices] failed', { message: error?.message || String(error) });
+      captureBackendError(error, { route: '/api/invoices/issue' });
+      res.status(500).json({ error: error?.message || 'Failed to issue invoice' });
     }
   });
 
