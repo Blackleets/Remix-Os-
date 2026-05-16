@@ -1246,6 +1246,7 @@ async function buildPlatformOverview(db: Firestore) {
       },
       trialEndsAt: company.subscription?.trialEndsAt,
       currentPeriodEnd: company.subscription?.currentPeriodEnd,
+      internalTesting: Boolean(company.internalTesting),
       users: stats.activeUsers || companyMemberships.length,
       products: stats.productsCount || 0,
       customers: stats.customersCount || 0,
@@ -2914,10 +2915,10 @@ CURRENT BUSINESS DATA:
     if (!db) throw new Error('Database not initialized');
     await db.collection('companies').doc(companyId).update({ internalTesting });
     await db.collection('platformAuditLogs').add({
-      type: 'company_internal_testing_override',
+      type: 'internal_testing_toggled',
       companyId,
-      changes: { internalTesting },
-      performedBy: access.uid,
+      value: internalTesting,
+      actorUid: access.uid,
       createdAt: FieldValue.serverTimestamp(),
     });
     res.json({ ok: true, companyId, internalTesting });

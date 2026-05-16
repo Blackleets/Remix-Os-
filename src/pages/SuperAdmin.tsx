@@ -35,6 +35,7 @@ interface CompanyDoc {
   ownerId?: string;
   industry?: string;
   stripeCustomerId?: string;
+  internalTesting?: boolean;
   createdAt?: any;
   onboardingState?: {
     isComplete?: boolean;
@@ -131,6 +132,7 @@ interface CompanyRow {
   plan: string;
   subscriptionStatus: string;
   stripeCustomerId?: string;
+  internalTesting: boolean;
   onboardingComplete: boolean;
   onboardingStep: number;
   onboardingChecklist: {
@@ -356,6 +358,7 @@ interface PlatformAuditLog {
   type: string;
   companyId?: string;
   actorUid: string;
+  value?: unknown;
   payload?: Record<string, unknown>;
   createdAt?: unknown;
 }
@@ -1014,8 +1017,8 @@ export function SuperAdmin() {
   }, [companyControls, selectedCompany?.id]);
 
   const toggleInternalTesting = async () => {
-    if (!selectedCompany) return;
-    const current = (selectedCompany as any).internalTesting === true;
+    if (!selectedCompany || !platformAdmin?.uid) return;
+    const next = !selectedCompany.internalTesting;
     try {
       const token = await auth.currentUser?.getIdToken();
       const res = await fetch('/api/platform/company/override', {
@@ -1024,15 +1027,25 @@ export function SuperAdmin() {
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ companyId: selectedCompany.id, internalTesting: !current }),
+        body: JSON.stringify({ companyId: selectedCompany.id, internalTesting: next }),
       });
       if (!res.ok) throw new Error('Override failed');
+      // Client-side audit log with the canonical schema
+      await addDoc(collection(db, 'platformAuditLogs'), {
+        type: 'internal_testing_toggled',
+        companyId: selectedCompany.id,
+        value: next,
+        actorUid: platformAdmin.uid,
+        createdAt: serverTimestamp(),
+      } as PlatformAuditLog);
       setControlFeedback(
-        !current ? '✓ Modo interno activado. Límites de plan desactivados.' : 'Modo interno desactivado.'
+        next ? '✓ Modo interno activado. Límites de plan desactivados.' : 'Modo interno desactivado.'
       );
+      setControlFeedbackTone(next ? 'success' : 'neutral');
       setRefreshKey((k) => k + 1);
     } catch {
       setControlFeedback('Error al cambiar modo interno.');
+      setControlFeedbackTone('error');
     }
   };
 
@@ -1499,7 +1512,7 @@ export function SuperAdmin() {
                       >
                         <td className="table-cell font-semibold text-white">
                           <span>{company.name}</span>
-                          {(company as any).internalTesting && (
+                          {company.internalTesting && (
                             <span className="ml-2 inline-flex items-center rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-amber-300">
                               Test
                             </span>
@@ -1571,7 +1584,7 @@ export function SuperAdmin() {
                     <div className="rounded-3xl border border-white/10 bg-black/30 p-4">
                       <div className="flex items-center gap-2">
                         <p className="text-lg font-bold text-white">{selectedCompany.name}</p>
-                        {(selectedCompany as any).internalTesting && (
+                        {selectedCompany.internalTesting && (
                           <span className="inline-flex items-center rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-amber-300">
                             Modo interno
                           </span>
@@ -1830,7 +1843,7 @@ export function SuperAdmin() {
                             Modo Interno / Beta Testing
                           </p>
                           <p className="text-xs text-neutral-400 mb-2">
-                            {(selectedCompany as any)?.internalTesting
+                            {selectedCompany.internalTesting
                               ? '✓ Activo — límites de plan desactivados para esta empresa.'
                               : 'Inactivo — límites de plan normales.'}
                           </p>
@@ -1840,7 +1853,7 @@ export function SuperAdmin() {
                             className="border-amber-500/30 text-amber-300 text-xs"
                             onClick={() => void toggleInternalTesting()}
                           >
-                            {(selectedCompany as any)?.internalTesting ? 'Desactivar modo interno' : 'Activar modo interno'}
+                            {selectedCompany.internalTesting ? 'Desactivar modo interno' : 'Activar modo interno'}
                           </Button>
                         </div>
 
