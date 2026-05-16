@@ -2825,11 +2825,11 @@ CURRENT BUSINESS DATA:
 
   // ── Invoice issuing (server-side transaction) ─────────────────────────────
   app.post('/api/invoices/issue', async (req, res) => {
-    console.log('[Invoices] issue request received');
+    console.info('[Invoices] issue request received');
     try {
       const access = await requireCompanyAccess(req, res, ['owner', 'admin', 'staff']);
       if (!access) return;
-      console.log(`[Invoices] access granted companyId=${access.companyId}`);
+      console.info('[Invoices] access granted', { companyId: access.companyId });
 
       const { invoiceId } = req.body;
       if (typeof invoiceId !== 'string' || !invoiceId) {
@@ -2849,7 +2849,12 @@ CURRENT BUSINESS DATA:
           const e: any = new Error('Factura no encontrada'); e.code = 'NOT_FOUND'; throw e;
         }
         const invoice = invSnap.data()!;
-        console.log(`[Invoices] invoice loaded status=${invoice.status}`);
+        console.info('[Invoices] invoice loaded', {
+          companyId: access.companyId,
+          invoiceId,
+          status: invoice.status,
+          series: invoice.series || 'A',
+        });
 
         if (invoice.companyId !== access.companyId) {
           const e: any = new Error('La factura no pertenece a esta empresa'); e.code = 'FORBIDDEN'; throw e;
@@ -2885,11 +2890,16 @@ CURRENT BUSINESS DATA:
         });
       });
 
-      console.log(`[Invoices] issued invoiceNumber=${invoiceNumber}`);
+      console.info('[Invoices] issued', {
+        companyId: access.companyId,
+        invoiceId,
+        invoiceNumber,
+        sequentialNumber,
+      });
       res.json({ invoiceNumber, sequentialNumber });
     } catch (error: any) {
       const reason = error?.code || error?.message || String(error);
-      console.error(`[Invoices] issue failed reason=${reason}`);
+      console.error('[Invoices] failed', { message: reason });
       if (error?.code === 'NOT_FOUND')
         return res.status(404).json({ error: error.message, code: 'INVOICE_NOT_FOUND' });
       if (error?.code === 'FORBIDDEN')
@@ -2905,23 +2915,43 @@ CURRENT BUSINESS DATA:
 
   // ── Platform admin: company internal-testing override ─────────────────────
   app.post('/api/platform/company/override', async (req, res) => {
-    const access = await requirePlatformAdmin(req, res);
-    if (!access) return;
-    const { companyId, internalTesting } = req.body;
-    if (typeof companyId !== 'string' || !companyId || typeof internalTesting !== 'boolean') {
-      return res.status(400).json({ error: 'companyId (string) e internalTesting (boolean) requeridos' });
+    try {
+      const access = await requirePlatformAdmin(req, res);
+      if (!access) return;
+
+      const { companyId, internalTesting } = req.body;
+      if (typeof companyId !== 'string' || !companyId) {
+        return res.status(400).json({ error: 'companyId (string) requerido', code: 'MISSING_COMPANY_ID' });
+      }
+      if (typeof internalTesting !== 'boolean') {
+        return res.status(400).json({ error: 'internalTesting (boolean) requerido', code: 'MISSING_INTERNAL_TESTING' });
+      }
+
+      const db = getDb();
+      if (!db) throw new Error('Database not initialized');
+
+      const companyRef = db.collection('companies').doc(companyId);
+      const companySnap = await companyRef.get();
+      if (!companySnap.exists) {
+        return res.status(404).json({ error: 'Empresa no encontrada', code: 'COMPANY_NOT_FOUND' });
+      }
+
+      await companyRef.update({
+        internalTesting,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      await db.collection('platformAuditLogs').add({
+        type: 'internal_testing_toggled',
+        companyId,
+        value: internalTesting,
+        actorUid: access.uid,
+        createdAt: FieldValue.serverTimestamp(),
+      });
+      res.json({ ok: true, companyId, internalTesting });
+    } catch (err: any) {
+      console.error('[Override] /api/platform/company/override failed:', err?.message || err);
+      res.status(500).json({ error: 'No se pudo actualizar el modo interno.', code: 'OVERRIDE_FAILED' });
     }
-    const db = getDb();
-    if (!db) throw new Error('Database not initialized');
-    await db.collection('companies').doc(companyId).update({ internalTesting });
-    await db.collection('platformAuditLogs').add({
-      type: 'internal_testing_toggled',
-      companyId,
-      value: internalTesting,
-      actorUid: access.uid,
-      createdAt: FieldValue.serverTimestamp(),
-    });
-    res.json({ ok: true, companyId, internalTesting });
   });
 
   return app;

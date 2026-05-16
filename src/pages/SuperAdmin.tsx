@@ -1030,14 +1030,6 @@ export function SuperAdmin() {
         body: JSON.stringify({ companyId: selectedCompany.id, internalTesting: next }),
       });
       if (!res.ok) throw new Error('Override failed');
-      // Client-side audit log with the canonical schema
-      await addDoc(collection(db, 'platformAuditLogs'), {
-        type: 'internal_testing_toggled',
-        companyId: selectedCompany.id,
-        value: next,
-        actorUid: platformAdmin.uid,
-        createdAt: serverTimestamp(),
-      } as PlatformAuditLog);
       setControlFeedback(
         next ? '✓ Modo interno activado. Límites de plan desactivados.' : 'Modo interno desactivado.'
       );
