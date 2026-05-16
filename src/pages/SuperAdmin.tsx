@@ -24,7 +24,7 @@ import { addDoc, collection, doc, limit, onSnapshot, orderBy, query, serverTimes
 import type { ComponentType } from 'react';
 import { SuperAdminFeedbackCenter } from '../components/super-admin/FeedbackCenter';
 import { Button, Card, cn, Input, Label } from '../components/Common';
-import { db } from '../lib/firebase';
+import { auth, db } from '../lib/firebase';
 import { useLocale } from '../hooks/useLocale';
 import { usePlatformAdmin } from '../hooks/usePlatformAdmin';
 import { fetchPlatformOverview, fetchPlatformSupportView, syncPlatformBilling, syncPlatformStats } from '../services/companyApi';
@@ -1013,6 +1013,29 @@ export function SuperAdmin() {
     setControlFeedbackTone('neutral');
   }, [companyControls, selectedCompany?.id]);
 
+  const toggleInternalTesting = async () => {
+    if (!selectedCompany) return;
+    const current = (selectedCompany as any).internalTesting === true;
+    try {
+      const token = await auth.currentUser?.getIdToken();
+      const res = await fetch('/api/platform/company/override', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ companyId: selectedCompany.id, internalTesting: !current }),
+      });
+      if (!res.ok) throw new Error('Override failed');
+      setControlFeedback(
+        !current ? '✓ Modo interno activado. Límites de plan desactivados.' : 'Modo interno desactivado.'
+      );
+      setRefreshKey((k) => k + 1);
+    } catch {
+      setControlFeedback('Error al cambiar modo interno.');
+    }
+  };
+
   const saveCompanyControl = async () => {
     if (!selectedCompany || !platformAdmin?.uid) return;
     setSavingControl(true);
@@ -1785,6 +1808,25 @@ export function SuperAdmin() {
                             disabled={!selectedCompany || !controlForm.notes.trim()}
                           >
                             {t('super_admin.company_panel.actions.log_note')}
+                          </Button>
+                        </div>
+
+                        <div className="mt-2 rounded-lg border border-amber-500/20 bg-amber-500/[0.08] p-3">
+                          <p className="text-[10px] font-black uppercase tracking-widest text-amber-400 mb-2">
+                            Modo Interno / Beta Testing
+                          </p>
+                          <p className="text-xs text-neutral-400 mb-2">
+                            {(selectedCompany as any)?.internalTesting
+                              ? '✓ Activo — límites de plan desactivados para esta empresa.'
+                              : 'Inactivo — límites de plan normales.'}
+                          </p>
+                          <p className="text-[10px] text-neutral-500 mb-2">No afecta suscripción real de Stripe.</p>
+                          <Button
+                            variant="secondary"
+                            className="border-amber-500/30 text-amber-300 text-xs"
+                            onClick={() => void toggleInternalTesting()}
+                          >
+                            {(selectedCompany as any)?.internalTesting ? 'Desactivar modo interno' : 'Activar modo interno'}
                           </Button>
                         </div>
 

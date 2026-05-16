@@ -2822,5 +2822,106 @@ CURRENT BUSINESS DATA:
     }
   });
 
+  // ── Invoice issuing (server-side transaction) ─────────────────────────────
+  app.post('/api/invoices/issue', async (req, res) => {
+    console.log('[Invoices] issue request received');
+    try {
+      const access = await requireCompanyAccess(req, res, ['owner', 'admin', 'staff']);
+      if (!access) return;
+      console.log(`[Invoices] access granted companyId=${access.companyId}`);
+
+      const { invoiceId } = req.body;
+      if (typeof invoiceId !== 'string' || !invoiceId) {
+        return res.status(400).json({ error: 'invoiceId requerido', code: 'MISSING_INVOICE_ID' });
+      }
+
+      const db = getDb();
+      if (!db) throw new Error('Database not initialized');
+
+      let invoiceNumber = '';
+      let sequentialNumber = 0;
+
+      await db.runTransaction(async (tx) => {
+        const invRef = db.collection('invoices').doc(invoiceId);
+        const invSnap = await tx.get(invRef);
+        if (!invSnap.exists) {
+          const e: any = new Error('Factura no encontrada'); e.code = 'NOT_FOUND'; throw e;
+        }
+        const invoice = invSnap.data()!;
+        console.log(`[Invoices] invoice loaded status=${invoice.status}`);
+
+        if (invoice.companyId !== access.companyId) {
+          const e: any = new Error('La factura no pertenece a esta empresa'); e.code = 'FORBIDDEN'; throw e;
+        }
+        if (invoice.status !== 'draft') {
+          const e: any = new Error(`Solo borradores pueden emitirse. Estado: ${invoice.status}`);
+          e.code = 'INVALID_STATUS'; throw e;
+        }
+
+        const series = String(invoice.series || 'A').toUpperCase().replace(/[^A-Z0-9\-]/g, '') || 'A';
+        const ctrId = `${access.companyId}_${series}`;
+        const ctrRef = db.collection('invoiceCounters').doc(ctrId);
+        const ctrSnap = await tx.get(ctrRef);
+        const current = ctrSnap.exists ? Number(ctrSnap.data()!.nextNumber || 1) : 1;
+
+        // Same format as shared/invoices.ts formatInvoiceNumber(series, num, pad=4)
+        const padded = String(Math.max(0, Math.floor(current))).padStart(4, '0');
+        invoiceNumber = `${series}-${padded}`;
+        sequentialNumber = current;
+
+        tx.set(ctrRef, {
+          companyId: access.companyId, series,
+          nextNumber: current + 1,
+          updatedAt: FieldValue.serverTimestamp(),
+        }, { merge: true });
+
+        tx.update(invRef, {
+          status: 'issued',
+          invoiceNumber,
+          sequentialNumber: current,
+          issuedAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+      });
+
+      console.log(`[Invoices] issued invoiceNumber=${invoiceNumber}`);
+      res.json({ invoiceNumber, sequentialNumber });
+    } catch (error: any) {
+      const reason = error?.code || error?.message || String(error);
+      console.error(`[Invoices] issue failed reason=${reason}`);
+      if (error?.code === 'NOT_FOUND')
+        return res.status(404).json({ error: error.message, code: 'INVOICE_NOT_FOUND' });
+      if (error?.code === 'FORBIDDEN')
+        return res.status(403).json({ error: error.message, code: 'FORBIDDEN' });
+      if (error?.code === 'INVALID_STATUS')
+        return res.status(409).json({ error: error.message, code: 'INVALID_STATUS' });
+      res.status(500).json({
+        error: 'No se pudo emitir la factura. Verifica FIREBASE_SERVICE_ACCOUNT en Vercel.',
+        code: 'ISSUE_FAILED',
+      });
+    }
+  });
+
+  // ── Platform admin: company internal-testing override ─────────────────────
+  app.post('/api/platform/company/override', async (req, res) => {
+    const access = await requirePlatformAdmin(req, res);
+    if (!access) return;
+    const { companyId, internalTesting } = req.body;
+    if (typeof companyId !== 'string' || !companyId || typeof internalTesting !== 'boolean') {
+      return res.status(400).json({ error: 'companyId (string) e internalTesting (boolean) requeridos' });
+    }
+    const db = getDb();
+    if (!db) throw new Error('Database not initialized');
+    await db.collection('companies').doc(companyId).update({ internalTesting });
+    await db.collection('platformAuditLogs').add({
+      type: 'company_internal_testing_override',
+      companyId,
+      changes: { internalTesting },
+      performedBy: access.uid,
+      createdAt: FieldValue.serverTimestamp(),
+    });
+    res.json({ ok: true, companyId, internalTesting });
+  });
+
   return app;
 }

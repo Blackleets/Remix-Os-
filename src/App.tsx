@@ -108,7 +108,7 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
       <div className="relative z-10 flex min-h-screen flex-1 flex-col">
         <TrialBanner />
         <Topbar onMenuClick={() => setIsSidebarOpen(true)} />
-        <main className="flex-1 px-4 pb-[90px] pt-4 md:px-6 md:pb-8 md:pt-5 lg:pb-8 xl:px-8">
+        <main className="flex-1 overflow-x-hidden px-4 pb-[90px] pt-4 md:px-6 md:pb-8 md:pt-5 lg:pb-8 xl:px-8">
           <div className="mx-auto max-w-[1540px]">
             <ErrorBoundary key={pathname} variant="inline">
               {children}

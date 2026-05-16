@@ -464,7 +464,7 @@ export function Copilot() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 10, scale: 0.96 }}
             className={cn(
-              'fixed bottom-24 z-[60] max-w-[340px] rounded-[24px] border border-blue-400/14 bg-[rgba(8,12,18,0.94)] p-4 shadow-[0_18px_56px_rgba(0,0,0,0.44)] backdrop-blur-2xl cursor-pointer',
+              'fixed bottom-[164px] lg:bottom-24 z-[60] max-w-[340px] rounded-[24px] border border-blue-400/14 bg-[rgba(8,12,18,0.94)] p-4 shadow-[0_18px_56px_rgba(0,0,0,0.44)] backdrop-blur-2xl cursor-pointer',
               isPOSRoute ? 'left-6 right-6 sm:right-auto' : 'right-6'
             )}
             onClick={openPanel}
@@ -483,7 +483,7 @@ export function Copilot() {
       </AnimatePresence>
 
       {!isOpen && (
-      <div className={cn('fixed bottom-6 z-[60]', isPOSRoute ? 'left-6' : 'right-6')}>
+      <div className={cn('fixed bottom-[82px] lg:bottom-6 z-[60]', isPOSRoute ? 'left-6' : 'right-6')}>
         <motion.button
           onClick={openPanel}
           type="button"

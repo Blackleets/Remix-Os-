@@ -109,7 +109,7 @@ export function BottomNav() {
                   )}>
                     <item.icon className="h-[18px] w-[18px]" />
                   </div>
-                  <span className="text-[9px] font-black uppercase tracking-widest">{t(item.labelKey)}</span>
+                  <span className="max-w-[56px] truncate text-[9px] font-black uppercase tracking-widest">{t(item.labelKey)}</span>
                 </motion.div>
               </Link>
             );

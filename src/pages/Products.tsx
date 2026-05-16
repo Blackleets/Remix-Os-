@@ -84,19 +84,21 @@ export function Products() {
 
   const handleCreateNew = async () => {
     if (!company) return;
-    const planId = company.subscription?.planId || 'starter';
-    const plan = PLANS[planId];
-    try {
-      const usage = await getCompanyUsage(company.id);
-      if (isLimitReached(usage.products, plan.limits.products)) {
-        setIsUpgradeModalOpen(true);
-        return;
-      }
-    } catch (e) {
-      console.warn('Plan usage check failed, falling back to local count', e);
-      if (isLimitReached(products.length, plan.limits.products)) {
-        setIsUpgradeModalOpen(true);
-        return;
+    if (!(company as any).internalTesting) {
+      const planId = company.subscription?.planId || 'starter';
+      const plan = PLANS[planId];
+      try {
+        const usage = await getCompanyUsage(company.id);
+        if (isLimitReached(usage.products, plan.limits.products)) {
+          setIsUpgradeModalOpen(true);
+          return;
+        }
+      } catch (e) {
+        console.warn('Plan usage check failed, falling back to local count', e);
+        if (isLimitReached(products.length, plan.limits.products)) {
+          setIsUpgradeModalOpen(true);
+          return;
+        }
       }
     }
     setSelectedProduct(null);
@@ -243,22 +245,23 @@ export function Products() {
       return;
     }
 
-    const planId = company.subscription?.planId || 'starter';
-    const plan = PLANS[planId];
-
-    try {
-      const usage = await getCompanyUsage(company.id);
-      if (isLimitReached(usage.products + validRows.length, plan.limits.products + 1)) {
-        setIsUpgradeModalOpen(true);
-        setImportError('Tu plan actual no permite importar esa cantidad de productos.');
-        return;
-      }
-    } catch (error) {
-      console.warn('Usage check failed before import', error);
-      if (isLimitReached(products.length + validRows.length, plan.limits.products + 1)) {
-        setIsUpgradeModalOpen(true);
-        setImportError('Tu plan actual no permite importar esa cantidad de productos.');
-        return;
+    if (!(company as any).internalTesting) {
+      const planId = company.subscription?.planId || 'starter';
+      const plan = PLANS[planId];
+      try {
+        const usage = await getCompanyUsage(company.id);
+        if (isLimitReached(usage.products + validRows.length, plan.limits.products + 1)) {
+          setIsUpgradeModalOpen(true);
+          setImportError('Tu plan actual no permite importar esa cantidad de productos.');
+          return;
+        }
+      } catch (error) {
+        console.warn('Usage check failed before import', error);
+        if (isLimitReached(products.length + validRows.length, plan.limits.products + 1)) {
+          setIsUpgradeModalOpen(true);
+          setImportError('Tu plan actual no permite importar esa cantidad de productos.');
+          return;
+        }
       }
     }
 

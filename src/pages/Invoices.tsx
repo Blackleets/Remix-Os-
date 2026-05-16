@@ -334,7 +334,16 @@ export function Invoices() {
       await issueInvoice(invoiceId);
       closeForm();
     } catch (err: any) {
-      setActionError(err?.message || 'No se pudo emitir el documento.');
+      const status = (err as any)?.status;
+      const code = (err as any)?.code;
+      let msg = 'No se pudo emitir el documento.';
+      if (status === 401) msg = 'Tu sesión expiró. Inicia sesión de nuevo.';
+      else if (status === 403) msg = 'No tienes permisos para emitir facturas en esta empresa.';
+      else if (status === 404 || status === 405) msg = 'El backend de facturación no está desplegado en esta versión.';
+      else if (status === 500 || code === 'ISSUE_FAILED') msg = 'No se pudo emitir la factura. Revisa configuración del servidor o Firebase Admin.';
+      else if (code === 'INVALID_STATUS') msg = err?.message || 'La factura no está en estado borrador.';
+      else if (err?.message) msg = err.message;
+      setActionError(msg);
     } finally {
       setSaving(false);
     }

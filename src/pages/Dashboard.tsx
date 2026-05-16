@@ -673,7 +673,7 @@ export function Dashboard() {
 
       <div className="grid gap-6 xl:grid-cols-[1.3fr_0.7fr]">
         <div className="space-y-6">
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 md:gap-4 xl:grid-cols-4">
             {statCards.map((stat, index) => (
               <motion.div
                 key={stat.label}
@@ -684,16 +684,16 @@ export function Dashboard() {
                 <Card className={cn('relative overflow-hidden bg-[rgba(9,12,18,0.94)]', stat.ring)}>
                   <div className={cn('absolute inset-x-0 top-0 h-20 bg-gradient-to-b opacity-80', stat.ring)} />
                   <div className="relative">
-                    <div className="mb-5 flex items-start justify-between gap-3">
-                      <div>
-                        <p className="section-kicker mb-2 !text-neutral-500">{stat.signal}</p>
-                        <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-neutral-400">{stat.label}</p>
+                    <div className="mb-3 flex items-start justify-between gap-2 md:mb-5 md:gap-3">
+                      <div className="min-w-0">
+                        <p className="section-kicker mb-1 !text-neutral-500 md:mb-2">{stat.signal}</p>
+                        <p className="truncate text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-400 md:text-[11px] md:tracking-[0.18em]">{stat.label}</p>
                       </div>
-                      <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03]">
+                      <div className="hidden h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03] sm:flex">
                         <stat.icon className={cn('h-5 w-5', stat.accent)} />
                       </div>
                     </div>
-                    <p className="text-3xl font-bold tracking-tight text-white">{stat.value}</p>
+                    <p className="text-2xl font-bold tracking-tight text-white md:text-3xl">{stat.value}</p>
                     <div className="mt-4 flex items-center justify-between text-xs">
                       <span className="font-mono uppercase tracking-[0.18em] text-neutral-500">Señal</span>
                       <span className="font-mono text-blue-200">{stat.change}</span>

@@ -396,7 +396,9 @@ service cloud.firestore {
       allow update: if hasRole(companyId, ['owner', 'admin']) &&
                     incoming().ownerId == existing().ownerId &&
                     // Block client-side subscription tampering (planId/status/currentPeriodEnd).
-                    (!('subscription' in incoming().diff(existing()).affectedKeys()));
+                    (!('subscription' in incoming().diff(existing()).affectedKeys())) &&
+                    // Block client-side internalTesting flag (only platform admin via Admin SDK).
+                    (!('internalTesting' in incoming().diff(existing()).affectedKeys()));
       allow delete: if hasRole(companyId, ['owner']);
     }
 
