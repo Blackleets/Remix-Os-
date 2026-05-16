@@ -1771,5 +1771,124 @@ CURRENT BUSINESS DATA:
     }
   });
 
+  // ---------------------------------------------------------------------------
+  // Invoice issuing — atomic server-side transaction
+  // ---------------------------------------------------------------------------
+  app.post('/api/invoices/issue', async (req, res) => {
+    console.info('[Invoices] issue request received');
+    try {
+      const access = await requireCompanyAccess(req, res, ['owner', 'admin', 'staff']);
+      if (!access) return;
+
+      const { invoiceId } = req.body;
+      if (typeof invoiceId !== 'string' || !invoiceId) {
+        return res.status(400).json({ error: 'invoiceId requerido', code: 'MISSING_INVOICE_ID' });
+      }
+
+      const db = getDb();
+      if (!db) throw new Error('Database not initialized');
+
+      const result = await db.runTransaction(async (tx) => {
+        const invRef = db.collection('invoices').doc(invoiceId);
+        const invSnap = await tx.get(invRef);
+        if (!invSnap.exists) {
+          return { status: 404 as const, error: 'Invoice not found' };
+        }
+        const invoice = invSnap.data() || {};
+
+        if (invoice.companyId !== access.companyId) {
+          return { status: 403 as const, error: 'Invoice belongs to a different company' };
+        }
+
+        // Idempotency: already issued — return existing data
+        if (invoice.status && invoice.status !== 'draft') {
+          console.info('[Invoices] already issued', { companyId: access.companyId, invoiceId, invoiceNumber: invoice.invoiceNumber || '' });
+          return {
+            status: 200 as const,
+            invoiceNumber: invoice.invoiceNumber || '',
+            sequentialNumber: invoice.sequentialNumber || 0,
+            alreadyIssued: true,
+          };
+        }
+
+        const series = String(invoice.series || 'A').toUpperCase();
+        const counterRef = db.collection('invoiceCounters').doc(`${access.companyId}_${series}`);
+        const counterSnap = await tx.get(counterRef);
+        const current = counterSnap.exists ? Number(counterSnap.data()?.nextNumber || 1) : 1;
+        const invoiceNumber = `${series}-${String(current).padStart(4, '0')}`;
+
+        tx.set(counterRef, {
+          companyId: access.companyId,
+          series,
+          nextNumber: current + 1,
+          updatedAt: FieldValue.serverTimestamp(),
+        }, { merge: true });
+
+        tx.update(invRef, {
+          status: 'issued',
+          invoiceNumber,
+          sequentialNumber: current,
+          issuedAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+
+        console.info('[Invoices] issued', { companyId: access.companyId, invoiceId, invoiceNumber, sequentialNumber: current });
+        return { status: 200 as const, invoiceNumber, sequentialNumber: current, alreadyIssued: false };
+      });
+
+      if (result.status !== 200) {
+        return res.status(result.status).json({ error: (result as any).error });
+      }
+      res.json({
+        invoiceNumber: (result as any).invoiceNumber,
+        sequentialNumber: (result as any).sequentialNumber,
+        alreadyIssued: (result as any).alreadyIssued,
+      });
+    } catch (error: any) {
+      console.error('[Invoices] issue failed', { message: error?.message || String(error) });
+      res.status(500).json({ error: error?.message || 'Failed to issue invoice' });
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // Platform admin — toggle internalTesting on a company doc
+  // ---------------------------------------------------------------------------
+  app.post('/api/platform/company/override', async (req, res) => {
+    try {
+      const access = await requirePlatformAdmin(req, res);
+      if (!access) return;
+
+      const { companyId, internalTesting } = req.body;
+      if (typeof companyId !== 'string' || !companyId) {
+        return res.status(400).json({ error: 'companyId (string) requerido', code: 'MISSING_COMPANY_ID' });
+      }
+      if (typeof internalTesting !== 'boolean') {
+        return res.status(400).json({ error: 'internalTesting (boolean) requerido', code: 'MISSING_INTERNAL_TESTING' });
+      }
+
+      const db = getDb();
+      if (!db) throw new Error('Database not initialized');
+
+      const companyRef = db.collection('companies').doc(companyId);
+      const companySnap = await companyRef.get();
+      if (!companySnap.exists) {
+        return res.status(404).json({ error: 'Empresa no encontrada', code: 'COMPANY_NOT_FOUND' });
+      }
+
+      await companyRef.update({ internalTesting, updatedAt: FieldValue.serverTimestamp() });
+      await db.collection('platformAuditLogs').add({
+        type: 'internal_testing_toggled',
+        companyId,
+        value: internalTesting,
+        actorUid: access.uid,
+        createdAt: FieldValue.serverTimestamp(),
+      });
+      res.json({ ok: true, companyId, internalTesting });
+    } catch (err: any) {
+      console.error('[Override] /api/platform/company/override failed:', err?.message || err);
+      res.status(500).json({ error: 'No se pudo actualizar el modo interno.', code: 'OVERRIDE_FAILED' });
+    }
+  });
+
   return app;
 }
