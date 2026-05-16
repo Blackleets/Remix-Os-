@@ -20,6 +20,7 @@ interface Company {
   email?: string;
   phone?: string;
   stripeCustomerId?: string;
+  internalTesting?: boolean;
   onboardingState?: {
     isComplete: boolean;
     step: number;

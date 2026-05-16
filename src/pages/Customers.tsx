@@ -250,7 +250,7 @@ export function Customers() {
 
   const handleCreateNew = async () => {
     if (!company) return;
-    if (!(company as any).internalTesting) {
+    if (!company.internalTesting) {
       const planId = company.subscription?.planId || 'starter';
       const plan = PLANS[planId];
       try {
@@ -406,7 +406,7 @@ export function Customers() {
       return;
     }
 
-    if (!(company as any).internalTesting) {
+    if (!company.internalTesting) {
       const planId = company.subscription?.planId || 'starter';
       const plan = PLANS[planId];
       try {
@@ -643,7 +643,7 @@ export function Customers() {
             </div>
           </div>
 
-          {(company as any).internalTesting && (
+          {company.internalTesting && (
             <p className="rounded-xl border border-amber-500/20 bg-amber-500/8 px-4 py-2.5 text-xs text-amber-300">
               Modo interno activo: límites de importación desactivados para pruebas.
             </p>
