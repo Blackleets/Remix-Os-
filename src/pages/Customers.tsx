@@ -25,6 +25,8 @@ import {
   Users
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { useToast } from '../contexts/ToastContext';
+import { SkeletonCustomerTable } from '../components/Skeleton';
 import { useLocale } from '../hooks/useLocale';
 import { usePermissions } from '../hooks/usePermissions';
 import { db } from '../lib/firebase';
@@ -61,6 +63,8 @@ interface Customer {
   segment?: 'whale' | 'vip' | 'regular' | 'new' | 'at_risk';
   lastOrderAt?: any;
   imageURL?: string;
+  rfmTier?: 'champion' | 'loyal' | 'at_risk' | 'lost' | 'promising' | 'new';
+  rfmScore?: number;
 }
 
 const SEGMENTS_LOCALIZED = (t: any) => [
@@ -101,6 +105,7 @@ const MESSAGE_TEMPLATES_LOCALIZED = (t: any) => [
 
 export function Customers() {
   const { company, role } = useAuth();
+  const toast = useToast();
   const { t, formatCurrency, formatDate } = useLocale();
   const SEGMENTS = SEGMENTS_LOCALIZED(t);
   const MESSAGE_TEMPLATES = MESSAGE_TEMPLATES_LOCALIZED(t);
@@ -116,6 +121,7 @@ export function Customers() {
   const [search, setSearch] = useState('');
   const [segmentFilter, setSegmentFilter] = useState('all');
   const [loading, setLoading] = useState(false);
+  const [listLoading, setListLoading] = useState(true);
   const [formError, setFormError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'info' | 'reminders' | 'messages' | 'history'>('info');
   const { canEditCustomers } = usePermissions();
@@ -244,10 +250,12 @@ export function Customers() {
 
   const fetchCustomers = async () => {
     if (!company) return;
+    setListLoading(true);
     const q = query(collection(db, 'customers'), where('companyId', '==', company.id));
     const snap = await getDocs(q);
     const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as Customer));
     setCustomers(list);
+    setListLoading(false);
   };
 
   useEffect(() => {
@@ -303,7 +311,7 @@ export function Customers() {
       fetchCustomers();
     } catch (err: any) {
       console.error(err);
-      alert(err?.message || 'Failed to save customer.');
+      toast(err?.message || 'Failed to save customer.', 'error');
     } finally {
       setLoading(false);
     }
@@ -340,14 +348,15 @@ export function Customers() {
         limit(1)
       ));
       if (!ordersSnap.empty) {
-        alert('This customer has orders and cannot be deleted.');
+        toast(t('customers.has_orders_error') || 'This customer has orders and cannot be deleted.', 'warning');
         return;
       }
       await deleteDoc(doc(db, 'customers', id));
+      toast(t('customers.deleted_success') || 'Customer deleted.', 'success');
       fetchCustomers();
     } catch (err: any) {
       console.error(err);
-      alert(err?.message || 'Failed to delete customer.');
+      toast(err?.message || 'Failed to delete customer.', 'error');
     }
   };
 
@@ -385,6 +394,17 @@ export function Customers() {
 
   const getSegmentClasses = (segment?: string) =>
     SEGMENTS.find((s) => s.id === segment)?.color || 'bg-neutral-500/10 text-neutral-300 border-white/10';
+
+  const getRFMBadge = (tier?: string) => {
+    switch (tier) {
+      case 'champion': return { label: '⭐ Champion', cls: 'border-violet-400/30 bg-violet-500/10 text-violet-300' };
+      case 'loyal': return { label: '💎 Loyal', cls: 'border-blue-400/30 bg-blue-500/10 text-blue-300' };
+      case 'at_risk': return { label: '⚠ At Risk', cls: 'border-amber-400/30 bg-amber-500/10 text-amber-300' };
+      case 'lost': return { label: '🔴 Lost', cls: 'border-red-400/30 bg-red-500/10 text-red-300' };
+      case 'promising': return { label: '🚀 Promising', cls: 'border-emerald-400/30 bg-emerald-500/10 text-emerald-300' };
+      default: return null;
+    }
+  };
 
   return (
     <div className="space-y-6 md:space-y-8">
@@ -503,6 +523,10 @@ export function Customers() {
           </div>
         </div>
 
+        {listLoading ? (
+          <div className="px-4 py-3"><SkeletonCustomerTable /></div>
+        ) : (
+        <>
         <div className="hidden sm:block overflow-x-auto">
           <table className="w-full border-collapse">
             <thead className="sticky top-0 z-10">
@@ -541,11 +565,18 @@ export function Customers() {
                       </div>
                       <div className="flex flex-col">
                         <span className="font-medium text-neutral-200 group-hover:text-blue-400 transition-colors">{customer.name}</span>
-                        {customer.segment && (
-                          <span className={cn('mt-1 inline-block w-fit rounded-full border px-2 py-0.5 text-[8px] font-black uppercase tracking-[0.16em]', getSegmentClasses(customer.segment))}>
-                            {customer.segment}
-                          </span>
-                        )}
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          {customer.segment && (
+                            <span className={cn('inline-block w-fit rounded-full border px-2 py-0.5 text-[8px] font-black uppercase tracking-[0.16em]', getSegmentClasses(customer.segment))}>
+                              {customer.segment}
+                            </span>
+                          )}
+                          {(() => { const rfm = getRFMBadge(customer.rfmTier); return rfm ? (
+                            <span className={cn('inline-block w-fit rounded-full border px-2 py-0.5 text-[8px] font-black tracking-[0.12em]', rfm.cls)} title="Peppy RFM Score">
+                              {rfm.label}
+                            </span>
+                          ) : null; })()}
+                        </div>
                       </div>
                     </div>
                   </td>
@@ -573,16 +604,28 @@ export function Customers() {
                     </div>
                   </td>
                   <td className="table-cell text-right">
-                    {canEditCustomers && (
-                      <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-all transform translate-x-2 group-hover:translate-x-0">
-                        <Button variant="ghost" className="w-9 h-9 p-0 rounded-xl" onClick={() => handleEdit(customer)}>
-                          <Edit2 className="w-3.5 h-3.5" />
+                    <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-all transform translate-x-2 group-hover:translate-x-0">
+                      {customer.phone && (
+                        <Button
+                          variant="ghost"
+                          className="w-9 h-9 p-0 rounded-xl text-emerald-400 hover:text-emerald-300 hover:bg-emerald-400/8"
+                          onClick={(e) => { e.stopPropagation(); window.open(`https://wa.me/${customer.phone!.replace(/\D/g, '')}`, '_blank'); }}
+                          title="Abrir WhatsApp"
+                        >
+                          <MessageSquare className="w-3.5 h-3.5" />
                         </Button>
-                        <Button variant="ghost" className="w-9 h-9 p-0 rounded-xl text-red-400 hover:text-red-300 hover:bg-red-400/5" onClick={() => handleDelete(customer.id)}>
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </Button>
-                      </div>
-                    )}
+                      )}
+                      {canEditCustomers && (
+                        <>
+                          <Button variant="ghost" className="w-9 h-9 p-0 rounded-xl" onClick={() => handleEdit(customer)}>
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </Button>
+                          <Button variant="ghost" className="w-9 h-9 p-0 rounded-xl text-red-400 hover:text-red-300 hover:bg-red-400/5" onClick={() => handleDelete(customer.id)}>
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
+                        </>
+                      )}
+                    </div>
                   </td>
                 </motion.tr>
               ))}
@@ -627,8 +670,9 @@ export function Customers() {
             </motion.div>
           ))}
         </div>
-
-        {filtered.length === 0 && (
+        </>
+        )}
+        {!listLoading && filtered.length === 0 && (
           <div className="py-24 text-center">
             <div className="flex flex-col items-center gap-6 text-neutral-600 max-w-md mx-auto p-6">
               <div className="w-20 h-20 rounded-[28px] border border-dashed border-white/10 flex items-center justify-center bg-white/[0.01]">
@@ -945,20 +989,38 @@ export function Customers() {
                           />
                         </div>
                         <div className="grid grid-cols-2 gap-4">
-                          <Button 
-                            variant="secondary" 
+                          <Button
+                            variant="secondary"
                             className="h-12"
                             onClick={() => handleCreateMessage('draft')}
                           >
                             {t('customers.details.messages.btn_save')}
                           </Button>
-                          <Button 
-                            className="h-12 gap-2 shadow-lg shadow-blue-600/10"
-                            onClick={() => handleCreateMessage('sent')}
-                          >
-                            <Send className="w-3.5 h-3.5" /> {t('customers.details.messages.btn_send')}
-                          </Button>
+                          {messageForm.channel === 'whatsapp' && detailCustomer.phone ? (
+                            <Button
+                              className="h-12 gap-2 border-emerald-500/30 bg-emerald-500/15 !text-emerald-200 shadow-lg shadow-emerald-600/10 hover:bg-emerald-500/25"
+                              onClick={() => {
+                                const phone = detailCustomer.phone!.replace(/\D/g, '');
+                                const text = encodeURIComponent(messageForm.content);
+                                window.open(`https://wa.me/${phone}?text=${text}`, '_blank');
+                                handleCreateMessage('sent');
+                              }}
+                              disabled={!messageForm.content}
+                            >
+                              <MessageSquare className="w-3.5 h-3.5" /> Abrir WhatsApp
+                            </Button>
+                          ) : (
+                            <Button
+                              className="h-12 gap-2 shadow-lg shadow-blue-600/10"
+                              onClick={() => handleCreateMessage('sent')}
+                            >
+                              <Send className="w-3.5 h-3.5" /> {t('customers.details.messages.btn_send')}
+                            </Button>
+                          )}
                         </div>
+                        {messageForm.channel === 'whatsapp' && !detailCustomer.phone && (
+                          <p className="text-[9px] text-amber-500/80 text-center">Sin número de teléfono — agrega uno en el perfil para activar WhatsApp</p>
+                        )}
                         <p className="text-[9px] text-neutral-600 italic text-center">{t('customers.details.messages.note')}</p>
                       </div>
                     </div>

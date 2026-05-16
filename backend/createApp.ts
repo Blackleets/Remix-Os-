@@ -39,6 +39,91 @@ interface CompanyOverview {
     previousPeriodOrders: number;
     trend: 'up' | 'down';
   };
+  customerRFMSummary?: {
+    champions: number;
+    loyal: number;
+    atRisk: number;
+    lost: number;
+    promising: number;
+    topAtRiskCustomers: Array<{ name: string; daysSinceLastOrder: number }>;
+  };
+}
+
+type RFMTier = 'champion' | 'loyal' | 'at_risk' | 'lost' | 'promising' | 'new';
+
+interface RFMResult {
+  rfmTier: RFMTier;
+  rfmScore: number;
+  recencyScore: number;
+  frequencyScore: number;
+  monetaryScore: number;
+  daysSinceLastOrder: number;
+}
+
+function computeRFMScores(
+  orders: AnyRecord[],
+  customerIds: string[],
+  now: Date
+): Map<string, RFMResult> {
+  const ordersByCustomer = new Map<string, AnyRecord[]>();
+  for (const id of customerIds) ordersByCustomer.set(id, []);
+  for (const order of orders) {
+    const cid = order.customerId || 'guest';
+    if (ordersByCustomer.has(cid)) ordersByCustomer.get(cid)!.push(order);
+  }
+
+  const avgSpend = customerIds.length > 0
+    ? orders.reduce((s, o) => s + getOrderTotal(o), 0) / Math.max(customerIds.length, 1)
+    : 0;
+
+  const results = new Map<string, RFMResult>();
+
+  for (const cid of customerIds) {
+    const custOrders = ordersByCustomer.get(cid) || [];
+    const frequency = custOrders.length;
+    const monetary = custOrders.reduce((s, o) => s + getOrderTotal(o), 0);
+
+    let daysSinceLastOrder = 999;
+    if (frequency > 0) {
+      const lastOrderDate = custOrders
+        .map(o => toDate(o.createdAt))
+        .filter(Boolean)
+        .sort((a, b) => b!.getTime() - a!.getTime())[0];
+      if (lastOrderDate) {
+        daysSinceLastOrder = Math.floor((now.getTime() - lastOrderDate.getTime()) / 86400000);
+      }
+    }
+
+    // Recency score 1-5
+    const rScore = daysSinceLastOrder <= 30 ? 5
+      : daysSinceLastOrder <= 60 ? 4
+      : daysSinceLastOrder <= 90 ? 3
+      : daysSinceLastOrder <= 180 ? 2 : 1;
+
+    // Frequency score 1-5
+    const fScore = frequency >= 10 ? 5
+      : frequency >= 6 ? 4
+      : frequency >= 3 ? 3
+      : frequency >= 2 ? 2 : 1;
+
+    // Monetary score 1-5 (relative to avg spend per customer)
+    const ratio = avgSpend > 0 ? monetary / avgSpend : 0;
+    const mScore = ratio >= 3 ? 5 : ratio >= 2 ? 4 : ratio >= 1 ? 3 : ratio >= 0.5 ? 2 : 1;
+
+    const rfmScore = rScore * 100 + fScore * 10 + mScore;
+
+    let rfmTier: RFMTier;
+    if (rScore >= 4 && fScore >= 4 && mScore >= 4) rfmTier = 'champion';
+    else if (rScore >= 3 && fScore >= 3) rfmTier = 'loyal';
+    else if (rScore <= 2 && fScore >= 3) rfmTier = 'at_risk';
+    else if (rScore >= 4 && fScore <= 2) rfmTier = 'promising';
+    else if (rScore <= 2) rfmTier = 'lost';
+    else rfmTier = 'new';
+
+    results.set(cid, { rfmTier, rfmScore, recencyScore: rScore, frequencyScore: fScore, monetaryScore: mScore, daysSinceLastOrder });
+  }
+
+  return results;
 }
 
 let adminDb: Firestore | null = null;
@@ -452,6 +537,47 @@ async function buildCompanyOverview(db: Firestore, companyId: string): Promise<C
     ? ((recentRevenue30d - previousRevenue30d) / previousRevenue30d) * 100
     : recentRevenue30d > 0 ? 100 : 0;
 
+  const customerIds = customersSnap.docs.map(d => d.id);
+  const rfmMap = computeRFMScores(orders, customerIds, now);
+
+  const rfmEntries = [...rfmMap.entries()];
+  const rfmSummary = {
+    champions: rfmEntries.filter(([, r]) => r.rfmTier === 'champion').length,
+    loyal: rfmEntries.filter(([, r]) => r.rfmTier === 'loyal').length,
+    atRisk: rfmEntries.filter(([, r]) => r.rfmTier === 'at_risk').length,
+    lost: rfmEntries.filter(([, r]) => r.rfmTier === 'lost').length,
+    promising: rfmEntries.filter(([, r]) => r.rfmTier === 'promising').length,
+    topAtRiskCustomers: rfmEntries
+      .filter(([, r]) => r.rfmTier === 'at_risk')
+      .sort(([, a], [, b]) => b.daysSinceLastOrder - a.daysSinceLastOrder)
+      .slice(0, 3)
+      .map(([cid, r]) => {
+        const cdata = customersSnap.docs.find(d => d.id === cid)?.data() || {};
+        return { name: cdata.name || 'Unknown', daysSinceLastOrder: r.daysSinceLastOrder };
+      }),
+  };
+
+  // Background batch-write RFM scores to customer documents (fire-and-forget)
+  Promise.resolve().then(async () => {
+    try {
+      const chunks: Array<[string, RFMResult][]> = [];
+      for (let i = 0; i < rfmEntries.length; i += 490) chunks.push(rfmEntries.slice(i, i + 490));
+      for (const chunk of chunks) {
+        const batch = db.batch();
+        for (const [cid, r] of chunk) {
+          batch.update(db.collection('customers').doc(cid), {
+            rfmTier: r.rfmTier,
+            rfmScore: r.rfmScore,
+            rfmUpdatedAt: FieldValue.serverTimestamp(),
+          });
+        }
+        await batch.commit();
+      }
+    } catch (e) {
+      // RFM batch update is best-effort; don't block the response
+    }
+  });
+
   return {
     companyId,
     companyName: company.name || 'Unknown company',
@@ -485,6 +611,7 @@ async function buildCompanyOverview(db: Firestore, companyId: string): Promise<C
       previousPeriodOrders: previousOrders.length,
       trend: recentOrders.length >= previousOrders.length ? 'up' : 'down',
     },
+    customerRFMSummary: rfmSummary,
   };
 }
 
@@ -1207,6 +1334,78 @@ No markdown, no preamble.`;
     }
   });
 
+  function buildPeppySystemInstruction(ctx: CompanyOverview, language: string, userRole: string): string {
+    const langMap: Record<string, string> = {
+      en: 'Communicate in English.',
+      es: 'Comunícate en Español. Mantén un tono profesional y premium.',
+      pt: 'Comunique-se em Português. Mantenha um tom profissional e premium.',
+    };
+    const langInstruction = langMap[language] || langMap.en;
+    const rfm = ctx.customerRFMSummary;
+    const rfmBlock = rfm ? `
+CUSTOMER INTELLIGENCE (RFM Analysis):
+- Champions: ${rfm.champions} customers (high value, recent, frequent)
+- Loyal: ${rfm.loyal} customers (consistent buyers)
+- At Risk: ${rfm.atRisk} customers (were frequent, now absent)
+- Promising: ${rfm.promising} new high-potential customers
+- Lost: ${rfm.lost} customers (inactive)${rfm.topAtRiskCustomers.length > 0 ? `
+- Top At-Risk: ${rfm.topAtRiskCustomers.map(c => `${c.name} (${c.daysSinceLastOrder}d inactive)`).join(', ')}` : ''}` : '';
+
+    return `You are Peppy, the dedicated AI copilot for Remix OS.
+Personality: direct, warm, data-focused, occasionally witty — never corporate speak.
+Celebrate wins, flag risks with urgency, always end with a clear next action.
+Sign your greeting with your name on the first message only.
+
+CRITICAL: ${langInstruction}
+
+SYSTEM STATUS:
+- Company: ${ctx.companyName} (${ctx.industry})
+- Onboarding: ${ctx.onboardingCompleted ? 'COMPLETED' : 'IN PROGRESS'}
+- User Role: ${userRole}
+
+BUSINESS TELEMETRY:
+- 30-Day Revenue: $${Number(ctx.recentRevenue30d ?? ctx.recentRevenue ?? 0).toFixed(2)} (growth: ${ctx.growth?.toFixed(1) ?? 0}%)
+- Sales Trend: ${ctx.salesVelocity?.currentPeriodOrders || 0} orders this week (${ctx.salesVelocity?.trend || 'flat'} vs last week)
+- Inventory Risk: ${ctx.lowStockCount || 0} items below threshold.
+- Engagement: ${ctx.pendingReminders?.length || 0} urgent follow-ups pending.
+${rfmBlock}
+OPERATIONAL PRINCIPLES:
+1. OPERATIONAL FOCUS: Avoid conversational filler. Provide high-impact data analysis first.
+2. INDUSTRY CONTEXT: Calibrate terminology to "${ctx.industry}".
+3. PROACTIVE ADVICE: Prioritize critical risks and suggest specific drafted actions.
+4. CUSTOMER ENGAGEMENT: Use RFM data to identify at-risk customers; suggest win-back actions.
+5. SECURITY PROTOCOL: Respect user roles. Never suggest actions beyond the user's role.
+6. PERSONALITY: Use phrases like "Let's unpack that:", "Here's the signal:", "Action window:" to maintain your distinct voice as Peppy.
+
+COMMAND PROTOCOLS (MUST appear at the END of the response, on their own line):
+- [COMMAND: NAVIGATE | /path] - ONLY for changing screens. Valid paths: /dashboard, /customers, /products, /inventory, /orders, /pos, /insights, /team, /settings, /billing.
+- [COMMAND: OPEN_FILTER | module | payload] - For complex data views.
+- [COMMAND: DRAFT_REPORT | summary] - When generating an analysis or report.
+- [COMMAND: REVIEW_ONLY | summary] - For complex advice without automated path.
+- [COMMAND: DRAFT_ORDER | details] - For preparing new orders.
+- [COMMAND: CREATE_REMINDER | customerId | customerName | follow_up | notes | YYYY-MM-DD] - Create a customer reminder. Use when user asks to follow up with a specific customer.
+- [COMMAND: DRAFT_MESSAGE | customerId | customerName | email | message content] - Draft a customer message for review. Use when user asks to contact a customer.
+- [COMMAND: FLAG_CUSTOMER | customerId | whale|vip|regular|new|at_risk] - Update customer segment. Use when user identifies a customer's value tier.
+- [COMMAND: STOCK_ALERT | productId | productName | threshold] - Set a stock alert threshold for a product.
+
+CRITICAL RULES:
+1. NEVER put long markdown reports inside [COMMAND: NAVIGATE].
+2. Use CREATE_REMINDER when user says "follow up with", "remind me about", or "call [customer]".
+3. Use DRAFT_MESSAGE when user wants to send or write to a customer.
+4. Use FLAG_CUSTOMER when a customer's behavior warrants reclassification.
+5. For DRAFT_MESSAGE, always set isReviewOnly so the user must confirm before sending.
+
+STRUCTURE: Use SUMMARY, STATUS REPORT, RECOMMENDATIONS, and [COMMANDS].`;
+  }
+
+  function parseCommandFromText(text: string, userMessage: string): { type: string; params: string } | null {
+    const userTriedToInject = /\[COMMAND:/i.test(userMessage);
+    if (userTriedToInject) return null;
+    const match = text.match(/\[COMMAND:\s*([^|\]\n]+)\s*\|\s*([^\]]+)\]\s*$/);
+    if (!match) return null;
+    return { type: match[1].trim(), params: match[2].trim() };
+  }
+
   app.post('/api/ai/chat', async (req, res) => {
     const startedAt = Date.now();
     try {
@@ -1222,50 +1421,7 @@ No markdown, no preamble.`;
       const db = getDb();
       if (!db) throw new Error('Database not initialized');
       const ctx = req.body?.context || await buildCompanyOverview(db, access.companyId);
-      const langMap: Record<string, string> = {
-        en: 'Communicate in English.',
-        es: 'Comunícate en Español. Mantén un tono profesional y premium.',
-        pt: 'Comunique-se em Português. Mantenha um tom profissional e premium.',
-      };
-      const langInstruction = langMap[language] || langMap.en;
-      const systemInstruction = `
-You are the Remix OS AI Operator, a premium business intelligence system.
-You are a proactive business advisor and operational assistant.
-
-CRITICAL: ${langInstruction}
-
-SYSTEM STATUS:
-- Company: ${ctx.companyName} (${ctx.industry})
-- Onboarding: ${ctx.onboardingCompleted ? 'COMPLETED' : 'IN PROGRESS'}
-- User Role: ${req.body?.context?.userRole || 'staff'}
-
-BUSINESS TELEMETRY:
-- 30-Day Revenue: $${Number(ctx.recentRevenue30d ?? ctx.recentRevenue ?? 0).toFixed(2)}
-- Sales Trend: ${ctx.salesVelocity?.currentPeriodOrders || 0} orders this week (${ctx.salesVelocity?.trend || 'flat'} vs last week)
-- Inventory Risk: ${ctx.lowStockCount || 0} items below threshold.
-- Engagement: ${ctx.pendingReminders?.length || 0} urgent follow-ups pending.
-
-OPERATIONAL PRINCIPLES:
-1. OPERATIONAL FOCUS: Avoid conversational filler. Provide high-impact data analysis first.
-2. INDUSTRY CONTEXT: Calibrate terminology to "${ctx.industry}".
-3. PROACTIVE ADVICE: Prioritize critical risks and suggest specific drafted actions.
-4. CUSTOMER ENGAGEMENT: Identify pending reminders and suggest follow-ups.
-5. SECURITY PROTOCOL: Respect user roles.
-
-COMMAND PROTOCOLS (MUST appear at the END of the response, on their own line):
-- [COMMAND: NAVIGATE | /path] - ONLY for changing screens. Valid paths: /dashboard, /customers, /products, /inventory, /orders, /pos, /insights, /team, /settings, /billing.
-- [COMMAND: OPEN_FILTER | module | payload] - For complex data views.
-- [COMMAND: DRAFT_REPORT | summary] - When generating an analysis or report.
-- [COMMAND: REVIEW_ONLY | summary] - For complex advice without automated path.
-- [COMMAND: DRAFT_ORDER | details] - For preparing new orders.
-
-CRITICAL RULES:
-1. NEVER put long markdown reports inside [COMMAND: NAVIGATE].
-2. If a customer needs a reminder, suggest it and tell the user to check the Customers module.
-3. If there are messages in "draft" status, suggest reviewing them.
-
-STRUCTURE: Use SUMMARY, STATUS REPORT, RECOMMENDATIONS, and [COMMANDS].
-Maintain a professional, efficient, and supportive persona.`;
+      const systemInstruction = buildPeppySystemInstruction(ctx, language || 'en', req.body?.context?.userRole || 'staff');
 
       const chat = ai.chats.create({
         model: 'gemini-2.0-flash',
@@ -1278,6 +1434,63 @@ Maintain a professional, efficient, and supportive persona.`;
     } catch (error: any) {
       console.error('/api/ai/chat error:', error);
       res.status(500).json({ error: error.message || 'AI request failed' });
+    }
+  });
+
+  app.post('/api/ai/chat/stream', async (req, res) => {
+    try {
+      const access = await requireCompanyAccess(req, res, ['owner', 'admin', 'staff', 'viewer']);
+      if (!access) return;
+      const ai = getGenAI();
+      if (!ai) return res.status(503).json({ error: 'AI not configured' });
+      const { message, history, language } = req.body || {};
+      if (typeof message !== 'string' || !message.trim()) {
+        return res.status(400).json({ error: 'message required' });
+      }
+      const db = getDb();
+      if (!db) throw new Error('Database not initialized');
+      const ctx = req.body?.context || await buildCompanyOverview(db, access.companyId);
+      const systemInstruction = buildPeppySystemInstruction(ctx, language || 'en', req.body?.context?.userRole || 'staff');
+
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      res.setHeader('X-Accel-Buffering', 'no');
+      res.flushHeaders();
+
+      let disconnected = false;
+      req.on('close', () => { disconnected = true; });
+
+      const chat = ai.chats.create({
+        model: 'gemini-2.0-flash',
+        history: Array.isArray(history) ? history : [],
+        config: { systemInstruction },
+      });
+
+      let accumulated = '';
+      try {
+        const stream = await chat.sendMessageStream({ message });
+        for await (const chunk of stream) {
+          if (disconnected || res.writableEnded) break;
+          const text = chunk.text ?? '';
+          accumulated += text;
+          res.write(`data: ${JSON.stringify({ text })}\n\n`);
+        }
+      } catch (streamErr: any) {
+        if (!res.writableEnded) {
+          res.write(`data: ${JSON.stringify({ error: streamErr.message })}\n\n`);
+        }
+      }
+
+      if (!res.writableEnded) {
+        const command = parseCommandFromText(accumulated, message);
+        res.write(`data: ${JSON.stringify({ done: true, command })}\n\n`);
+        res.end();
+      }
+    } catch (error: any) {
+      console.error('/api/ai/chat/stream error:', error);
+      if (!res.headersSent) res.status(500).json({ error: error.message || 'Stream failed' });
+      else if (!res.writableEnded) res.end();
     }
   });
 
@@ -1300,9 +1513,9 @@ Maintain a professional, efficient, and supportive persona.`;
       };
       const langInstruction = langMap[language] || langMap.en;
 
-      const prompt = `You are the Remix OS AI Operator thinking about business insights in real-time.
+      const prompt = `You are Peppy, the Remix OS AI copilot thinking about business insights in real-time.
 Analyze the current business context and generate 1-2 specific, actionable insights.
-Be direct, logical, and practical. Focus on what matters NOW.
+Be direct, logical, and practical — use your distinct Peppy voice. Focus on what matters NOW.
 
 CRITICAL: ${langInstruction}
 
@@ -1353,6 +1566,327 @@ NO markdown, NO preamble, just valid JSON.`;
     } catch (error: any) {
       console.error('/api/ai/proactive-thoughts error:', error);
       res.status(500).json({ error: error.message || 'AI request failed' });
+    }
+  });
+
+  app.post('/api/ai/conversation/load', async (req, res) => {
+    try {
+      const access = await requireCompanyAccess(req, res, ['owner', 'admin', 'staff', 'viewer']);
+      if (!access) return;
+      const db = getDb();
+      if (!db) throw new Error('Database not initialized');
+      const docId = `${access.companyId}_${access.uid}_peppy`;
+      const snap = await db.collection('agentConversations').doc(docId).get();
+      const messages = snap.exists ? (snap.data()?.messages || []) : [];
+      res.json({ messages });
+    } catch (error: any) {
+      console.error('/api/ai/conversation/load error:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post('/api/ai/conversation/save', async (req, res) => {
+    try {
+      const access = await requireCompanyAccess(req, res, ['owner', 'admin', 'staff', 'viewer']);
+      if (!access) return;
+      const db = getDb();
+      if (!db) throw new Error('Database not initialized');
+      const { messages } = req.body || {};
+      if (!Array.isArray(messages)) return res.status(400).json({ error: 'messages array required' });
+
+      const sanitized = messages
+        .filter((m: AnyRecord) => !m.streaming && m.role && m.text !== undefined)
+        .slice(-60)
+        .map((m: AnyRecord) => ({
+          id: m.id,
+          role: m.role,
+          text: String(m.text || '').slice(0, 8000),
+          timestamp: m.timestamp || new Date().toISOString(),
+          isBriefing: m.isBriefing || false,
+          commandStatus: m.commandStatus || null,
+        }));
+
+      const docId = `${access.companyId}_${access.uid}_peppy`;
+      await db.collection('agentConversations').doc(docId).set({
+        companyId: access.companyId,
+        userId: access.uid,
+        agentName: 'peppy',
+        messages: sanitized,
+        updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+
+      res.json({ status: 'saved', count: sanitized.length });
+    } catch (error: any) {
+      console.error('/api/ai/conversation/save error:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post('/api/ai/action', async (req, res) => {
+    try {
+      const access = await requireCompanyAccess(req, res, ['owner', 'admin', 'staff']);
+      if (!access) return;
+      const db = getDb();
+      if (!db) throw new Error('Database not initialized');
+
+      const { commandType, params } = req.body || {};
+      if (!commandType || typeof params !== 'string') {
+        return res.status(400).json({ error: 'commandType and params required' });
+      }
+
+      const parts = params.split('|').map((s: string) => s.trim());
+
+      if (commandType === 'CREATE_REMINDER') {
+        const [customerId, customerName, type, notes, dueDateStr] = parts;
+        if (!customerId || !customerName) return res.status(400).json({ error: 'Missing reminder params' });
+        const customerDoc = await db.collection('customers').doc(customerId).get();
+        if (!customerDoc.exists || customerDoc.data()?.companyId !== access.companyId) {
+          return res.status(403).json({ error: 'Customer not found in this company' });
+        }
+        const dueDate = dueDateStr ? new Date(dueDateStr) : new Date(Date.now() + 86400000 * 3);
+        const ref = await db.collection('reminders').add({
+          companyId: access.companyId,
+          customerId,
+          customerName,
+          type: type || 'follow_up',
+          notes: notes || '',
+          dueDate: Timestamp.fromDate(dueDate),
+          status: 'pending',
+          createdBy: 'peppy',
+          createdAt: FieldValue.serverTimestamp(),
+        });
+        return res.json({ status: 'success', actionId: ref.id });
+      }
+
+      if (commandType === 'DRAFT_MESSAGE') {
+        const [customerId, customerName, channel, ...contentParts] = parts;
+        const content = contentParts.join(' | ');
+        if (!customerId || !content) return res.status(400).json({ error: 'Missing message params' });
+        const customerDoc = await db.collection('customers').doc(customerId).get();
+        if (!customerDoc.exists || customerDoc.data()?.companyId !== access.companyId) {
+          return res.status(403).json({ error: 'Customer not found in this company' });
+        }
+        const ref = await db.collection('customerMessages').add({
+          companyId: access.companyId,
+          customerId,
+          customerName: customerName || '',
+          content,
+          channel: channel || 'email',
+          status: 'draft',
+          createdBy: 'peppy',
+          createdAt: FieldValue.serverTimestamp(),
+        });
+        return res.json({ status: 'success', actionId: ref.id });
+      }
+
+      if (commandType === 'FLAG_CUSTOMER') {
+        const [customerId, segment] = parts;
+        const validSegments = ['whale', 'vip', 'regular', 'new', 'at_risk'];
+        if (!customerId || !validSegments.includes(segment)) {
+          return res.status(400).json({ error: 'Invalid customer or segment' });
+        }
+        const customerDoc = await db.collection('customers').doc(customerId).get();
+        if (!customerDoc.exists || customerDoc.data()?.companyId !== access.companyId) {
+          return res.status(403).json({ error: 'Customer not found in this company' });
+        }
+        await db.collection('customers').doc(customerId).update({ segment, updatedAt: FieldValue.serverTimestamp() });
+        return res.json({ status: 'success', actionId: customerId });
+      }
+
+      if (commandType === 'STOCK_ALERT') {
+        const [productId, productName, thresholdStr] = parts;
+        if (!productId || !productName) return res.status(400).json({ error: 'Missing stock alert params' });
+        const ref = await db.collection('stockAlerts').add({
+          companyId: access.companyId,
+          productId,
+          productName,
+          threshold: Number(thresholdStr) || 5,
+          status: 'active',
+          createdBy: 'peppy',
+          createdAt: FieldValue.serverTimestamp(),
+        });
+        return res.json({ status: 'success', actionId: ref.id });
+      }
+
+      return res.status(400).json({ error: `Unknown commandType: ${commandType}` });
+    } catch (error: any) {
+      console.error('/api/ai/action error:', error);
+      res.status(500).json({ error: error.message || 'Action failed' });
+    }
+  });
+
+  app.post('/api/ai/daily-briefing', async (req, res) => {
+    const startedAt = Date.now();
+    try {
+      const access = await requireCompanyAccess(req, res, ['owner', 'admin']);
+      if (!access) return;
+      const ai = getGenAI();
+      if (!ai) return res.status(503).json({ error: 'AI not configured' });
+
+      const db = getDb();
+      if (!db) throw new Error('Database not initialized');
+      const ctx = await buildCompanyOverview(db, access.companyId);
+      const language = req.body?.language || 'es';
+      const langMap: Record<string, string> = {
+        en: 'Write the briefing in English.',
+        es: 'Escribe el briefing en Español.',
+        pt: 'Escreva o briefing em Português.',
+      };
+      const langInstruction = langMap[language] || langMap.es;
+      const greetingMap: Record<string, string> = {
+        en: `## Good morning, ${ctx.companyName}`,
+        es: `## Buenos días, ${ctx.companyName}`,
+        pt: `## Bom dia, ${ctx.companyName}`,
+      };
+      const greeting = greetingMap[language] || greetingMap.es;
+
+      const prompt = `You are Peppy, the Remix OS AI copilot delivering a morning operational briefing.
+${langInstruction}
+
+Be concise: 4-6 bullet points maximum. Lead with the most critical signal.
+Cover: revenue snapshot (30d and trend), any at-risk customers needing attention, inventory pressure, and sales velocity.
+End with ONE specific recommended action for today.
+Start with exactly: "${greeting}"
+Use Markdown formatting with bullet points.
+
+CURRENT BUSINESS DATA:
+- 30-Day Revenue: $${Number(ctx.recentRevenue30d ?? ctx.recentRevenue ?? 0).toFixed(2)} (growth: ${ctx.growth?.toFixed(1) ?? 0}%)
+- Sales Trend: ${ctx.salesVelocity?.currentPeriodOrders || 0} orders this week vs ${ctx.salesVelocity?.previousPeriodOrders || 0} last week (${ctx.salesVelocity?.trend || 'flat'})
+- Low Stock Items: ${ctx.lowStockCount || 0}
+- Pending Follow-ups: ${ctx.pendingReminders?.length || 0}
+- Total Customers: ${ctx.customersCount}
+- Top Products: ${(ctx.topProducts?.slice(0, 3) || []).map((p: AnyRecord) => `${p.name} ($${p.revenue})`).join(', ') || 'No data'}
+- Top Customers: ${(ctx.topCustomers?.slice(0, 3) || []).map((c: AnyRecord) => `${c.name} ($${c.total})`).join(', ') || 'No data'}`;
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.0-flash',
+        contents: prompt,
+      });
+      const briefing = response.text ?? '';
+      logAiRequest('/api/ai/daily-briefing', access.companyId, startedAt, { briefingLength: briefing.length });
+      res.json({ briefing, generatedAt: new Date().toISOString() });
+    } catch (error: any) {
+      console.error('/api/ai/daily-briefing error:', error);
+      res.status(500).json({ error: error.message || 'Briefing generation failed' });
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // Invoice issuing — atomic server-side transaction
+  // ---------------------------------------------------------------------------
+  app.post('/api/invoices/issue', async (req, res) => {
+    console.info('[Invoices] issue request received');
+    try {
+      const access = await requireCompanyAccess(req, res, ['owner', 'admin', 'staff']);
+      if (!access) return;
+
+      const { invoiceId } = req.body;
+      if (typeof invoiceId !== 'string' || !invoiceId) {
+        return res.status(400).json({ error: 'invoiceId requerido', code: 'MISSING_INVOICE_ID' });
+      }
+
+      const db = getDb();
+      if (!db) throw new Error('Database not initialized');
+
+      const result = await db.runTransaction(async (tx) => {
+        const invRef = db.collection('invoices').doc(invoiceId);
+        const invSnap = await tx.get(invRef);
+        if (!invSnap.exists) {
+          return { status: 404 as const, error: 'Invoice not found' };
+        }
+        const invoice = invSnap.data() || {};
+
+        if (invoice.companyId !== access.companyId) {
+          return { status: 403 as const, error: 'Invoice belongs to a different company' };
+        }
+
+        // Idempotency: already issued — return existing data
+        if (invoice.status && invoice.status !== 'draft') {
+          console.info('[Invoices] already issued', { companyId: access.companyId, invoiceId, invoiceNumber: invoice.invoiceNumber || '' });
+          return {
+            status: 200 as const,
+            invoiceNumber: invoice.invoiceNumber || '',
+            sequentialNumber: invoice.sequentialNumber || 0,
+            alreadyIssued: true,
+          };
+        }
+
+        const series = String(invoice.series || 'A').toUpperCase();
+        const counterRef = db.collection('invoiceCounters').doc(`${access.companyId}_${series}`);
+        const counterSnap = await tx.get(counterRef);
+        const current = counterSnap.exists ? Number(counterSnap.data()?.nextNumber || 1) : 1;
+        const invoiceNumber = `${series}-${String(current).padStart(4, '0')}`;
+
+        tx.set(counterRef, {
+          companyId: access.companyId,
+          series,
+          nextNumber: current + 1,
+          updatedAt: FieldValue.serverTimestamp(),
+        }, { merge: true });
+
+        tx.update(invRef, {
+          status: 'issued',
+          invoiceNumber,
+          sequentialNumber: current,
+          issuedAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+
+        console.info('[Invoices] issued', { companyId: access.companyId, invoiceId, invoiceNumber, sequentialNumber: current });
+        return { status: 200 as const, invoiceNumber, sequentialNumber: current, alreadyIssued: false };
+      });
+
+      if (result.status !== 200) {
+        return res.status(result.status).json({ error: (result as any).error });
+      }
+      res.json({
+        invoiceNumber: (result as any).invoiceNumber,
+        sequentialNumber: (result as any).sequentialNumber,
+        alreadyIssued: (result as any).alreadyIssued,
+      });
+    } catch (error: any) {
+      console.error('[Invoices] issue failed', { message: error?.message || String(error) });
+      res.status(500).json({ error: error?.message || 'Failed to issue invoice' });
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // Platform admin — toggle internalTesting on a company doc
+  // ---------------------------------------------------------------------------
+  app.post('/api/platform/company/override', async (req, res) => {
+    try {
+      const access = await requirePlatformAdmin(req, res);
+      if (!access) return;
+
+      const { companyId, internalTesting } = req.body;
+      if (typeof companyId !== 'string' || !companyId) {
+        return res.status(400).json({ error: 'companyId (string) requerido', code: 'MISSING_COMPANY_ID' });
+      }
+      if (typeof internalTesting !== 'boolean') {
+        return res.status(400).json({ error: 'internalTesting (boolean) requerido', code: 'MISSING_INTERNAL_TESTING' });
+      }
+
+      const db = getDb();
+      if (!db) throw new Error('Database not initialized');
+
+      const companyRef = db.collection('companies').doc(companyId);
+      const companySnap = await companyRef.get();
+      if (!companySnap.exists) {
+        return res.status(404).json({ error: 'Empresa no encontrada', code: 'COMPANY_NOT_FOUND' });
+      }
+
+      await companyRef.update({ internalTesting, updatedAt: FieldValue.serverTimestamp() });
+      await db.collection('platformAuditLogs').add({
+        type: 'internal_testing_toggled',
+        companyId,
+        value: internalTesting,
+        actorUid: access.uid,
+        createdAt: FieldValue.serverTimestamp(),
+      });
+      res.json({ ok: true, companyId, internalTesting });
+    } catch (err: any) {
+      console.error('[Override] /api/platform/company/override failed:', err?.message || err);
+      res.status(500).json({ error: 'No se pudo actualizar el modo interno.', code: 'OVERRIDE_FAILED' });
     }
   });
 
