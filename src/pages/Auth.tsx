@@ -1,10 +1,11 @@
 import { FormEvent, useState } from 'react';
 import { Navigate, Link } from 'react-router-dom';
 import { motion } from 'motion/react';
-import { ArrowLeft, Github, LockKeyhole, Mail, ShieldCheck, Sparkles, Store, Zap } from 'lucide-react';
+import { ArrowLeft, Github, LockKeyhole, Mail, ShieldCheck, Store, Zap } from 'lucide-react';
 import { Button, Input, Label, OSGlyph, cn } from '../components/Common';
 import { useAuth } from '../contexts/AuthContext';
 import { LanguageSwitcher } from '../components/LanguageSwitcher';
+import { RemixLogo } from '../components/brand/RemixLogo';
 
 type AuthMode = 'signin' | 'signup';
 type AuthAction = 'google' | 'github' | 'email' | 'reset' | null;
@@ -136,15 +137,7 @@ export function Auth() {
             <div className="relative">
               <div className="mb-5 flex items-start justify-between gap-4">
                 <div className="flex items-center gap-3 sm:gap-4">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-[20px] border border-white/10 bg-white text-black shadow-[0_16px_34px_rgba(255,255,255,0.08)] sm:h-14 sm:w-14 sm:rounded-[22px]">
-                    <Sparkles className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <p className="section-kicker mb-2">Remix OS</p>
-                    <h2 className="font-display text-2xl font-bold tracking-tight text-white sm:text-3xl">
-                      Acceso
-                    </h2>
-                  </div>
+                  <RemixLogo compact />
                 </div>
                 <span className="telemetry-chip !px-2.5 !py-1">
                   <span className="status-dot pulse-live bg-emerald-400 text-emerald-400" />

@@ -23,6 +23,7 @@ import { signOut } from 'firebase/auth';
 import { useTranslation } from 'react-i18next';
 import { usePlatformAdmin } from '../hooks/usePlatformAdmin';
 import { getCompanyVerticalLabel } from '../lib/company';
+import { RemixLogo } from './brand/RemixLogo';
 
 export function Sidebar({ onClose }: { onClose?: () => void }) {
   const location = useLocation();
@@ -53,15 +54,8 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
     <aside className="h-full w-full overflow-y-auto border-r border-white/6 bg-[rgba(6,8,12,0.92)] backdrop-blur-2xl lg:h-screen lg:w-[300px] lg:sticky lg:top-0">
       <div className="flex min-h-full flex-col px-5 py-5">
         <div className="mb-6 flex items-center justify-between">
-          <Link to="/" className="flex items-center gap-3 group" onClick={onClose}>
-            <div className="relative flex h-11 w-11 items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-white/[0.04]">
-              <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(77,124,255,0.35),transparent_60%)] opacity-80" />
-              <div className="relative h-5 w-5 rounded-md bg-white transition-all duration-500 group-hover:rotate-45 group-hover:rounded-[10px]" />
-            </div>
-            <div>
-              <p className="section-kicker mb-1 !tracking-[0.24em] text-blue-300/80">AI business OS</p>
-              <span className="font-display text-xl font-bold tracking-tight text-white">Remix OS</span>
-            </div>
+          <Link to="/" className="group" onClick={onClose}>
+            <RemixLogo compact={false} />
           </Link>
           <button
             type="button"
