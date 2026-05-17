@@ -304,10 +304,10 @@ export function Landing() {
   return (
     <div className="min-h-screen bg-black text-white selection:bg-blue-500/30">
       <nav className="sticky top-0 z-50 border-b border-white/6 bg-[rgba(3,4,7,0.72)] backdrop-blur-2xl">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
-          <RemixLogo compact />
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-4 sm:gap-4 sm:px-6">
+          <RemixLogo compact mobileIconOnly className="shrink-0" />
 
-          <div className="flex items-center gap-3 sm:gap-4">
+          <div className="flex min-w-0 items-center gap-2 sm:gap-4">
             <div className="hidden items-center gap-5 text-sm text-neutral-400 lg:flex">
               <a href="#plataforma" className="transition-colors hover:text-white">Plataforma</a>
               <a href="#modulos" className="transition-colors hover:text-white">Módulos</a>
@@ -315,8 +315,9 @@ export function Landing() {
             </div>
             <LanguageSwitcher />
             <Link to="/auth">
-              <Button variant="secondary" className="h-11 rounded-2xl border-none bg-white px-4 text-black hover:bg-neutral-200 sm:px-6">
-                Entrar a Remix OS
+              <Button variant="secondary" className="h-11 rounded-2xl border-none bg-white px-3 text-black hover:bg-neutral-200 sm:px-6">
+                <span className="sm:hidden">Entrar</span>
+                <span className="hidden sm:inline">Entrar a Remix OS</span>
               </Button>
             </Link>
           </div>

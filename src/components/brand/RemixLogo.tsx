@@ -1,18 +1,25 @@
-import type { SVGProps } from 'react';
+import { useId, type SVGProps } from 'react';
 
 type RemixLogoProps = SVGProps<SVGSVGElement> & {
   showWordmark?: boolean;
   compact?: boolean;
+  mobileIconOnly?: boolean;
 };
 
 export function RemixLogo({
   showWordmark = true,
   compact = false,
+  mobileIconOnly = false,
   className,
   ...props
 }: RemixLogoProps) {
+  const id = useId().replace(/:/g, '');
+  const markId = `${id}-remix-os-mark`;
+  const shadowId = `${id}-remix-os-shadow`;
+  const glowId = `${id}-remix-os-glow`;
+
   return (
-    <div className={`inline-flex items-center gap-3 ${className || ''}`}>
+    <div className={`inline-flex min-w-0 items-center gap-3 ${className || ''}`}>
       <svg
         width={compact ? 36 : 48}
         height={compact ? 36 : 48}
@@ -23,20 +30,20 @@ export function RemixLogo({
         {...props}
       >
         <defs>
-          <linearGradient id="remix-os-mark" x1="12" y1="56" x2="57" y2="8" gradientUnits="userSpaceOnUse">
+          <linearGradient id={markId} x1="12" y1="56" x2="57" y2="8" gradientUnits="userSpaceOnUse">
             <stop offset="0%" stopColor="#C026D3" />
             <stop offset="22%" stopColor="#2563EB" />
             <stop offset="55%" stopColor="#06B6D4" />
             <stop offset="100%" stopColor="#D9F99D" />
           </linearGradient>
 
-          <linearGradient id="remix-os-shadow" x1="15" y1="48" x2="51" y2="12" gradientUnits="userSpaceOnUse">
+          <linearGradient id={shadowId} x1="15" y1="48" x2="51" y2="12" gradientUnits="userSpaceOnUse">
             <stop offset="0%" stopColor="#07111F" stopOpacity="0.56" />
             <stop offset="55%" stopColor="#020617" stopOpacity="0.22" />
             <stop offset="100%" stopColor="#020617" stopOpacity="0" />
           </linearGradient>
 
-          <filter id="remix-os-glow" x="-30%" y="-30%" width="160%" height="160%">
+          <filter id={glowId} x="-30%" y="-30%" width="160%" height="160%">
             <feGaussianBlur stdDeviation="3.5" result="blur" />
             <feColorMatrix
               in="blur"
@@ -50,14 +57,14 @@ export function RemixLogo({
           </filter>
         </defs>
 
-        <g filter="url(#remix-os-glow)">
+        <g filter={`url(#${glowId})`}>
           <path
             d="M17.2 9H47.8C52.2 9 55.8 12.6 55.8 17V22.7C55.8 25.4 54.4 27.9 52.2 29.4L41.5 36.5L54.2 49.4C56.2 51.4 54.8 55 51.9 55H36.4C34.5 55 32.7 54.2 31.4 52.8L22.1 43.1L17.2 48.3C14 51.8 8.2 49.5 8.2 44.8V18C8.2 13 12.2 9 17.2 9Z"
-            fill="url(#remix-os-mark)"
+            fill={`url(#${markId})`}
           />
           <path
             d="M17.2 9H47.8C52.2 9 55.8 12.6 55.8 17V22.7C55.8 25.4 54.4 27.9 52.2 29.4L41.5 36.5L54.2 49.4C56.2 51.4 54.8 55 51.9 55H36.4C34.5 55 32.7 54.2 31.4 52.8L22.1 43.1L17.2 48.3C14 51.8 8.2 49.5 8.2 44.8V18C8.2 13 12.2 9 17.2 9Z"
-            fill="url(#remix-os-shadow)"
+            fill={`url(#${shadowId})`}
           />
           <path
             d="M15.8 9.8L33.3 27.5H11.1V18C11.1 13.5 14.4 9.9 18.7 9.8H15.8Z"
@@ -88,8 +95,8 @@ export function RemixLogo({
       </svg>
 
       {showWordmark && (
-        <div className="leading-none">
-          <div className="text-[15px] font-black uppercase tracking-[0.22em] text-white">
+        <div className={`min-w-0 leading-none ${mobileIconOnly ? 'hidden sm:block' : ''}`}>
+          <div className="truncate text-[15px] font-black uppercase tracking-[0.22em] text-white">
             Remix <span className="bg-gradient-to-r from-cyan-300 to-violet-400 bg-clip-text text-transparent">OS</span>
           </div>
           {!compact && (
