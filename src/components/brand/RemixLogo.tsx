@@ -23,17 +23,17 @@ export function RemixLogo({
         {...props}
       >
         <defs>
-          <linearGradient id="remix-os-bg" x1="8" y1="56" x2="58" y2="8" gradientUnits="userSpaceOnUse">
-            <stop offset="0%" stopColor="#A855F7" />
-            <stop offset="35%" stopColor="#2563EB" />
-            <stop offset="65%" stopColor="#06B6D4" />
-            <stop offset="100%" stopColor="#A3E635" />
+          <linearGradient id="remix-os-mark" x1="12" y1="56" x2="57" y2="8" gradientUnits="userSpaceOnUse">
+            <stop offset="0%" stopColor="#C026D3" />
+            <stop offset="22%" stopColor="#2563EB" />
+            <stop offset="55%" stopColor="#06B6D4" />
+            <stop offset="100%" stopColor="#D9F99D" />
           </linearGradient>
 
-          <linearGradient id="remix-os-bolt" x1="20" y1="48" x2="48" y2="12" gradientUnits="userSpaceOnUse">
-            <stop offset="0%" stopColor="#05070A" />
-            <stop offset="55%" stopColor="#07111F" />
-            <stop offset="100%" stopColor="#0B1220" />
+          <linearGradient id="remix-os-shadow" x1="15" y1="48" x2="51" y2="12" gradientUnits="userSpaceOnUse">
+            <stop offset="0%" stopColor="#07111F" stopOpacity="0.56" />
+            <stop offset="55%" stopColor="#020617" stopOpacity="0.22" />
+            <stop offset="100%" stopColor="#020617" stopOpacity="0" />
           </linearGradient>
 
           <filter id="remix-os-glow" x="-30%" y="-30%" width="160%" height="160%">
@@ -50,37 +50,41 @@ export function RemixLogo({
           </filter>
         </defs>
 
-        <rect
-          x="7"
-          y="7"
-          width="50"
-          height="50"
-          rx="14"
-          fill="url(#remix-os-bg)"
-          filter="url(#remix-os-glow)"
-        />
-
-        <path
-          d="M18 43.5L31.2 30.8H20.7L45.7 14.8L34.2 28.9H45.8L18 43.5Z"
-          fill="url(#remix-os-bolt)"
-          opacity="0.96"
-        />
-
-        <path
-          d="M22.2 14.5H44.2C49.5 14.5 53.5 18.5 53.5 23.8V40.2C53.5 45.5 49.5 49.5 44.2 49.5H20.8L31.9 39.8H41.5C43.4 39.8 44.9 38.3 44.9 36.4V27.8C44.9 25.9 43.4 24.4 41.5 24.4H31.4L22.2 14.5Z"
-          fill="white"
-          opacity="0.12"
-        />
-
-        <rect
-          x="7.5"
-          y="7.5"
-          width="49"
-          height="49"
-          rx="13.5"
-          stroke="white"
-          strokeOpacity="0.22"
-        />
+        <g filter="url(#remix-os-glow)">
+          <path
+            d="M17.2 9H47.8C52.2 9 55.8 12.6 55.8 17V22.7C55.8 25.4 54.4 27.9 52.2 29.4L41.5 36.5L54.2 49.4C56.2 51.4 54.8 55 51.9 55H36.4C34.5 55 32.7 54.2 31.4 52.8L22.1 43.1L17.2 48.3C14 51.8 8.2 49.5 8.2 44.8V18C8.2 13 12.2 9 17.2 9Z"
+            fill="url(#remix-os-mark)"
+          />
+          <path
+            d="M17.2 9H47.8C52.2 9 55.8 12.6 55.8 17V22.7C55.8 25.4 54.4 27.9 52.2 29.4L41.5 36.5L54.2 49.4C56.2 51.4 54.8 55 51.9 55H36.4C34.5 55 32.7 54.2 31.4 52.8L22.1 43.1L17.2 48.3C14 51.8 8.2 49.5 8.2 44.8V18C8.2 13 12.2 9 17.2 9Z"
+            fill="url(#remix-os-shadow)"
+          />
+          <path
+            d="M15.8 9.8L33.3 27.5H11.1V18C11.1 13.5 14.4 9.9 18.7 9.8H15.8Z"
+            fill="#0B1220"
+            opacity="0.18"
+          />
+          <path
+            d="M52.3 10.4L29.3 34H15L40.7 9H48C49.5 9 50.9 9.5 52.3 10.4Z"
+            fill="#EAFBFF"
+            opacity="0.22"
+          />
+          <path
+            d="M13.3 45.7L25.8 31.5H17.8L50.7 10.9L35.8 28.8H47.5L13.3 45.7Z"
+            fill="#06111F"
+            opacity="0.76"
+          />
+          <path
+            d="M21.1 47.8L31.7 36.6L45.6 51.4H37C35.3 51.4 33.7 50.7 32.5 49.5L24.9 41.5L21.1 47.8Z"
+            fill="#023B8F"
+            opacity="0.26"
+          />
+          <path
+            d="M17.2 9.5H47.8C51.9 9.5 55.3 12.9 55.3 17V22.7C55.3 25.2 54 27.6 51.9 29L40.7 36.4L53.8 49.8C55.5 51.5 54.3 54.5 51.9 54.5H36.4C34.6 54.5 33 53.8 31.8 52.5L22.1 42.4L16.9 47.9C14.1 51 8.7 49 8.7 44.8V18C8.7 13.3 12.5 9.5 17.2 9.5Z"
+            stroke="white"
+            strokeOpacity="0.2"
+          />
+        </g>
       </svg>
 
       {showWordmark && (
