@@ -1,155 +1,156 @@
-# Smoke Test Report — Remix OS
-**Fecha:** 2026-05-17  
-**Tester:** QA Lead / Release Engineer  
-**Rama:** `manual/saas-readiness`  
-**Commit HEAD:** `12f4af8` (Fix mobile logo layout)  
-**Commit endpoints:** `f3526c2` (Restore invoice issuing endpoint and platform override)  
-**URL producción:** https://remix-os.vercel.app  
+# SMOKE_TEST_REPORT.md
 
----
+Fecha: 2026-05-17
+Tester: Codex / Staff Engineer + Release Manager
+Rama: `manual/saas-readiness`
+Commit probado: `27e60ca Add smoke test report`
 
-## FASE 1 — Rama y commit
+## URL probada
 
-| Check | Resultado |
-|---|---|
-| Rama activa | `manual/saas-readiness` ✅ |
-| Commit `f3526c2` presente | ✅ confirmado en `git log` |
-| Árbol de trabajo limpio | `nothing to commit, working tree clean` ✅ |
+- Preview PR #16: `https://remix-1rjr23qwx-nfyns-projects-b0cc0f41.vercel.app`
+- Resultado preview: bloqueado por Vercel Deployment Protection; redirige a login de Vercel.
+- Produccion publica: `https://remix-os.vercel.app`
+- Resultado produccion publica: landing y auth cargan correctamente en navegador.
 
----
+## Rama y commit
 
-## FASE 2 — Grep endpoints
+```text
+git status --short
+<sin cambios>
 
-```
-backend/createApp.ts:2743  app.post('/api/invoices/issue', async (req, res) => {
-backend/createApp.ts:2845  app.post('/api/platform/company/override', async (req, res) => {
-```
+git branch --show-current
+manual/saas-readiness
 
-Ambos endpoints registrados en `createApp()`. ✅
-
----
-
-## FASE 3 — Lint / Test / Build
-
-| Step | Resultado |
-|---|---|
-| `npm run lint` (tsc --noEmit) | ✅ Sin errores TypeScript |
-| `npm run test` | ✅ 23/23 pass, 0 fail |
-| `npm run build` | ✅ Limpio, 3879 módulos, 9.92s |
-
----
-
-## FASE 4 — App en producción (https://remix-os.vercel.app)
-
-### Frontend
-
-| Ruta | HTTP | Resultado |
-|---|---|---|
-| `GET /` | 200 | ✅ HTML de Remix OS cargado (PWA, meta tags, assets) |
-| `GET /api/health` | 200 | ✅ `{"status":"ok","firebaseAdminReady":true,"serviceAccountPresent":true,"vercelEnv":"production"}` |
-
----
-
-## FASE 5 — Validación de endpoints críticos
-
-### `/api/invoices/issue`
-
-```
-GET /api/invoices/issue → "Cannot GET /api/invoices/issue"
-x-powered-by: Express
+git log --oneline -5
+27e60ca Add smoke test report
+12f4af8 Fix mobile logo layout
+986ed66 Refine Remix OS logo mark
+ec0232f Add official Remix OS logo
+64171e0 Add multi-provider authentication
 ```
 
-**Veredicto:** ✅ **ENDPOINT ACTIVO EN PRODUCCIÓN**
+## Endpoints criticos
 
-Express devuelve `Cannot GET /path` únicamente cuando la ruta existe registrada como POST pero no GET. Si la ruta no existiera, Express devolvería un 404 del handler genérico sin mencionar el método. Respuesta confirma que `app.post('/api/invoices/issue', ...)` está en ejecución.
-
-### `/api/platform/company/override`
-
-```
-GET /api/platform/company/override → "Cannot GET /api/platform/company/override"
-x-powered-by: Express
+```text
+backend\createApp.ts:2743:  app.post('/api/invoices/issue', async (req, res) => {
+backend\createApp.ts:2839:      captureBackendError(error, { route: '/api/invoices/issue' });
+backend\createApp.ts:2845:  app.post('/api/platform/company/override', async (req, res) => {
+backend\createApp.ts:2880:      console.error('[Override] /api/platform/company/override failed:', err?.message || err);
 ```
 
-**Veredicto:** ✅ **ENDPOINT ACTIVO EN PRODUCCIÓN**
+Estado:
 
-Misma lógica Express. La ruta POST está registrada y respondiendo.
+- `POST /api/invoices/issue`: existe en backend.
+- `POST /api/platform/company/override`: existe en backend.
 
-### Firebase Admin (crítico para ambos endpoints)
+## Gates
 
-```json
-{
-  "firebaseAdminReady": true,
-  "serviceAccountPresent": true,
-  "vercelEnv": "production"
-}
+```text
+npm run lint
+PASS - tsc --noEmit sin errores
+
+npm run test
+PASS - 31 tests, 31 pass, 0 fail
+
+npm run build
+PASS - vite build, 3880 modules transformed
 ```
 
-✅ `FIREBASE_SERVICE_ACCOUNT` configurado en Vercel. Las transacciones Firestore de `/api/invoices/issue` y el update de companies en `/api/platform/company/override` tienen backend operativo.
+## Resultado facturas
 
----
+Estado: NO VERIFICADO EN APP REAL.
 
-## FASE 6 — Peppy / Copilot
+Motivo: el preview de PR esta protegido por Vercel Deployment Protection y no hay sesion/credenciales disponibles para entrar a una cuenta con empresa activa, crear factura borrador y emitirla.
 
-| Check | Estado |
-|---|---|
-| Sistema de identidad `src/lib/peppy.ts` | ✅ Presente en rama |
-| UI "Peppy" en Copilot | ✅ Branding aplicado |
-| `/api/ai/action` (CREATE_REMINDER, DRAFT_MESSAGE, FLAG_CUSTOMER, STOCK_ALERT) | ✅ Endpoints en `createApp.ts` |
-| `/api/ai/daily-briefing` | ✅ Endpoint en `createApp.ts` |
-| Rate limit guard en endpoints AI | ✅ `enforceAiRateLimit` aplicado |
+Pendiente obligatorio para cerrar smoke real:
 
----
+- Login con usuario beta.
+- Crear factura borrador.
+- Emitir factura.
+- Confirmar `POST /api/invoices/issue -> 200`.
+- Confirmar respuesta con `invoiceNumber` y `sequentialNumber`.
 
-## FASE 7 — Mobile
+## Resultado modo interno
 
-| Check | Estado |
-|---|---|
-| BottomNav fija en móvil | ✅ `lg:hidden`, safe-area inset |
-| Copilot sobre BottomNav (no solapado) | ✅ `.peppy-btn-pos` con `env(safe-area-inset-bottom)` |
-| TrialBanner compacto single-row | ✅ |
-| Dashboard reducido en mobile | ✅ padding/tipografía compactos |
-| Contenido principal no oculto tras nav | ✅ `.main-content-pb` con calc |
+Estado: NO VERIFICADO EN APP REAL.
 
----
+Motivo: requiere sesion Super Admin autenticada. No hay credenciales/sesion disponibles en este entorno.
 
-## FASE 8 — Sistemas intactos
+Pendiente obligatorio:
 
-| Sistema | Estado |
-|---|---|
-| Auth (Firebase + multi-provider) | ✅ No modificado en este ticket |
-| Onboarding | ✅ No modificado |
-| Billing / Stripe | ✅ No modificado |
-| Super Admin | ✅ `internalTesting` toggle operativo |
-| Beta Feedback | ✅ `/api/beta-feedback/submit` activo |
-| Landing | ✅ No modificada |
-| POS | ✅ No modificado |
-| Límites de plan (Starter/Pro/Business) | ✅ Enforced normalmente; bypass solo con `internalTesting: true` por platform admin |
+- Entrar a Super Admin.
+- Activar `internalTesting`.
+- Confirmar `POST /api/platform/company/override -> 200`.
+- Confirmar que `companies/{companyId}.internalTesting` cambia correctamente.
 
----
+## Resultado importacion
 
-## BLOQUEADORES
+Estado: NO VERIFICADO EN APP REAL.
 
-| # | Bloqueador | Severidad | Estado |
-|---|---|---|---|
-| — | Ninguno crítico | — | — |
+Motivo: depende de activar `internalTesting` desde Super Admin y despues importar 50 clientes y 50 productos en una empresa real.
 
-**Nota de deployment protection:** Las URLs de preview/producción de Vercel tienen deployment protection activo. Los endpoints API no responden a `curl` directo sin cookie de Vercel Auth. Esto es esperado — los usuarios finales acceden desde el navegador autenticado. El test via MCP (`web_fetch_vercel_url`) confirma acceso correcto.
+Pendiente obligatorio:
 
----
+- Activar `internalTesting`.
+- Importar 50 clientes.
+- Importar 50 productos.
+- Confirmar que no aparece `UpgradeModal`.
 
-## VEREDICTO
+## Resultado Peppy
 
-```
-✅ READY FOR CLOSED BETA
+Estado: NO VERIFICADO EN APP REAL.
+
+Motivo: requiere dashboard autenticado con empresa activa.
+
+Prompt pendiente:
+
+```text
+Analiza mi negocio con datos reales disponibles. No inventes nada.
 ```
 
-| Criterio | Estado |
-|---|---|
-| Endpoints críticos registrados en código | ✅ |
-| Endpoints activos en producción (Express confirma) | ✅ |
-| Firebase Admin operativo en Vercel | ✅ |
-| TypeScript limpio | ✅ |
-| 23/23 tests pass | ✅ |
-| Build sin errores | ✅ |
-| Frontend carga en producción | ✅ |
-| Ningún sistema crítico roto | ✅ |
+Criterio de aceptacion:
+
+- Responde usando datos reales disponibles, o
+- muestra error claro sin inventar datos.
+
+## Resultado mobile
+
+Estado parcial:
+
+- Produccion publica `https://remix-os.vercel.app` carga en viewport 390px.
+- Landing/auth renderizan sin bloqueo visible en navegador.
+- Captura generada: `.playwright-mcp/smoke-production-landing-390.png`.
+
+No verificado:
+
+- Dashboard autenticado 360px.
+- Dashboard autenticado 390px.
+- Movil real.
+- Bottom nav visible dentro de app autenticada.
+- Peppy no tapa navegacion.
+- Sin overflow horizontal en dashboard autenticado.
+
+Motivo: requiere login real y empresa activa.
+
+## Bloqueadores
+
+1. Preview PR #16 esta protegido por Vercel Deployment Protection y redirige a login de Vercel.
+2. No hay credenciales/sesion beta disponibles para probar dashboard, clientes, productos, facturas, Super Admin, modo interno, importacion y Peppy.
+3. No se pudo confirmar `POST /api/invoices/issue -> 200` desde flujo real.
+4. No se pudo confirmar `POST /api/platform/company/override -> 200` desde flujo real.
+5. No se pudo ejecutar prueba en movil real.
+
+## Veredicto
+
+```text
+NOT READY
+```
+
+Razon: el codigo pasa lint/test/build y los endpoints existen, pero el smoke test real de beta cerrada sigue pendiente porque los flujos autenticados criticos no fueron verificables desde este entorno.
+
+## Siguiente paso para CEO
+
+1. Dar acceso temporal al preview protegido o desactivar Deployment Protection solo para testers autorizados.
+2. Compartir credenciales de usuario beta con empresa activa.
+3. Compartir credenciales o rol Super Admin para validar `internalTesting`.
+4. Repetir smoke real completo antes de marcar `READY FOR CLOSED BETA`.
