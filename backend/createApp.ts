@@ -2882,5 +2882,114 @@ CURRENT BUSINESS DATA:
     }
   });
 
+  // ── Beta feedback submission (server-side, Admin SDK) ─────────────────────
+  // The client used to write betaFeedback + betaUsers directly, but the
+  // betaUsers security rule (isValidBetaUserWrite) mandates a strict shape —
+  // hasCompany:bool and activationStage:enum — that the feedback path never
+  // sent, so every submit was rejected and surfaced as "No pudimos enviar tu
+  // feedback". Doing both writes here with the Admin SDK makes the path
+  // authoritative and immune to that shape drift, and also bypasses the
+  // isEmailVerified() gate (a beta tester must not be blocked from reporting
+  // bugs). The user is still verified: requireCompanyAccess checks the
+  // Firebase ID token AND that they are a member of the claimed company, so
+  // companyId cannot be spoofed.
+  app.post('/api/beta-feedback/submit', async (req, res) => {
+    console.info('[BetaFeedback] submit received');
+    try {
+      const access = await requireCompanyAccess(req, res, ['owner', 'admin', 'staff', 'viewer']);
+      if (!access) return;
+
+      const VALID_TYPES = ['bug', 'idea', 'ux', 'billing', 'copilot', 'other'];
+      const VALID_SEVERITIES = ['low', 'medium', 'high', 'critical'];
+
+      const type = String(req.body?.type || '');
+      const severity = String(req.body?.severity || '');
+      const title = typeof req.body?.title === 'string' ? req.body.title.trim() : '';
+      const message = typeof req.body?.message === 'string' ? req.body.message.trim() : '';
+      const pagePath = typeof req.body?.pagePath === 'string' ? req.body.pagePath.trim() : '';
+      const companyName = typeof req.body?.companyName === 'string' ? req.body.companyName.trim() : '';
+      const userEmail = typeof req.body?.userEmail === 'string' ? req.body.userEmail.trim() : '';
+      const userName = typeof req.body?.userName === 'string' ? req.body.userName.trim() : '';
+
+      if (!VALID_TYPES.includes(type)) {
+        return res.status(400).json({ error: 'type inválido', code: 'INVALID_TYPE' });
+      }
+      if (!VALID_SEVERITIES.includes(severity)) {
+        return res.status(400).json({ error: 'severity inválido', code: 'INVALID_SEVERITY' });
+      }
+      if (!title || title.length > 120) {
+        return res.status(400).json({ error: 'title requerido (1-120 caracteres)', code: 'INVALID_TITLE' });
+      }
+      if (!message || message.length > 3000) {
+        return res.status(400).json({ error: 'message requerido (1-3000 caracteres)', code: 'INVALID_MESSAGE' });
+      }
+      if (!pagePath || pagePath.length > 500) {
+        return res.status(400).json({ error: 'pagePath requerido (1-500 caracteres)', code: 'INVALID_PAGE_PATH' });
+      }
+
+      const db = getDb();
+      if (!db) throw new Error('Database not initialized');
+
+      const feedbackRef = await db.collection('betaFeedback').add({
+        companyId: access.companyId,
+        companyName: companyName || null,
+        userId: access.uid,
+        userEmail: userEmail || null,
+        userName: userName || null,
+        type,
+        severity,
+        title,
+        message,
+        pagePath,
+        status: 'open',
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+
+      // Keep betaUsers consistent with the registry shape without clobbering
+      // registry-managed lifecycle: seed onboardingStatus/activationStage only
+      // when the doc doesn't already track them. Feedback counters always
+      // advance so Super Admin sees who is actively reporting.
+      const betaUserRef = db.collection('betaUsers').doc(access.uid);
+      const betaUserSnap = await betaUserRef.get();
+      const existingBetaUser: any = betaUserSnap.data() || {};
+      const hasCompany = Boolean(access.companyId);
+      await betaUserRef.set(
+        {
+          uid: access.uid,
+          email: userEmail || existingBetaUser.email || '',
+          displayName: userName || existingBetaUser.displayName || null,
+          currentCompanyId: access.companyId,
+          companyId: access.companyId,
+          companyName: companyName || existingBetaUser.companyName || null,
+          hasCompany,
+          onboardingStatus:
+            existingBetaUser.onboardingStatus || (hasCompany ? 'pending' : 'no_company'),
+          activationStage:
+            existingBetaUser.activationStage || (hasCompany ? 'company_created' : 'signed_up'),
+          accessTier: 'free_beta',
+          source: existingBetaUser.source || 'public_beta',
+          needsAttention: true,
+          feedbackCount: FieldValue.increment(1),
+          lastFeedbackAt: FieldValue.serverTimestamp(),
+          lastSeenAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+
+      console.info('[BetaFeedback] submitted', {
+        companyId: access.companyId,
+        userId: access.uid,
+      });
+      res.json({ ok: true, feedbackId: feedbackRef.id });
+    } catch (error: any) {
+      const messageText = error?.message || String(error);
+      console.error('[BetaFeedback] failed', { message: messageText });
+      captureBackendError(error, { route: '/api/beta-feedback/submit' });
+      res.status(500).json({ error: 'No se pudo enviar el feedback.', code: 'BETA_FEEDBACK_FAILED' });
+    }
+  });
+
   return app;
 }
