@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { Button, OSGlyph, cn } from '../components/Common';
 import { LanguageSwitcher } from '../components/LanguageSwitcher';
+import { RemixLogo } from '../components/brand/RemixLogo';
 
 const modules = [
   {
@@ -303,18 +304,10 @@ export function Landing() {
   return (
     <div className="min-h-screen bg-black text-white selection:bg-blue-500/30">
       <nav className="sticky top-0 z-50 border-b border-white/6 bg-[rgba(3,4,7,0.72)] backdrop-blur-2xl">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-white text-black shadow-[0_12px_28px_rgba(255,255,255,0.08)]">
-              <div className="h-4 w-4 rounded-sm bg-black rotate-45" />
-            </div>
-            <div>
-              <p className="section-kicker !tracking-[0.26em] text-blue-300/80">Sistema operativo IA</p>
-              <span className="font-display text-lg font-bold tracking-tight text-white sm:text-xl">Remix OS</span>
-            </div>
-          </div>
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-4 sm:gap-4 sm:px-6">
+          <RemixLogo compact mobileIconOnly className="shrink-0" />
 
-          <div className="flex items-center gap-3 sm:gap-4">
+          <div className="flex min-w-0 items-center gap-2 sm:gap-4">
             <div className="hidden items-center gap-5 text-sm text-neutral-400 lg:flex">
               <a href="#plataforma" className="transition-colors hover:text-white">Plataforma</a>
               <a href="#modulos" className="transition-colors hover:text-white">Módulos</a>
@@ -322,8 +315,9 @@ export function Landing() {
             </div>
             <LanguageSwitcher />
             <Link to="/auth">
-              <Button variant="secondary" className="h-11 rounded-2xl border-none bg-white px-4 text-black hover:bg-neutral-200 sm:px-6">
-                Entrar a Remix OS
+              <Button variant="secondary" className="h-11 rounded-2xl border-none bg-white px-3 text-black hover:bg-neutral-200 sm:px-6">
+                <span className="sm:hidden">Entrar</span>
+                <span className="hidden sm:inline">Entrar a Remix OS</span>
               </Button>
             </Link>
           </div>
@@ -545,12 +539,7 @@ export function Landing() {
       <footer className="border-t border-white/6 bg-black px-4 py-10 sm:px-6">
         <div className="mx-auto flex max-w-7xl flex-col gap-8 sm:flex-row sm:items-end sm:justify-between">
           <div className="max-w-sm">
-            <div className="mb-3 flex items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-white text-black">
-                <div className="h-3.5 w-3.5 rotate-45 rounded-sm bg-black" />
-              </div>
-              <span className="font-display text-lg font-bold tracking-tight text-white">Remix OS</span>
-            </div>
+            <RemixLogo compact className="mb-3" />
             <p className="text-sm leading-relaxed text-neutral-500">
               Sistema operativo comercial con capa IA para equipos que quieren operar mejor.
             </p>
