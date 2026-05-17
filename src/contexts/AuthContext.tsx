@@ -1,7 +1,14 @@
 import { createContext, useContext, useEffect, useState } from 'react';
-import { User, onAuthStateChanged } from 'firebase/auth';
+import {
+  User,
+  createUserWithEmailAndPassword,
+  onAuthStateChanged,
+  sendPasswordResetEmail,
+  signInWithEmailAndPassword,
+  signInWithPopup,
+} from 'firebase/auth';
 import { doc, getDoc, collection, query, where, getDocs, setDoc, serverTimestamp, updateDoc, limit } from 'firebase/firestore';
-import { auth, db, handleFirestoreError, OperationType } from '../lib/firebase';
+import { auth, db, githubProvider, googleProvider, handleFirestoreError, OperationType } from '../lib/firebase';
 import { normalizeCompanyVertical, getCompanyVerticalLabel } from '../lib/company';
 import { upsertBetaUserRegistry } from '../services/betaRegistry';
 
@@ -55,6 +62,11 @@ interface AuthContextType {
   company: Company | null;
   role: 'viewer' | 'staff' | 'admin' | 'owner' | null;
   loading: boolean;
+  signInWithGoogle: () => Promise<void>;
+  signInWithGithub: () => Promise<void>;
+  signInWithEmail: (email: string, password: string) => Promise<void>;
+  signUpWithEmail: (email: string, password: string) => Promise<void>;
+  resetPassword: (email: string) => Promise<void>;
   refreshCompany: () => Promise<void>;
   refreshProfile: () => Promise<void>;
 }
@@ -65,6 +77,11 @@ const AuthContext = createContext<AuthContextType>({
   company: null,
   role: null,
   loading: true,
+  signInWithGoogle: async () => {},
+  signInWithGithub: async () => {},
+  signInWithEmail: async () => {},
+  signUpWithEmail: async () => {},
+  resetPassword: async () => {},
   refreshCompany: async () => {},
   refreshProfile: async () => {},
 });
@@ -72,6 +89,36 @@ const AuthContext = createContext<AuthContextType>({
 const normalizeLanguage = (lang?: string | null) => {
   const base = (lang || 'es').split('-')[0].toLowerCase();
   return ['en', 'es', 'pt'].includes(base) ? base : 'es';
+};
+
+const getAuthErrorMessage = (error: unknown, provider?: 'google' | 'github') => {
+  const code = typeof error === 'object' && error && 'code' in error ? String((error as { code?: unknown }).code) : '';
+
+  if (provider === 'github' && ['auth/operation-not-allowed', 'auth/admin-restricted-operation'].includes(code)) {
+    return 'GitHub login no esta disponible todavia. Usa Google o email.';
+  }
+
+  const messages: Record<string, string> = {
+    'auth/invalid-email': 'El email no tiene un formato valido.',
+    'auth/user-not-found': 'No existe una cuenta con este email.',
+    'auth/wrong-password': 'La contrasena es incorrecta.',
+    'auth/invalid-credential': 'Email o contrasena incorrectos.',
+    'auth/email-already-in-use': 'Este email ya esta registrado. Inicia sesion o recupera tu contrasena.',
+    'auth/weak-password': 'La contrasena debe tener al menos 6 caracteres.',
+    'auth/missing-password': 'Escribe tu contrasena.',
+    'auth/popup-closed-by-user': 'La ventana de acceso se cerro antes de completar el login.',
+    'auth/cancelled-popup-request': 'Ya hay una ventana de acceso abierta.',
+    'auth/popup-blocked': 'El navegador bloqueo la ventana de acceso. Permite popups e intenta de nuevo.',
+    'auth/account-exists-with-different-credential': 'Ya existe una cuenta con este email usando otro metodo de acceso.',
+    'auth/operation-not-allowed':
+      provider === 'google'
+        ? 'Google login no esta disponible todavia. Usa email.'
+        : 'Este metodo de acceso no esta disponible todavia.',
+    'auth/network-request-failed': 'No pudimos conectar con Firebase Auth. Revisa tu conexion e intenta de nuevo.',
+    'auth/too-many-requests': 'Demasiados intentos. Espera unos minutos e intenta de nuevo.',
+  };
+
+  return messages[code] || 'No pudimos completar el acceso. Intentalo de nuevo.';
 };
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
@@ -289,6 +336,46 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     }
   };
 
+  const signInWithGoogle = async () => {
+    try {
+      await signInWithPopup(auth, googleProvider);
+    } catch (error) {
+      throw new Error(getAuthErrorMessage(error, 'google'));
+    }
+  };
+
+  const signInWithGithub = async () => {
+    try {
+      await signInWithPopup(auth, githubProvider);
+    } catch (error) {
+      throw new Error(getAuthErrorMessage(error, 'github'));
+    }
+  };
+
+  const signInWithEmail = async (email: string, password: string) => {
+    try {
+      await signInWithEmailAndPassword(auth, email.trim(), password);
+    } catch (error) {
+      throw new Error(getAuthErrorMessage(error));
+    }
+  };
+
+  const signUpWithEmail = async (email: string, password: string) => {
+    try {
+      await createUserWithEmailAndPassword(auth, email.trim(), password);
+    } catch (error) {
+      throw new Error(getAuthErrorMessage(error));
+    }
+  };
+
+  const resetPassword = async (email: string) => {
+    try {
+      await sendPasswordResetEmail(auth, email.trim());
+    } catch (error) {
+      throw new Error(getAuthErrorMessage(error));
+    }
+  };
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setUser(user);
@@ -352,7 +439,22 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   ]);
 
   return (
-    <AuthContext.Provider value={{ user, userProfile, company, role, loading, refreshCompany, refreshProfile }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        userProfile,
+        company,
+        role,
+        loading,
+        signInWithGoogle,
+        signInWithGithub,
+        signInWithEmail,
+        signUpWithEmail,
+        resetPassword,
+        refreshCompany,
+        refreshProfile,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );
