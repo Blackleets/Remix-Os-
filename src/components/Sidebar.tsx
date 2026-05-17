@@ -86,7 +86,7 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
               {company?.logoURL ? (
                 <img src={company.logoURL} alt={company.name} className="h-full w-full object-cover" />
               ) : (
-                company?.name?.[0] || 'R'
+                <Store className="h-5 w-5" />
               )}
             </div>
             <div className="min-w-0">
