@@ -329,10 +329,10 @@ export function Orders() {
   };
 
   return (
-    <div className="space-y-6 md:space-y-8">
-      <section className="hero-gradient overflow-hidden rounded-[30px] border border-white/10 p-6 md:p-8">
-        <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
-          <div className="max-w-3xl">
+    <div className="w-full max-w-full min-w-0 space-y-5 overflow-x-hidden pb-8 md:space-y-8">
+      <section className="hero-gradient w-full max-w-full min-w-0 overflow-hidden rounded-[24px] border border-white/10 p-4 sm:rounded-[30px] sm:p-6 md:p-8">
+        <div className="flex w-full min-w-0 flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
+          <div className="min-w-0 max-w-3xl">
             <div className="mb-4 flex flex-wrap items-center gap-2">
               <span className="operator-badge">
                 <span className="status-dot bg-blue-400 text-blue-400" />
@@ -343,15 +343,15 @@ export function Orders() {
                 Pedidos en vivo
               </span>
             </div>
-            <h1 className="section-title text-4xl md:text-5xl">{t('orders.title')}</h1>
-            <p className="mt-3 max-w-2xl text-sm leading-relaxed text-neutral-300 md:text-base">
+            <h1 className="section-title max-w-full break-words text-3xl sm:text-5xl">{t('orders.title')}</h1>
+            <p className="mt-3 max-w-full break-words text-sm leading-relaxed text-neutral-300 sm:max-w-2xl md:text-base">
               Registra pedidos, filtra estados y convierte operaciones en ventas sin salir del flujo comercial.
             </p>
           </div>
-          <div className="flex flex-col gap-3 sm:flex-row">
+          <div className="flex w-full min-w-0 flex-col gap-2 sm:w-auto sm:flex-row sm:gap-3">
             <Button
               variant="secondary"
-              className="h-12 gap-2 px-6"
+              className="h-11 w-full gap-2 px-4 text-xs sm:h-12 sm:w-auto sm:px-6 sm:text-sm"
               onClick={() => exportToCSV(filteredOrders.map((o) => ({
                 ID: o.id,
                 Customer: o.customerName,
@@ -362,45 +362,49 @@ export function Orders() {
               })), 'orders')}
               disabled={filteredOrders.length === 0}
             >
-              <Download className="w-4 h-4" /> {t('common.export')}
+              <Download className="h-4 w-4" />
+              <span className="sm:hidden">Exportar</span>
+              <span className="hidden sm:inline">{t('common.export')}</span>
             </Button>
             {canEditOrders && (
-              <Button onClick={() => { handleCreateNew(); setError(null); }} className="h-12 gap-2 px-6">
-                <Plus className="w-4 h-4" /> {t('orders.log_transaction')}
+              <Button onClick={() => { handleCreateNew(); setError(null); }} className="h-11 w-full gap-2 px-4 text-xs sm:h-12 sm:w-auto sm:px-6 sm:text-sm">
+                <Plus className="h-4 w-4" />
+                <span className="sm:hidden">Registrar</span>
+                <span className="hidden sm:inline">{t('orders.log_transaction')}</span>
               </Button>
             )}
           </div>
         </div>
 
-        <div className="mt-6 grid gap-3 md:grid-cols-3">
-          <div className="data-tile">
+        <div className="mt-5 grid w-full min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="data-tile min-w-0 !p-4 sm:!p-5">
             <p className="section-kicker mb-2 !text-neutral-500">Pedidos completados</p>
-            <div className="flex items-end justify-between gap-4">
-              <div>
-                <p className="text-3xl font-bold text-white">{completedCount}</p>
+            <div className="flex min-w-0 items-end justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-2xl font-bold text-white sm:text-3xl">{completedCount}</p>
                 <p className="mt-1 text-sm text-neutral-400">Ventas cerradas y registradas en este ciclo.</p>
               </div>
-              <Sparkles className="h-5 w-5 text-emerald-300" />
+              <Sparkles className="h-5 w-5 shrink-0 text-emerald-300" />
             </div>
           </div>
-          <div className="data-tile">
+          <div className="data-tile min-w-0 !p-4 sm:!p-5">
             <p className="section-kicker mb-2 !text-neutral-500">Pendientes</p>
-            <div className="flex items-end justify-between gap-4">
-              <div>
-                <p className="text-3xl font-bold text-white">{pendingCount}</p>
+            <div className="flex min-w-0 items-end justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-2xl font-bold text-white sm:text-3xl">{pendingCount}</p>
                 <p className="mt-1 text-sm text-neutral-400">Pedidos que aun requieren cierre o seguimiento.</p>
               </div>
-              <Activity className="h-5 w-5 text-amber-300" />
+              <Activity className="h-5 w-5 shrink-0 text-amber-300" />
             </div>
           </div>
-          <div className="data-tile">
+          <div className="data-tile min-w-0 !p-4 sm:!p-5">
             <p className="section-kicker mb-2 !text-neutral-500">Volumen filtrado</p>
-            <div className="flex items-end justify-between gap-4">
-              <div>
-                <p className="text-3xl font-bold text-white">{formatCurrency(totalVolume)}</p>
+            <div className="flex min-w-0 items-end justify-between gap-3">
+              <div className="min-w-0">
+                <p className="break-words font-mono text-2xl font-bold text-white sm:text-3xl">{formatCurrency(totalVolume)}</p>
                 <p className="mt-1 text-sm text-neutral-400">Valor total del conjunto visible actual.</p>
               </div>
-              <Wallet className="h-5 w-5 text-blue-300" />
+              <Wallet className="h-5 w-5 shrink-0 text-blue-300" />
             </div>
           </div>
         </div>
@@ -414,15 +418,15 @@ export function Orders() {
         limitName={t('orders.limit_name') || 'Pedidos mensuales'}
       />
 
-      <Card className="overflow-hidden p-0">
-        <div className="border-b border-white/[0.06] bg-white/[0.02] p-6">
-          <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-            <div>
+      <Card className="w-full max-w-full min-w-0 overflow-hidden p-0">
+        <div className="border-b border-white/[0.06] bg-white/[0.02] p-4 sm:p-6">
+          <div className="flex w-full min-w-0 flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+            <div className="min-w-0">
               <p className="section-kicker mb-2">Filtros</p>
-              <h2 className="section-title text-2xl">{t('orders.table.id')}</h2>
-              <p className="mt-2 text-sm text-neutral-400">Busca por cliente o pedido y reduce el resultado por estado y metodo de pago.</p>
+              <h2 className="section-title break-words text-2xl">{t('orders.table.id')}</h2>
+              <p className="mt-2 max-w-full break-words text-sm text-neutral-400">Busca por cliente o pedido y reduce el resultado por estado y metodo de pago.</p>
             </div>
-            <div className="flex w-full flex-col gap-3 lg:flex-row lg:items-center lg:justify-end">
+            <div className="flex w-full min-w-0 flex-col gap-3 lg:flex-row lg:items-center lg:justify-end">
               <div className="relative group w-full lg:max-w-sm">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-600 transition-colors group-focus-within:text-blue-500" />
                 <Input
@@ -432,12 +436,12 @@ export function Orders() {
                   onChange={(e) => setSearch(e.target.value)}
                 />
               </div>
-              <div className="flex gap-2">
+              <div className="grid w-full min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 lg:w-auto">
                 <select
                   aria-label="Filtrar pedidos por estado"
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
-                  className="h-12 rounded-2xl border border-white/10 bg-black/30 px-4 text-xs font-bold uppercase tracking-[0.16em] text-white focus:outline-none"
+                  className="h-12 w-full min-w-0 rounded-2xl border border-white/10 bg-black/30 px-3 text-xs font-bold uppercase tracking-[0.12em] text-white focus:outline-none sm:px-4 sm:tracking-[0.16em]"
                 >
                   <option value="all" className="bg-neutral-900">Estado / {t('common.all') || 'Todos'}</option>
                   <option value="completed" className="bg-neutral-900">Completado</option>
@@ -448,7 +452,7 @@ export function Orders() {
                   aria-label="Filtrar pedidos por metodo de pago"
                   value={paymentFilter}
                   onChange={(e) => setPaymentFilter(e.target.value as typeof paymentFilter)}
-                  className="h-12 rounded-2xl border border-white/10 bg-black/30 px-4 text-xs font-bold uppercase tracking-[0.16em] text-white focus:outline-none"
+                  className="h-12 w-full min-w-0 rounded-2xl border border-white/10 bg-black/30 px-3 text-xs font-bold uppercase tracking-[0.12em] text-white focus:outline-none sm:px-4 sm:tracking-[0.16em]"
                 >
                   <option value="all" className="bg-neutral-900">{t('orders.table.modality')}</option>
                   <option value="Card" className="bg-neutral-900">{t('common.card') || 'Card'}</option>

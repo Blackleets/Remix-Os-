@@ -115,6 +115,7 @@ export function Copilot() {
   const navigate = useNavigate();
   const location = useLocation();
   const isPOSRoute = location.pathname === '/pos';
+  const isOrdersRoute = location.pathname === '/orders';
 
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'chat' | 'intel'>('chat');
@@ -483,7 +484,7 @@ export function Copilot() {
       </AnimatePresence>
 
       {!isOpen && (
-      <div className={cn('peppy-btn-pos fixed z-[60]', isPOSRoute ? 'left-6' : 'right-6')}>
+      <div className={cn('peppy-btn-pos fixed z-[60]', isPOSRoute ? 'left-6' : isOrdersRoute ? 'right-3 sm:right-6' : 'right-6')}>
         <motion.button
           onClick={openPanel}
           type="button"
@@ -491,7 +492,7 @@ export function Copilot() {
           whileHover={{ scale: 1.035 }}
           whileTap={{ scale: 0.97 }}
           className={cn(
-            'group relative flex h-14 w-14 items-center justify-center overflow-hidden rounded-[20px] border transition-all duration-300 lg:h-16 lg:w-16 lg:rounded-[22px]',
+            'group relative flex h-[52px] w-[52px] items-center justify-center overflow-hidden rounded-[18px] border transition-all duration-300 sm:h-14 sm:w-14 sm:rounded-[20px] lg:h-16 lg:w-16 lg:rounded-[22px]',
             isOpen
               ? 'border-white/12 bg-[rgba(14,18,24,0.96)] shadow-[0_18px_48px_rgba(0,0,0,0.42)]'
               : 'border-blue-400/18 bg-[linear-gradient(180deg,rgba(89,133,255,0.96),rgba(43,88,211,0.96))] shadow-[0_22px_56px_rgba(43,88,211,0.36)] before:absolute before:inset-0 before:bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.24),transparent_45%)] before:opacity-90'
@@ -499,7 +500,7 @@ export function Copilot() {
         >
           {(
             <>
-              <BrainCircuit className="relative h-6 w-6 text-white" />
+              <BrainCircuit className="relative h-5 w-5 text-white sm:h-6 sm:w-6" />
               <span className="absolute bottom-1.5 rounded-full border border-white/14 bg-black/20 px-1.5 py-0.5 font-mono text-[8px] font-bold uppercase tracking-[0.18em] text-blue-100" title="Peppy AI">
                 P
               </span>
