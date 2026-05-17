@@ -1,349 +1,329 @@
 import { Link } from 'react-router-dom';
-import { Button } from '../components/Common';
-import { ArrowRight, BarChart3, ShieldCheck, Zap, Globe, Cpu, Layers, Package, Users, ShoppingCart, Settings, CheckCircle2, ChevronDown } from 'lucide-react';
-import { motion, useScroll, useTransform, useReducedMotion, AnimatePresence } from 'motion/react';
-import { useRef, useState, useEffect } from 'react';
-import { useLocale } from '../hooks/useLocale';
-
+import { AnimatePresence, motion } from 'motion/react';
+import { useEffect, useMemo, useState } from 'react';
+import {
+  Activity,
+  ArrowRight,
+  BarChart3,
+  Cpu,
+  Layers,
+  Package,
+  Radar,
+  ShieldCheck,
+  ShoppingCart,
+  Users,
+  Zap,
+} from 'lucide-react';
+import { Button, OSGlyph, cn } from '../components/Common';
 import { LanguageSwitcher } from '../components/LanguageSwitcher';
 
-const Typewriter = ({ text, delay = 0 }: { text: string; delay?: number }) => {
+const modules = [
+  {
+    icon: Users,
+    title: 'Clientes y relación',
+    desc: 'Centraliza historial, seguimiento y señales de valor en una sola vista operativa.',
+    tone: 'text-blue-300',
+  },
+  {
+    icon: Package,
+    title: 'Catálogo y stock',
+    desc: 'Controla inventario, variantes y alertas de reposición sin salir del núcleo.',
+    tone: 'text-emerald-300',
+  },
+  {
+    icon: ShoppingCart,
+    title: 'Pedidos y caja',
+    desc: 'Opera ventas y flujo comercial con una capa visual consistente y rápida.',
+    tone: 'text-amber-300',
+  },
+  {
+    icon: Cpu,
+    title: 'Operador IA',
+    desc: 'Recibe insights, vigilancia operativa y prioridades accionables sobre datos reales.',
+    tone: 'text-cyan-300',
+  },
+];
+
+const typewriterLines = [
+  'Analiza ventas, inventario y clientes en tiempo real.',
+  'Detecta riesgos antes de que afecten tus ingresos.',
+  'Convierte datos operativos en decisiones accionables.',
+  'Prioriza clientes, pedidos y stock desde una sola consola.',
+  'Activa una capa IA para operar con más claridad.',
+];
+
+const consoleLogs = [
+  '[OS] Núcleo comercial sincronizado',
+  '[IA] Riesgo de stock bajo detectado',
+  '[DATA] Flujo de pedidos estable',
+  '[OPS] Clientes listos para seguimiento',
+  '[AI] Analizando tendencia de ingresos',
+  '[INV] 4 productos requieren reposición',
+  '[CRM] 12 clientes con alta intención',
+  '[PAY] Facturación mensual verificada',
+  '[TEAM] Equipo operativo activo',
+  '[POS] Ventas recientes sincronizadas',
+];
+
+const revenueValues = ['$12.4k', '$18.9k', '$24.2k', '$31.8k', '$42.6k'];
+const orderValues = ['48', '126', '248', '391', '482'];
+const alertValues = ['3', '7', '12', '9', '5'];
+
+const telemetrySets = [
+  [72, 88, 54, 94, 68, 82],
+  [78, 91, 61, 86, 74, 88],
+  [66, 83, 58, 97, 71, 79],
+  [82, 89, 63, 92, 77, 90],
+];
+
+const moduleStateSets = [
+  [
+    { label: 'Panel ejecutivo', state: 'active' },
+    { label: 'Inventario', state: 'watch' },
+    { label: 'Clientes', state: 'syncing' },
+    { label: 'Copilot IA', state: 'active' },
+  ],
+  [
+    { label: 'Panel ejecutivo', state: 'active' },
+    { label: 'Inventario', state: 'active' },
+    { label: 'Clientes', state: 'watch' },
+    { label: 'Copilot IA', state: 'syncing' },
+  ],
+  [
+    { label: 'Panel ejecutivo', state: 'syncing' },
+    { label: 'Inventario', state: 'active' },
+    { label: 'Clientes', state: 'active' },
+    { label: 'Copilot IA', state: 'watch' },
+  ],
+];
+
+function useTypewriterRotator(lines: string[]) {
+  const [lineIndex, setLineIndex] = useState(0);
   const [displayedText, setDisplayedText] = useState('');
-  
-  useEffect(() => {
-    let timeout: NodeJS.Timeout;
-    if (delay > 0) {
-      timeout = setTimeout(() => {
-        let i = 0;
-        const interval = setInterval(() => {
-          setDisplayedText(text.slice(0, i + 1));
-          i++;
-          if (i === text.length) clearInterval(interval);
-        }, 50);
-      }, delay * 1000);
-    } else {
-      let i = 0;
-      const interval = setInterval(() => {
-        setDisplayedText(text.slice(0, i + 1));
-        i++;
-        if (i === text.length) clearInterval(interval);
-      }, 50);
-    }
-    return () => {
-      clearTimeout(timeout);
-    };
-  }, [text, delay]);
-
-  return (
-    <span>
-      {displayedText}
-      <motion.span
-        animate={{ opacity: [1, 1, 0, 0, 1] }}
-        transition={{ duration: 0.8, repeat: Infinity, times: [0, 0.49, 0.5, 0.99, 1] }}
-        className="inline-block w-[2px] h-[1em] bg-blue-500 ml-1 translate-y-0.5"
-      />
-    </span>
-  );
-};
-
-const MockupConsole = () => {
-  const [activeTab, setActiveTab] = useState(0); // 0: Financials, 1: Inventory, 2: Intelligence
-  const [logs, setLogs] = useState<string[]>(['[OS] Initializing business core...']);
-  const statusPool = [
-    '[SYSTEM] Syncing customer vault...',
-    '[OS] Inventory calibration complete',
-    '[INTEL] Analyzing revenue trends...',
-    '[OS] Processing batch orders...',
-    '[SYSTEM] Security handshake: Verified',
-    '[INTEL] Low stock prediction triggered',
-    '[OS] Indexing distribution nodes...',
-    '[SYSTEM] Financial matrix updated'
-  ];
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
-    const tabInterval = setInterval(() => {
-      setActiveTab((prev) => (prev + 1) % 3);
-    }, 5000);
+    const currentLine = lines[lineIndex];
+    const typingDelay = isDeleting ? 28 : 42;
+    const pauseDelay = isDeleting ? 500 : 1800;
 
-    const logInterval = setInterval(() => {
-      setLogs((prev) => {
-        const next = [...prev, statusPool[Math.floor(Math.random() * statusPool.length)]];
-        return next.slice(-6);
-      });
-    }, 3000);
+    const timeout = window.setTimeout(() => {
+      if (!isDeleting) {
+        const nextText = currentLine.slice(0, displayedText.length + 1);
+        setDisplayedText(nextText);
+        if (nextText === currentLine) {
+          setIsDeleting(true);
+        }
+      } else {
+        const nextText = currentLine.slice(0, Math.max(0, displayedText.length - 1));
+        setDisplayedText(nextText);
+        if (nextText.length === 0) {
+          setIsDeleting(false);
+          setLineIndex((current) => (current + 1) % lines.length);
+        }
+      }
+    }, displayedText === currentLine || displayedText.length === 0 ? pauseDelay : typingDelay);
 
-    return () => {
-      clearInterval(tabInterval);
-      clearInterval(logInterval);
-    };
+    return () => window.clearTimeout(timeout);
+  }, [displayedText, isDeleting, lineIndex, lines]);
+
+  return displayedText;
+}
+
+function useRotatingConsoleData() {
+  const [tick, setTick] = useState(0);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      setTick((current) => (current + 1) % 20);
+    }, 2600);
+
+    return () => window.clearInterval(interval);
   }, []);
 
+  const visibleLogs = useMemo(() => {
+    const start = tick % consoleLogs.length;
+    return Array.from({ length: 4 }, (_, index) => consoleLogs[(start + index) % consoleLogs.length]);
+  }, [tick]);
+
+  return {
+    visibleLogs,
+    revenue: revenueValues[tick % revenueValues.length],
+    orders: orderValues[tick % orderValues.length],
+    alerts: alertValues[tick % alertValues.length],
+    telemetry: telemetrySets[tick % telemetrySets.length],
+    modules: moduleStateSets[tick % moduleStateSets.length],
+  };
+}
+
+function LiveOperatingConsole() {
+  const { visibleLogs, revenue, orders, alerts, telemetry, modules: activeModules } = useRotatingConsoleData();
+
   return (
-    <div className="p-4 md:p-8 grid grid-cols-12 gap-6 bg-neutral-950">
-      {/* Console Sidebar */}
-      <div className="col-span-12 md:col-span-4 space-y-4">
-        <div className="p-4 bg-white/5 border border-white/10 rounded-2xl">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse" />
-              <span className="text-[10px] font-bold uppercase tracking-widest text-neutral-400">System Log</span>
-            </div>
-            <span className="text-[9px] font-mono text-neutral-600">LIVE // R_OS</span>
-          </div>
-          <div className="space-y-2 font-mono text-[10px] text-neutral-500">
-            {logs.map((log, i) => (
-              <motion.div
-                key={i + log}
-                initial={{ opacity: 0, x: -5 }}
-                animate={{ opacity: 1, x: 0 }}
-                className="flex gap-2"
-              >
-                <span className="text-blue-900 opacity-50">[{new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}]</span>
-                <span className={log.startsWith('[INTEL]') ? 'text-blue-400' : ''}>{log}</span>
-              </motion.div>
+    <div className="landing-console-wrap relative mx-auto w-full max-w-[640px]">
+      <div className="landing-console-glow absolute inset-6 rounded-[36px] bg-blue-500/12 blur-[70px]" />
+      <div className="shell-panel landing-console relative overflow-hidden rounded-[32px]">
+        <div className="landing-console-scan absolute inset-x-0 top-0 h-[160px]" />
+
+        <div className="flex h-12 items-center border-b border-white/6 bg-white/[0.02] px-4">
+          <div className="flex gap-1.5">
+            {[0, 1, 2].map((item) => (
+              <span key={item} className="h-2.5 w-2.5 rounded-full border border-white/10 bg-white/10" />
             ))}
+          </div>
+          <div className="mx-auto flex items-center gap-2 text-[10px] uppercase tracking-[0.22em] text-neutral-500">
+            <Radar className="h-3 w-3 text-blue-300" />
+            REMIX-OS.CONSOLE
           </div>
         </div>
 
-        <div className="p-5 border border-white/5 rounded-2xl space-y-4 bg-black/40">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-bold uppercase tracking-widest text-neutral-400">Core Modules</span>
-            <div className="flex gap-1">
-              {[0, 1, 2].map(i => (
-                <div key={i} className={`w-1.5 h-1.5 rounded-full ${activeTab === i ? 'bg-blue-500' : 'bg-white/10'}`} />
-              ))}
-            </div>
-          </div>
-          <div className="space-y-3">
-            {[
-              { label: 'Financials', active: activeTab === 0 },
-              { label: 'Inventory', active: activeTab === 1 },
-              { label: 'Intelligence', active: activeTab === 2 }
-            ].map((m, i) => (
-              <div key={i} className={`flex items-center justify-between p-2 rounded-lg transition-colors ${m.active ? 'bg-white/5' : ''}`}>
-                <span className={`text-[11px] ${m.active ? 'text-white' : 'text-neutral-600'}`}>{m.label}</span>
-                {m.active && <div className="w-1 h-1 bg-blue-500 rounded-full" />}
+        <div className="grid gap-4 bg-[rgba(7,10,14,0.97)] p-4 md:grid-cols-[0.86fr_1.14fr] md:p-6">
+          <div className="space-y-4">
+            <div className="surface-elevated p-4">
+              <div className="mb-3 flex items-center justify-between">
+                <span className="section-kicker !text-neutral-400">Estado del sistema</span>
+                <span className="telemetry-chip !px-2.5 !py-1">
+                  <span className="status-dot pulse-live bg-emerald-400 text-emerald-400" />
+                  EN VIVO
+                </span>
               </div>
-            ))}
+              <div className="space-y-2 overflow-hidden font-mono text-[11px] text-neutral-400">
+                <AnimatePresence mode="popLayout" initial={false}>
+                  {visibleLogs.map((log) => (
+                    <motion.p
+                      key={log}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -10 }}
+                      transition={{ duration: 0.28 }}
+                    >
+                      {log}
+                    </motion.p>
+                  ))}
+                </AnimatePresence>
+              </div>
+            </div>
+
+            <div className="surface-elevated p-4">
+              <p className="section-kicker mb-3 !text-neutral-400">Módulos activos</p>
+              <div className="space-y-2">
+                {activeModules.map((item) => (
+                  <div key={item.label} className="flex items-center justify-between rounded-2xl border border-white/6 bg-white/[0.02] px-3 py-2.5">
+                    <span className="text-sm text-neutral-300">{item.label}</span>
+                    <span
+                      className={cn(
+                        'h-2.5 w-2.5 rounded-full shadow-[0_0_12px_currentColor]',
+                        item.state === 'active'
+                          ? 'bg-emerald-400 text-emerald-400'
+                          : item.state === 'watch'
+                            ? 'bg-amber-300 text-amber-300'
+                            : 'bg-blue-300 text-blue-300'
+                      )}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
-        </div>
-      </div>
 
-      {/* Dynamic Workspace */}
-      <div className="col-span-12 md:col-span-8 space-y-6">
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-          {activeTab === 0 && (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="contents">
+          <div className="space-y-4">
+            <div className="grid gap-3 sm:grid-cols-3">
               {[
-                { label: 'Total Revenue', value: '$128,402', change: '+14%' },
-                { label: 'Net Profit', value: '$42,150', change: '+8%' },
-                { label: 'Avg Order', value: '$842', change: '+3%' },
-              ].map((stat, i) => (
-                <div key={i} className="p-4 bg-white/5 border border-white/10 rounded-2xl">
-                  <p className="text-[10px] text-neutral-500 uppercase tracking-widest mb-1">{stat.label}</p>
-                  <p className="text-2xl font-bold flex items-center gap-2">
-                    {stat.value}
-                    <span className="text-[10px] text-emerald-500 font-mono font-normal">{stat.change}</span>
-                  </p>
+                { label: 'Ingresos 30d', value: revenue, accent: 'text-blue-300' },
+                { label: 'Pedidos', value: orders, accent: 'text-emerald-300' },
+                { label: 'Alertas IA', value: alerts, accent: 'text-amber-300' },
+              ].map((card) => (
+                <div key={card.label} className="data-tile !p-4">
+                  <p className="mb-2 text-[10px] font-black uppercase tracking-[0.18em] text-neutral-500">{card.label}</p>
+                  <AnimatePresence mode="wait" initial={false}>
+                    <motion.p
+                      key={card.value}
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -8 }}
+                      transition={{ duration: 0.22 }}
+                      className={cn('text-xl font-bold', card.accent)}
+                    >
+                      {card.value}
+                    </motion.p>
+                  </AnimatePresence>
                 </div>
               ))}
-            </motion.div>
-          )}
-          {activeTab === 1 && (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="contents">
-              {[
-                { label: 'Items in Stock', value: '1,240', status: 'Healthy' },
-                { label: 'Low Stock Alerts', value: '4', status: 'Action' },
-                { label: 'Stock Value', value: '$210k', status: 'Stable' },
-              ].map((stat, i) => (
-                <div key={i} className="p-4 bg-white/5 border border-white/10 rounded-2xl">
-                  <p className="text-[10px] text-neutral-500 uppercase tracking-widest mb-1">{stat.label}</p>
-                  <p className="text-2xl font-bold flex items-center gap-2">
-                    {stat.value}
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded uppercase font-bold tracking-tighter ${stat.status === 'Action' ? 'bg-red-500/10 text-red-500' : 'bg-emerald-500/10 text-emerald-500'}`}>{stat.status}</span>
-                  </p>
-                </div>
-              ))}
-            </motion.div>
-          )}
-          {activeTab === 2 && (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="contents">
-              {[
-                { label: 'Prediction Accuracy', value: '98.2%', detail: 'v4.0' },
-                { label: 'Anomalies', value: '0', detail: 'Clean' },
-                { label: 'Insights Ready', value: '12', detail: 'Critical' },
-              ].map((stat, i) => (
-                <div key={i} className="p-4 bg-white/5 border border-white/10 rounded-2xl">
-                  <p className="text-[10px] text-neutral-500 uppercase tracking-widest mb-1">{stat.label}</p>
-                  <p className="text-2xl font-bold flex items-center gap-2">
-                    {stat.value}
-                    <span className="text-[10px] text-blue-500 font-mono font-normal uppercase">{stat.detail}</span>
-                  </p>
-                </div>
-              ))}
-            </motion.div>
-          )}
-        </div>
+            </div>
 
-        <div className="h-80 bg-white/[0.02] border border-white/5 rounded-2xl relative p-6 overflow-hidden">
-          <AnimatePresence mode="wait">
-            {activeTab === 0 && (
-              <motion.div
-                key="finance"
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                className="space-y-4"
-              >
-                <div className="flex justify-between items-center mb-6">
-                  <span className="text-xs font-bold uppercase tracking-widest">Recent Sales Pipeline</span>
-                  <div className="h-2 w-32 bg-emerald-500/20 border border-emerald-500/30 rounded-full overflow-hidden">
-                    <motion.div initial={{ x: '-100%' }} animate={{ x: '10%' }} transition={{ duration: 2, repeat: Infinity }} className="h-full w-full bg-emerald-500" />
-                  </div>
+            <div className="surface-elevated p-5">
+              <div className="mb-4 flex items-center justify-between">
+                <div>
+                  <p className="section-kicker mb-2">Telemetría ejecutiva</p>
+                  <h3 className="text-lg font-semibold text-white">Live Operating Console</h3>
                 </div>
-                {[...Array(5)].map((_, i) => (
-                  <div key={i} className="h-10 w-full bg-white/5 rounded-lg flex items-center px-4 justify-between border border-white/5">
-                    <div className="flex gap-4 items-center">
-                      <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full" />
-                      <div className="h-2 w-32 bg-white/10 rounded" />
+                <BarChart3 className="h-5 w-5 text-blue-300" />
+              </div>
+
+              <div className="space-y-3">
+                {telemetry.map((width, index) => (
+                  <div key={index} className="flex items-center gap-3">
+                    <span className="w-10 text-[10px] font-mono uppercase tracking-[0.18em] text-neutral-600">N{index + 1}</span>
+                    <div className="h-2 flex-1 overflow-hidden rounded-full bg-white/[0.05]">
+                      <motion.div
+                        animate={{ width: `${width}%` }}
+                        transition={{ duration: 0.8, ease: 'easeInOut' }}
+                        className="h-full rounded-full bg-[linear-gradient(90deg,#4d7cff,#7cb8ff)]"
+                      />
                     </div>
-                    <div className="font-mono text-[10px] text-white/40">+$ {Math.floor(Math.random() * 1000)}.00</div>
                   </div>
                 ))}
-              </motion.div>
-            )}
-            {activeTab === 1 && (
-              <motion.div
-                key="inventory"
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                className="space-y-4"
-              >
-                <div className="flex justify-between items-center mb-6">
-                  <span className="text-xs font-bold uppercase tracking-widest">Critical Stock Levels</span>
-                  <div className="flex gap-2">
-                    <div className="px-2 py-1 bg-red-500/10 border border-red-500/20 rounded text-[8px] text-red-500 font-bold uppercase">4 Warnings</div>
-                  </div>
+              </div>
+
+              <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                <div className="rounded-[20px] border border-blue-400/12 bg-blue-500/8 p-4">
+                  <p className="mb-2 text-[10px] font-black uppercase tracking-[0.18em] text-blue-200">CAPA IA</p>
+                  <p className="text-sm leading-relaxed text-neutral-200">
+                    Prioriza clientes, detecta presión de inventario y resume el pulso comercial.
+                  </p>
                 </div>
-                {[...Array(5)].map((_, i) => (
-                  <div key={i} className="h-10 w-full bg-white/5 rounded-lg flex items-center px-4 justify-between border border-white/5">
-                    <div className="flex gap-4 items-center">
-                      <div className={`w-1.5 h-1.5 rounded-full ${i < 2 ? 'bg-red-500' : 'bg-blue-500'}`} />
-                      <div className="h-2 w-48 bg-white/10 rounded" />
-                    </div>
-                    <div className="font-mono text-[10px] text-white/40">{Math.floor(Math.random() * 100)} Units</div>
-                  </div>
-                ))}
-              </motion.div>
-            )}
-            {activeTab === 2 && (
-              <motion.div
-                key="intel"
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                className="space-y-6"
-              >
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-xs font-bold uppercase tracking-widest">Growth Vector Analysis</span>
+                <div className="rounded-[20px] border border-white/8 bg-white/[0.02] p-4">
+                  <p className="mb-2 text-[10px] font-black uppercase tracking-[0.18em] text-neutral-400">VISTA PREMIUM</p>
+                  <p className="text-sm leading-relaxed text-neutral-300">
+                    Un solo espacio para operar ventas, equipo, inventario y decisiones críticas.
+                  </p>
                 </div>
-                <div className="grid grid-cols-2 gap-6">
-                  <div className="space-y-4">
-                    <div className="p-4 bg-blue-600/5 border border-blue-600/10 rounded-2xl">
-                      <p className="text-[10px] text-blue-400 mb-2 uppercase font-bold tracking-widest">Best Performer</p>
-                      <div className="h-3 w-3/4 bg-white/10 rounded mb-2" />
-                      <div className="h-2 w-1/2 bg-white/5 rounded" />
-                    </div>
-                    <div className="p-4 bg-white/[0.02] border border-white/5 rounded-2xl">
-                      <p className="text-[10px] text-neutral-500 mb-2 uppercase font-bold tracking-widest">Anomaly Detection</p>
-                      <div className="flex gap-2 items-center">
-                        <ShieldCheck className="w-3 h-3 text-emerald-500" />
-                        <span className="text-[10px] text-neutral-400">All Nodes Secure</span>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-center relative">
-                    <BarChart3 className="w-32 h-32 text-blue-500/10" />
-                    <motion.div
-                      animate={{ height: ['40%', '80%', '60%', '90%', '50%'] }}
-                      transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
-                      className="absolute bottom-0 left-1/4 w-4 bg-blue-500/20 rounded-t"
-                    />
-                    <motion.div
-                      animate={{ height: ['60%', '40%', '90%', '50%', '80%'] }}
-                      transition={{ duration: 3.5, repeat: Infinity, ease: "easeInOut", delay: 0.5 }}
-                      className="absolute bottom-0 left-1/2 w-4 bg-blue-500/40 rounded-t"
-                    />
-                    <motion.div
-                      animate={{ height: ['20%', '60%', '40%', '70%', '30%'] }}
-                      transition={{ duration: 4.5, repeat: Infinity, ease: "easeInOut", delay: 1 }}
-                      className="absolute bottom-0 left-3/4 w-4 bg-blue-500/10 rounded-t"
-                    />
-                  </div>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
   );
-};
+}
 
 export function Landing() {
-  const containerRef = useRef(null);
-  const { t, language, setLanguage } = useLocale();
-  const prefersReducedMotion = useReducedMotion();
-
-  const { scrollYProgress } = useScroll({
-    target: containerRef,
-    offset: ["start start", "end end"]
-  });
-
-  const heroOpacity = useTransform(scrollYProgress, [0, 0.2], [1, 0]);
-  const mockupY = useTransform(scrollYProgress, [0, 0.3], [100, 0]);
-  const mockupScale = useTransform(scrollYProgress, [0, 0.3], [0.8, 1]);
-
-  const variants = {
-    hidden: { opacity: 0, y: prefersReducedMotion ? 0 : 40, filter: 'blur(10px)' },
-    visible: (i: number) => ({
-      opacity: 1,
-      y: 0,
-      filter: 'blur(0px)',
-      transition: {
-        duration: 1.2,
-        delay: 0.2 + i * 0.2,
-        ease: [0.16, 1, 0.3, 1] as any
-      }
-    })
-  };
+  const dynamicLine = useTypewriterRotator(typewriterLines);
 
   return (
-    <div ref={containerRef} className="min-h-screen bg-black text-white selection:bg-blue-500/30">
-      {/* Navigation */}
-      <nav className="fixed top-0 w-full z-50 border-b border-white/5 bg-black/20 backdrop-blur-xl">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
+    <div className="min-h-screen bg-black text-white selection:bg-blue-500/30">
+      <nav className="sticky top-0 z-50 border-b border-white/6 bg-[rgba(3,4,7,0.72)] backdrop-blur-2xl">
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center">
-              <div className="w-4 h-4 bg-black rounded-sm" />
+            <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-white text-black shadow-[0_12px_28px_rgba(255,255,255,0.08)]">
+              <div className="h-4 w-4 rounded-sm bg-black rotate-45" />
             </div>
-            <span className="font-display font-bold text-xl tracking-tight">Remix OS</span>
+            <div>
+              <p className="section-kicker !tracking-[0.26em] text-blue-300/80">Sistema operativo IA</p>
+              <span className="font-display text-lg font-bold tracking-tight text-white sm:text-xl">Remix OS</span>
+            </div>
           </div>
-          <div className="flex items-center gap-3 md:gap-8">
-            <div className="hidden md:flex items-center gap-6 text-sm font-medium text-neutral-400">
-              <a href="#features" className="hover:text-white transition-colors">Features</a>
-              <a href="#preview" className="hover:text-white transition-colors">Platform</a>
-              <a href="#insights" className="hover:text-white transition-colors">Intelligence</a>
-              <a href="#pricing" className="hover:text-white transition-colors">Pricing</a>
+
+          <div className="flex items-center gap-3 sm:gap-4">
+            <div className="hidden items-center gap-5 text-sm text-neutral-400 lg:flex">
+              <a href="#plataforma" className="transition-colors hover:text-white">Plataforma</a>
+              <a href="#modulos" className="transition-colors hover:text-white">Módulos</a>
+              <a href="#ia" className="transition-colors hover:text-white">Operador IA</a>
             </div>
-
-            {/* Language Switcher */}
             <LanguageSwitcher />
-
             <Link to="/auth">
-              <Button variant="secondary" className="bg-white text-black hover:bg-neutral-200 border-none px-4 sm:px-6">
-                Enter Console
+              <Button variant="secondary" className="h-11 rounded-2xl border-none bg-white px-4 text-black hover:bg-neutral-200 sm:px-6">
+                Entrar a Remix OS
               </Button>
             </Link>
           </div>
@@ -351,329 +331,233 @@ export function Landing() {
       </nav>
 
       <main>
-        {/* Hero Section */}
-        <section className="relative h-screen flex flex-col justify-center items-center overflow-hidden pt-20">
-          <div className="absolute inset-0 hero-gradient opacity-60" />
-          <div className="absolute inset-0 grid-bg opacity-20" />
-          
-          <motion.div 
-            style={{ opacity: heroOpacity }}
-            className="relative z-10 text-center max-w-5xl px-6"
-          >
-            <motion.div
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ duration: 1, ease: [0.16, 1, 0.3, 1] }}
-              className="inline-flex items-center gap-2 px-3 py-1 bg-white/5 border border-white/10 rounded-full text-[10px] uppercase tracking-[0.2em] font-bold text-blue-400 mb-8"
-            >
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
-              </span>
-              <Typewriter text="V1.0 ALPHA — Business Operating System" delay={0.5} />
-            </motion.div>
+        <section className="relative overflow-hidden px-4 pb-20 pt-14 sm:px-6 sm:pb-24 sm:pt-18">
+          <div className="absolute inset-0 hero-gradient opacity-70" />
+          <div className="absolute inset-0 grid-bg opacity-15" />
+          <div className="absolute left-1/2 top-12 h-[360px] w-[360px] -translate-x-1/2 rounded-full bg-blue-500/12 blur-[120px] sm:h-[460px] sm:w-[460px]" />
 
-            <div className="overflow-hidden mb-8">
-              <motion.h1 
-                custom={1}
-                variants={variants}
-                initial="hidden"
-                animate="visible"
-                className="font-display text-5xl md:text-8xl lg:text-[100px] font-bold tracking-[-0.04em] leading-[0.95] text-white glow-text"
-              >
-                Manage your business
-              </motion.h1>
-              <motion.h1 
-                custom={2}
-                variants={variants}
-                initial="hidden"
-                animate="visible"
-                className="font-display text-5xl md:text-8xl lg:text-[100px] font-bold tracking-[-0.04em] leading-[0.95] text-transparent bg-clip-text bg-gradient-to-b from-white to-white/30"
-              >
-                with total precision.
-              </motion.h1>
-            </div>
-
-            <motion.p 
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 1.2, delay: 0.8, ease: [0.16, 1, 0.3, 1] }}
-              className="text-lg md:text-xl text-neutral-400 max-w-2xl mx-auto mb-12 leading-relaxed"
-            >
-              Remix OS is a high-performance workspace for retail and distribution. 
-              Integrated inventory, customers, and orders—unified in one premium core.
-            </motion.p>
-
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ duration: 0.8, delay: 1, ease: [0.16, 1, 0.3, 1] }}
-              className="flex flex-col sm:flex-row gap-4 justify-center"
-            >
-              <Link to="/auth" className="w-full sm:w-auto">
-                <Button className="w-full sm:w-auto px-10 py-7 text-lg h-auto rounded-full bg-white text-black hover:scale-105 transition-transform duration-300">
-                  Enter Console <ArrowRight className="ml-2 w-5 h-5" />
-                </Button>
-              </Link>
-              <a href="#features" className="w-full sm:w-auto">
-                <Button variant="ghost" className="w-full sm:w-auto px-10 py-7 text-lg h-auto rounded-full border border-white/10 hover:bg-white/5 uppercase tracking-widest text-[10px] font-bold">
-                  Explore Platform
-                </Button>
-              </a>
-            </motion.div>
-          </motion.div>
-
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[400px] bg-blue-500/10 rounded-full blur-[120px] -z-10 pointer-events-none" />
-        </section>
-
-        {/* Product Showcase */}
-        <section id="preview" className="relative px-6 pb-40">
-          <motion.div
-            style={{ y: mockupY, scale: mockupScale }}
-            initial={{ opacity: 0, y: 100 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 1.5, delay: 1.2, ease: [0.16, 1, 0.3, 1] }}
-            className="max-w-7xl mx-auto"
-          >
-            <motion.div 
-              animate={{ y: [0, -10, 0] }}
-              transition={{ duration: 6, repeat: Infinity, ease: "easeInOut" }}
-              className="relative group"
-            >
-              <div className="absolute -inset-1 bg-gradient-to-r from-blue-600 to-cyan-600 rounded-[32px] blur opacity-20 group-hover:opacity-30 transition duration-1000"></div>
-              <div className="relative bg-neutral-900 border border-white/10 rounded-[28px] overflow-hidden shadow-2xl">
-                <div className="h-10 border-b border-white/5 bg-neutral-900/50 flex items-center px-4 gap-2">
-                  <div className="flex gap-1.5">
-                    <div className="w-2.5 h-2.5 rounded-full bg-white/10 border border-white/20" />
-                    <div className="w-2.5 h-2.5 rounded-full bg-white/10 border border-white/20" />
-                    <div className="w-2.5 h-2.5 rounded-full bg-white/10 border border-white/20" />
-                  </div>
-                  <div className="mx-auto text-[10px] text-neutral-500 tracking-widest uppercase flex items-center gap-2">
-                    <ShieldCheck className="w-3 h-3" /> remix-os.console/dashboard
-                  </div>
+          <div className="relative mx-auto grid max-w-7xl items-center gap-12 lg:grid-cols-[0.97fr_1.03fr] lg:gap-16">
+            <div className="max-w-2xl pt-4 sm:pt-8">
+              <div className="mb-6 flex flex-wrap items-center gap-3">
+                <div className="inline-flex items-center gap-2 rounded-full border border-blue-400/14 bg-blue-500/8 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.24em] text-blue-200">
+                  <span className="status-dot pulse-live bg-blue-400 text-blue-400" />
+                  REMIX OS · AI BUSINESS OPERATING SYSTEM
                 </div>
-                <MockupConsole />
+                <div className="telemetry-chip !px-3 !py-1.5">Beta pública</div>
               </div>
-            </motion.div>
-          </motion.div>
-        </section>
 
-        {/* Features Section */}
-        <section id="features" className="max-w-7xl mx-auto px-6 py-40 border-t border-white/5">
-          <div className="text-center mb-24">
-            <h2 className="font-display text-4xl md:text-6xl font-bold tracking-tight mb-6">Everything your business <br /> needs to thrive.</h2>
-            <p className="text-neutral-500 text-lg max-w-2xl mx-auto leading-relaxed">
-              Ditch the spreadsheets. Remix OS provides a cohesive interface for the core pillars of your operations, all powered by real-time intelligence.
-            </p>
-          </div>
+              <h1 className="font-display text-4xl font-bold tracking-[-0.05em] text-white sm:text-5xl lg:text-6xl xl:text-[74px] xl:leading-[0.96]">
+                El sistema operativo inteligente para negocios modernos
+              </h1>
 
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {[
-              { icon: Users, title: "Customer CRM", desc: "Manage detailed client profiles, purchase history, and relationship metrics in one unified vault.", color: "text-blue-500" },
-              { icon: Package, title: "Product Catalog", desc: "Digitalize your entire inventory with rich metadata, categories, and multi-variant support.", color: "text-purple-500" },
-              { icon: Layers, title: "Inventory Control", desc: "Track stock levels across multiple locations with automated movement logs and low-stock triggers.", color: "text-emerald-500" },
-              { icon: ShoppingCart, title: "Order Processing", desc: "Seamlessly handle sales, distribution, and fulfillment from a transaction-safe command center.", color: "text-orange-500" },
-              { icon: Cpu, title: "AI Insights", desc: "Native machine learning that surfaces sales trends, growth opportunities, and supply chain risks.", color: "text-pink-500" },
-              { icon: Settings, title: "Business Core", desc: "Manage your organizational settings, team permissions, and global business parameters.", color: "text-cyan-500" }
-            ].map((feature, i) => (
-              <motion.div 
-                key={i}
-                whileHover={{ y: -8 }}
-                className="group p-8 bg-neutral-900/30 border border-white/5 rounded-3xl hover:border-white/20 transition-all duration-500"
-              >
-                <div className={`w-14 h-14 bg-white/5 rounded-2xl flex items-center justify-center mb-6 border border-white/10 group-hover:scale-110 transition-transform duration-500 ${feature.color}`}>
-                  <feature.icon className="w-7 h-7" />
-                </div>
-                <h3 className="font-display font-medium text-2xl mb-4">{feature.title}</h3>
-                <p className="text-neutral-500 leading-relaxed text-sm">{feature.desc}</p>
-              </motion.div>
-            ))}
-          </div>
-        </section>
+              <p className="mt-5 max-w-2xl text-base leading-relaxed text-neutral-400 sm:text-lg">
+                Centraliza ventas, inventario, clientes y decisiones con una capa IA diseñada para operar, no solo responder.
+              </p>
 
-        {/* Intelligence Section */}
-        <section id="insights" className="bg-neutral-950 py-40 overflow-hidden relative border-y border-white/5">
-          <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-blue-500/10 rounded-full blur-[150px] translate-x-1/2 -translate-y-1/2" />
-          <div className="max-w-7xl mx-auto px-6 relative z-10">
-            <div className="flex flex-col md:flex-row items-center gap-20">
-              <div className="flex-1">
-                <span className="text-[10px] uppercase tracking-[0.3em] font-bold text-blue-500 mb-4 block">Artificial Intelligence</span>
-                <h2 className="font-display text-4xl md:text-6xl font-bold tracking-tight mb-8">Intelligence in every <span className="text-blue-500 italic">operation.</span></h2>
-                <p className="text-neutral-400 text-lg leading-relaxed mb-12">
-                  Our integrated AI models monitor every stock movement, customer interaction, and sales trend. 
-                  Get predictive alerts for low stock and automated insights into your most profitable products.
-                </p>
-                <div className="space-y-6">
-                  {[
-                    { label: "Predictive Stock Forecasting", desc: "Know what to order before you run out." },
-                    { label: "Customer LTV Analysis", desc: "Identify your most valuable relationships automatically." },
-                    { label: "Revenue Optimization", desc: "Smart pricing suggestions based on demand patterns." }
-                  ].map((item, i) => (
-                    <div key={i} className="flex gap-4 items-start">
-                      <div className="w-5 h-5 rounded-full bg-blue-600/20 flex items-center justify-center mt-1">
-                        <div className="w-1.5 h-1.5 rounded-full bg-blue-500" />
-                      </div>
-                      <div>
-                        <p className="font-bold text-sm">{item.label}</p>
-                        <p className="text-xs text-neutral-500">{item.desc}</p>
-                      </div>
-                    </div>
-                  ))}
+              <div className="mt-6 min-h-[64px] max-w-xl rounded-[22px] border border-white/8 bg-white/[0.025] px-4 py-4">
+                <p className="section-kicker mb-2 !text-neutral-500">Señal operativa</p>
+                <div className="flex items-center gap-2 text-base font-medium text-white sm:text-lg">
+                  <span>{dynamicLine}</span>
+                  <span className="landing-caret h-5 w-[2px] rounded-full bg-blue-300/80" />
                 </div>
               </div>
-              <div className="flex-1 w-full flex justify-center">
-                <div className="w-full aspect-square max-w-md bg-gradient-to-br from-blue-600/20 to-transparent border border-white/10 rounded-3xl p-8 flex items-center justify-center relative overflow-hidden group">
-                   <div className="absolute inset-0 bg-grid-white/[0.02] bg-[size:20px_20px]" />
-                   <div className="relative z-10 text-center">
-                      <motion.div 
-                        animate={{ rotate: 360 }}
-                        transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
-                        className="w-48 h-48 border border-white/10 rounded-full flex items-center justify-center"
-                      >
-                        <Cpu className="w-12 h-12 text-blue-400" />
-                      </motion.div>
-                      <div className="absolute inset-0 flex items-center justify-center">
-                        <div className="w-64 h-64 bg-blue-500/10 rounded-full blur-3xl" />
-                      </div>
-                      <p className="mt-8 font-display text-2xl font-bold tracking-tighter uppercase opacity-50">Active Core</p>
-                   </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
 
-        {/* Pricing Section */}
-        <section id="pricing" className="max-w-7xl mx-auto px-6 py-40 border-t border-white/5">
-          <div className="text-center mb-24">
-            <h2 className="font-display text-4xl md:text-6xl font-bold tracking-tight mb-6">Simple plans for <br /> every stage of growth.</h2>
-            <p className="text-neutral-500 text-lg max-w-2xl mx-auto">
-              Transparent pricing designed to scale with your business volume.
-            </p>
-          </div>
-
-          <div className="grid md:grid-cols-3 gap-8">
-            {[
-              {
-                name: "Starter",
-                price: "$49",
-                desc: "Perfect for new retail operations.",
-                features: ["Up to 500 Customers", "1,000 Product Variants", "Basic AI Insights", "1 Location", "Standard Support"]
-              },
-              {
-                name: "Professional",
-                price: "$149",
-                desc: "High-performance tools for growing businesses.",
-                features: ["Unlimited Customers", "Unlimited Products", "Advanced Predictive AI", "5 Locations", "Priority 24/7 Support", "API Access"],
-                popular: true
-              },
-              {
-                name: "Business",
-                price: "$399",
-                desc: "The ultimate OS for multi-node distribution.",
-                features: ["Unlimited Everything", "Custom AI Training", "Infinite Locations", "Dedicated Support Manager", "White-label Console", "SOC2 Compliance"]
-              }
-            ].map((plan, i) => (
-              <div 
-                key={i}
-                className={`relative p-8 rounded-3xl border ${plan.popular ? 'bg-white/5 border-blue-500/50' : 'bg-neutral-900/30 border-white/5'} flex flex-col`}
-              >
-                {plan.popular && (
-                  <div className="absolute -top-4 left-1/2 -translate-x-1/2 px-4 py-1 bg-blue-600 rounded-full text-[10px] font-bold uppercase tracking-widest">
-                    Most Popular
-                  </div>
-                )}
-                <div className="mb-8">
-                  <h3 className="font-display text-xl font-bold mb-2">{plan.name}</h3>
-                  <p className="text-neutral-500 text-sm">{plan.desc}</p>
-                </div>
-                <div className="mb-8">
-                  <span className="text-4xl font-bold">{plan.price}</span>
-                  <span className="text-neutral-500 ml-2">/month</span>
-                </div>
-                <ul className="space-y-4 mb-10 flex-1">
-                  {plan.features.map((f, j) => (
-                    <li key={j} className="flex items-center gap-3 text-sm text-neutral-400">
-                      <CheckCircle2 className="w-4 h-4 text-blue-500" />
-                      {f}
-                    </li>
-                  ))}
-                </ul>
-                <Link to="/auth">
-                  <Button className={`w-full py-6 rounded-2xl ${plan.popular ? 'bg-blue-600 text-white hover:bg-blue-500' : 'bg-white/5 border border-white/10 hover:bg-white/10'}`}>
-                    Choose {plan.name}
+              <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+                <Link to="/auth" className="w-full sm:w-auto">
+                  <Button className="h-14 w-full rounded-2xl bg-white px-7 text-black hover:bg-neutral-200 sm:w-auto">
+                    Entrar a la consola <ArrowRight className="ml-2 h-4 w-4" />
                   </Button>
                 </Link>
+                <a href="#plataforma" className="w-full sm:w-auto">
+                  <Button variant="ghost" className="h-14 w-full rounded-2xl border border-white/10 px-7 text-white hover:bg-white/[0.05] sm:w-auto">
+                    Ver capacidades
+                  </Button>
+                </a>
               </div>
-            ))}
+
+              <div className="mt-8 flex flex-wrap gap-3">
+                {['Multi-tenant', 'IA operativa', 'Ventas + Inventario', 'Beta pública'].map((item, index) => (
+                  <div key={item} className="telemetry-chip !px-3 !py-2">
+                    <span
+                      className={cn(
+                        'status-dot',
+                        index === 1
+                          ? 'bg-blue-300 text-blue-300'
+                          : index === 3
+                            ? 'bg-amber-300 text-amber-300'
+                            : 'bg-emerald-400 text-emerald-400'
+                      )}
+                    />
+                    {item}
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-8 grid gap-3 sm:grid-cols-3">
+                {[
+                  { label: 'Vista ejecutiva', value: 'Panel en vivo' },
+                  { label: 'Operación central', value: 'Ventas + clientes' },
+                  { label: 'Capa de decisión', value: 'Señales accionables' },
+                ].map((item) => (
+                  <div key={item.label} className="rounded-[22px] border border-white/8 bg-white/[0.025] p-4">
+                    <p className="mb-2 text-[10px] font-black uppercase tracking-[0.18em] text-neutral-500">{item.label}</p>
+                    <p className="text-sm font-semibold text-white">{item.value}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div id="plataforma" className="w-full self-center">
+              <motion.div
+                initial={{ opacity: 0, y: 18 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.55 }}
+              >
+                <LiveOperatingConsole />
+              </motion.div>
+            </div>
           </div>
         </section>
 
-        {/* CTA Section */}
-        <section className="py-40 relative">
-          <div className="max-w-5xl mx-auto px-6 text-center">
-            <h2 className="font-display text-5xl md:text-7xl font-bold tracking-tight mb-8">Start managing <br /> with clarity.</h2>
-            <p className="text-neutral-400 text-xl mb-12 max-w-xl mx-auto">
-              Join hundreds of businesses using Remix OS to unify their operations and scale with confidence.
+        <section id="modulos" className="border-t border-white/6 px-4 py-20 sm:px-6 sm:py-24">
+          <div className="mx-auto max-w-7xl">
+            <div className="mb-12 max-w-2xl">
+              <p className="section-kicker mb-3">Módulos principales</p>
+              <h2 className="font-display text-3xl font-bold tracking-tight text-white sm:text-4xl lg:text-5xl">
+                Todo lo importante en un solo sistema operativo comercial.
+              </h2>
+              <p className="mt-4 text-base leading-relaxed text-neutral-400">
+                Sin tarjetas genéricas ni pantallas aisladas: una misma superficie para vender, medir y decidir.
+              </p>
+            </div>
+
+            <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
+              {modules.map((module) => (
+                <motion.div
+                  key={module.title}
+                  whileHover={{ y: -4 }}
+                  className="surface-elevated p-6 transition-transform"
+                >
+                  <div className={`mb-5 flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03] ${module.tone}`}>
+                    <module.icon className="h-5 w-5" />
+                  </div>
+                  <h3 className="text-xl font-semibold text-white">{module.title}</h3>
+                  <p className="mt-3 text-sm leading-relaxed text-neutral-400">{module.desc}</p>
+                </motion.div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section id="ia" className="border-y border-white/6 bg-[rgba(7,10,14,0.96)] px-4 py-20 sm:px-6 sm:py-24">
+          <div className="mx-auto grid max-w-7xl items-center gap-12 lg:grid-cols-[1fr_0.9fr]">
+            <div className="max-w-2xl">
+              <p className="section-kicker mb-3">Operador IA</p>
+              <h2 className="font-display text-3xl font-bold tracking-tight text-white sm:text-4xl lg:text-5xl">
+                Inteligencia operativa integrada en cada movimiento del negocio.
+              </h2>
+              <p className="mt-5 text-base leading-relaxed text-neutral-400 sm:text-lg">
+                Copilot observa ingresos, clientes y stock para decirte qué importa ahora, sin ruido y con foco en ejecución.
+              </p>
+
+              <div className="mt-8 space-y-4">
+                {[
+                  'Detecta presión de inventario antes de que afecte ventas.',
+                  'Resume el pulso comercial con lenguaje claro y accionable.',
+                  'Conecta señales reales del negocio con la siguiente decisión.',
+                ].map((item) => (
+                  <div key={item} className="flex items-start gap-3">
+                    <div className="mt-1 flex h-6 w-6 items-center justify-center rounded-full bg-blue-500/12 text-blue-300">
+                      <Zap className="h-3.5 w-3.5" />
+                    </div>
+                    <p className="text-sm leading-relaxed text-neutral-300 sm:text-base">{item}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="surface-elevated overflow-hidden p-5 sm:p-6">
+              <div className="mb-4 flex items-center justify-between">
+                <div>
+                  <p className="section-kicker mb-2">Vigilancia IA</p>
+                  <h3 className="text-lg font-semibold text-white">Señales en tiempo real</h3>
+                </div>
+                <Layers className="h-5 w-5 text-blue-300" />
+              </div>
+
+              <div className="space-y-3">
+                {[
+                  {
+                    title: 'Reposición recomendada',
+                    body: 'Dos productos están entrando en zona de stock crítico para la próxima ventana de pedidos.',
+                  },
+                  {
+                    title: 'Clientes con atención pendiente',
+                    body: 'La cola comercial tiene oportunidades de seguimiento activas que pueden acelerar conversión.',
+                  },
+                  {
+                    title: 'Pulso de ingresos estable',
+                    body: 'La última semana mantiene tracción positiva y sin caídas abruptas en el flujo operativo.',
+                  },
+                ].map((item, index) => (
+                  <motion.div
+                    key={item.title}
+                    initial={{ opacity: 0, y: 12 }}
+                    whileInView={{ opacity: 1, y: 0 }}
+                    viewport={{ once: true, amount: 0.4 }}
+                    transition={{ duration: 0.45, delay: index * 0.08 }}
+                    className="rounded-[22px] border border-white/8 bg-white/[0.025] p-4"
+                  >
+                    <p className="mb-2 text-sm font-semibold text-white">{item.title}</p>
+                    <p className="text-sm leading-relaxed text-neutral-400">{item.body}</p>
+                  </motion.div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="px-4 py-20 sm:px-6 sm:py-24">
+          <div className="mx-auto max-w-4xl text-center">
+            <h2 className="font-display text-3xl font-bold tracking-tight text-white sm:text-4xl lg:text-5xl">
+              Entra a una interfaz pensada para operar con claridad.
+            </h2>
+            <p className="mx-auto mt-5 max-w-2xl text-base leading-relaxed text-neutral-400 sm:text-lg">
+              Remix OS convierte la operación diaria en una experiencia más limpia, rápida y enfocada en decisiones.
             </p>
-            <div className="flex flex-col sm:flex-row gap-4 justify-center">
-              <Link to="/auth">
-                <Button className="w-full sm:w-auto px-12 py-8 text-xl h-auto rounded-full bg-blue-600 text-white hover:bg-blue-500 transition-all hover:scale-105">
-                  Get Started Free
+
+            <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
+              <Link to="/auth" className="w-full sm:w-auto">
+                <Button className="h-14 w-full rounded-2xl bg-blue-600 px-8 text-white hover:bg-blue-500 sm:w-auto">
+                  Entrar a Remix OS
                 </Button>
               </Link>
+              <a href="#plataforma" className="w-full sm:w-auto">
+                <Button variant="ghost" className="h-14 w-full rounded-2xl border border-white/10 px-8 text-white hover:bg-white/[0.05] sm:w-auto">
+                  Ver plataforma
+                </Button>
+              </a>
             </div>
           </div>
         </section>
       </main>
 
-      {/* Footer */}
-      <footer className="border-t border-white/5 py-20 bg-black">
-        <div className="max-w-7xl mx-auto px-6 flex flex-col md:flex-row justify-between items-start gap-12">
-          <div className="space-y-4 max-w-xs">
-            <div className="flex items-center gap-2">
-              <div className="w-6 h-6 bg-white rounded flex items-center justify-center">
-                <div className="w-3 h-3 bg-black rounded-[2px]" />
+      <footer className="border-t border-white/6 bg-black px-4 py-10 sm:px-6">
+        <div className="mx-auto flex max-w-7xl flex-col gap-8 sm:flex-row sm:items-end sm:justify-between">
+          <div className="max-w-sm">
+            <div className="mb-3 flex items-center gap-2">
+              <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-white text-black">
+                <div className="h-3.5 w-3.5 rotate-45 rounded-sm bg-black" />
               </div>
-              <span className="font-bold text-lg tracking-tight">Remix OS</span>
+              <span className="font-display text-lg font-bold tracking-tight text-white">Remix OS</span>
             </div>
-            <p className="text-sm text-neutral-500 leading-relaxed">
-              The high-performance business operating system for modern retail and distribution.
+            <p className="text-sm leading-relaxed text-neutral-500">
+              Sistema operativo comercial con capa IA para equipos que quieren operar mejor.
             </p>
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-12 text-sm">
-            <div className="space-y-4">
-              <p className="font-bold text-xs uppercase tracking-widest">Platform</p>
-              <ul className="space-y-2 text-neutral-500">
-                <li><a href="#features" className="hover:text-white transition-colors">Features</a></li>
-                <li><a href="#preview" className="hover:text-white transition-colors">Terminal</a></li>
-                <li><a href="#insights" className="hover:text-white transition-colors">Intelligence</a></li>
-                <li><a href="#pricing" className="hover:text-white transition-colors">Pricing</a></li>
-              </ul>
-            </div>
-            <div className="space-y-4">
-              <p className="font-bold text-xs uppercase tracking-widest">Company</p>
-              <ul className="space-y-2 text-neutral-500">
-                <li><a href="#" className="hover:text-white transition-colors">About</a></li>
-                <li><a href="#" className="hover:text-white transition-colors">Careers</a></li>
-                <li><a href="#" className="hover:text-white transition-colors">Contact</a></li>
-              </ul>
-            </div>
-            <div className="space-y-4 col-span-2 sm:col-span-1">
-              <p className="font-bold text-xs uppercase tracking-widest">Legal</p>
-              <ul className="space-y-2 text-neutral-500">
-                <li><a href="#" className="hover:text-white transition-colors">Privacy</a></li>
-                <li><a href="#" className="hover:text-white transition-colors">Terms</a></li>
-              </ul>
-            </div>
-          </div>
-        </div>
-        <div className="max-w-7xl mx-auto px-6 mt-20 pt-8 border-t border-white/5 flex justify-between items-center text-[10px] text-neutral-600 uppercase tracking-widest">
-          <p>© 2024 Remix Technologies Inc.</p>
-          <div className="flex gap-6">
-            <a href="#" className="hover:text-white transition-colors">Twitter</a>
-            <a href="#" className="hover:text-white transition-colors">GitHub</a>
-            <a href="#" className="hover:text-white transition-colors">Discord</a>
+
+          <div className="text-[10px] uppercase tracking-[0.22em] text-neutral-600">
+            © 2026 Remix OS
           </div>
         </div>
       </footer>

@@ -15,12 +15,16 @@ import {
   Activity,
   Fingerprint,
   Receipt,
+  FileText,
   UserPlus,
   Database,
   History,
   Plus,
   Sparkles,
   AlertTriangle,
+  Target,
+  Pencil,
+  Check,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../lib/firebase';
@@ -30,6 +34,7 @@ import { motion } from 'motion/react';
 import { format, subDays, startOfDay, eachDayOfInterval, isSameDay } from 'date-fns';
 import { exportDashboardToPDF } from '../lib/exportUtils';
 import { useLocale } from '../hooks/useLocale';
+import { getOrderTotal } from '../../shared/orders';
 
 interface ActivityItem {
   id: string;
@@ -42,7 +47,7 @@ interface ActivityItem {
 type ActivityTone = 'signal' | 'client' | 'inventory' | 'ops';
 
 function formatChangeValue(value: string) {
-  return value === '—' || value === '' ? 'Estable' : value;
+  return value === 'â€”' || value === '—' || value === '-' || value === '' ? 'Estable' : value;
 }
 
 export function Dashboard() {
@@ -55,11 +60,23 @@ export function Dashboard() {
     products: 0,
     orders: 0,
     revenue: 0,
-    revenueChange: '—',
+    revenueChange: '-',
   });
   const [chartData, setChartData] = useState<{ name: string; sales: number }[]>([]);
   const [activities, setActivities] = useState<ActivityItem[]>([]);
   const [exporting, setExporting] = useState(false);
+  const [stockAlerts, setStockAlerts] = useState<{ id: string; name: string; stockLevel: number; daysLeft: number | null; velocity: number }[]>([]);
+  const [invoiceMetrics, setInvoiceMetrics] = useState({
+    unpaidTotal: 0,
+    overdueCount: 0,
+    invoicesCount: 0,
+  });
+  const [dailyGoal, setDailyGoal] = useState<number>(() => {
+    const stored = localStorage.getItem(`remix_daily_goal_${window.location.hostname}`);
+    return stored ? Number(stored) : 0;
+  });
+  const [isGoalEditing, setIsGoalEditing] = useState(false);
+  const [goalInput, setGoalInput] = useState('');
 
   useEffect(() => {
     if (!company) return;
@@ -81,7 +98,7 @@ export function Dashboard() {
       const fourteenDaysAgo = subDays(startOfDay(now), 13);
 
       snapshot.forEach((doc) => {
-        const total = doc.data().total || 0;
+        const total = getOrderTotal(doc.data());
         totalRev += total;
         const date = doc.data().createdAt?.toDate?.();
         if (date) {
@@ -112,7 +129,7 @@ export function Dashboard() {
             const date = entry.data().createdAt?.toDate();
             return date && isSameDay(date, day);
           })
-          .reduce((sum, entry) => sum + (entry.data().total || 0), 0);
+          .reduce((sum, entry) => sum + getOrderTotal(entry.data()), 0);
 
         return {
           name: format(day, 'EEE'),
@@ -160,12 +177,90 @@ export function Dashboard() {
       console.error('Dashboard activities listener error:', error);
     });
 
+    // Invoice metrics for the Dashboard "Facturación" tile. Tolerant to
+    // companies that never created invoices — the listener is best-effort.
+    const invoicesQ = query(collection(db, 'invoices'), where('companyId', '==', company.id));
+    const unsubscribeInvoices = onSnapshot(
+      invoicesQ,
+      (snapshot) => {
+        let unpaidTotal = 0;
+        let overdueCount = 0;
+        let invoicesCount = 0;
+        snapshot.forEach((d) => {
+          const data = d.data() as any;
+          if (data?.status === 'cancelled') return;
+          invoicesCount += 1;
+          if (data?.status === 'issued' || data?.status === 'sent' || data?.status === 'overdue') {
+            const due = Number(data?.amountDue);
+            const total = Number(data?.total) || 0;
+            unpaidTotal += Number.isFinite(due) ? due : total;
+          }
+          if (data?.status === 'overdue') overdueCount += 1;
+        });
+        setInvoiceMetrics({ unpaidTotal, overdueCount, invoicesCount });
+      },
+      (error) => {
+        console.error('Dashboard invoices listener error:', error);
+      }
+    );
+
     return () => {
       unsubscribeOrders();
       unsubscribeCustomers();
       unsubscribeProducts();
       unsubscribeActivity();
+      unsubscribeInvoices();
     };
+  }, [company]);
+
+  useEffect(() => {
+    if (!company) return;
+    let cancelled = false;
+
+    async function computeStockAlerts() {
+      const LOOKBACK_DAYS = 14;
+      const cutoff = subDays(new Date(), LOOKBACK_DAYS);
+
+      const [productsSnap, ordersSnap] = await Promise.all([
+        getDocs(query(collection(db, 'products'), where('companyId', '==', company!.id), where('status', '==', 'active'))),
+        getDocs(query(collection(db, 'orders'), where('companyId', '==', company!.id), where('status', '==', 'completed'))),
+      ]);
+
+      if (cancelled) return;
+
+      // Count units sold per product in last 14 days
+      const unitsSold = new Map<string, number>();
+      ordersSnap.docs.forEach(d => {
+        const createdAt = d.data().createdAt?.toDate?.();
+        if (!createdAt || createdAt < cutoff) return;
+        const items: { productId: string; quantity: number }[] = d.data().itemsSnapshot || [];
+        items.forEach(item => {
+          unitsSold.set(item.productId, (unitsSold.get(item.productId) || 0) + item.quantity);
+        });
+      });
+
+      const alerts = productsSnap.docs
+        .map(d => {
+          const stockLevel = d.data().stockLevel ?? 0;
+          const sold = unitsSold.get(d.id) || 0;
+          const velocity = sold / LOOKBACK_DAYS; // units/day
+          const daysLeft = velocity > 0 ? Math.floor(stockLevel / velocity) : null;
+          return { id: d.id, name: d.data().name, stockLevel, daysLeft, velocity };
+        })
+        .filter(p => p.stockLevel >= 0 && (p.stockLevel <= 5 || (p.daysLeft !== null && p.daysLeft <= 14)))
+        .sort((a, b) => {
+          if (a.daysLeft === null && b.daysLeft === null) return a.stockLevel - b.stockLevel;
+          if (a.daysLeft === null) return 1;
+          if (b.daysLeft === null) return -1;
+          return a.daysLeft - b.daysLeft;
+        })
+        .slice(0, 6);
+
+      setStockAlerts(alerts);
+    }
+
+    computeStockAlerts().catch(console.error);
+    return () => { cancelled = true; };
   }, [company]);
 
   const showChecklist = stats.products === 0 || stats.customers === 0 || stats.orders === 0;
@@ -213,6 +308,17 @@ export function Dashboard() {
     return 'Los datos operativos se están sincronizando en todo el espacio de trabajo.';
   }, [formatCurrency, stats]);
 
+  const todayRevenue = chartData.length > 0 ? (chartData[chartData.length - 1]?.sales ?? 0) : 0;
+  const goalProgress = dailyGoal > 0 ? Math.min(100, (todayRevenue / dailyGoal) * 100) : 0;
+  const goalMet = dailyGoal > 0 && todayRevenue >= dailyGoal;
+
+  const saveGoal = () => {
+    const val = Math.max(0, parseFloat(goalInput) || 0);
+    setDailyGoal(val);
+    localStorage.setItem(`remix_daily_goal_${window.location.hostname}`, String(val));
+    setIsGoalEditing(false);
+  };
+
   const handleExportPDF = async () => {
     if (!company) return;
     setExporting(true);
@@ -238,7 +344,7 @@ export function Dashboard() {
           data: recentOrdersSnap.docs.map((d) => ({
             ID: d.id.slice(-6).toUpperCase(),
             Customer: d.data().customerName,
-            Total: `${d.data().total}`,
+            Total: `${getOrderTotal(d.data()).toFixed(2)}`,
             Status: d.data().status,
             Date: d.data().createdAt,
           })),
@@ -357,36 +463,38 @@ export function Dashboard() {
   ];
 
   return (
-    <div className="space-y-6 md:space-y-8">
+    <div className="space-y-4 md:space-y-6">
       <motion.section
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.35 }}
-        className="hero-gradient overflow-hidden rounded-[32px] border border-white/10 p-6 md:p-8 xl:p-10"
+        className="hero-gradient overflow-hidden rounded-[28px] border border-white/10 p-4 md:p-7 md:rounded-[32px] xl:p-10"
       >
-        <div className="grid gap-8 xl:grid-cols-[1.3fr_0.7fr]">
+        <div className="grid gap-4 md:gap-8 xl:grid-cols-[1.3fr_0.7fr]">
           <div className="relative">
-            <div className="mb-4 flex flex-wrap items-center gap-2">
+            <div className="mb-3 flex flex-wrap items-center gap-2">
               <span className="operator-badge">
                 <span className="status-dot pulse-live bg-emerald-400 text-emerald-400" />
-                Estado operativo en vivo
+                <span className="hidden sm:inline">Estado operativo en vivo</span>
+                <span className="sm:hidden">En vivo</span>
               </span>
-              <span className="telemetry-chip">
+              <span className="hidden sm:inline-flex telemetry-chip">
                 <Fingerprint className="h-3.5 w-3.5 text-blue-300" />
                 Núcleo operativo IA
               </span>
             </div>
 
-            <h1 className="section-title glow-text max-w-3xl text-3xl leading-none md:text-4xl xl:text-5xl">
-              {company?.name || 'Remix OS'} opera ahora como un centro operativo vivo.
+            <h1 className="section-title glow-text max-w-3xl text-xl leading-tight md:text-4xl xl:text-5xl">
+              {company?.name || 'Remix OS'}
+              <span className="hidden sm:inline"> opera ahora como un centro operativo vivo.</span>
             </h1>
-            <p className="mt-4 max-w-2xl text-base leading-relaxed text-neutral-300 md:text-lg">
+            <p className="mt-2 hidden max-w-2xl text-sm leading-relaxed text-neutral-400 sm:block md:mt-4 md:text-base lg:text-lg">
               {operatingBrief}
             </p>
 
-            <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+            <div className="mt-3 flex flex-col gap-2 sm:mt-5 sm:flex-row sm:gap-3">
               <Button
-                className="h-12 gap-2 px-6"
+                className="h-10 gap-2 px-5 sm:h-12 sm:px-6"
                 onClick={() => navigate('/orders', { state: { action: 'create' } })}
               >
                 <Plus className="h-4 w-4" />
@@ -394,15 +502,16 @@ export function Dashboard() {
               </Button>
               <Button
                 variant="secondary"
-                className="h-12 gap-2 px-6"
+                className="h-10 gap-2 px-5 sm:h-12 sm:px-6"
                 onClick={() => window.dispatchEvent(new CustomEvent('open-copilot'))}
               >
                 <Cpu className="h-4 w-4" />
-                Abrir operador IA
+                <span className="hidden sm:inline">Abrir operador IA</span>
+                <span className="sm:hidden">Peppy IA</span>
               </Button>
               <Button
                 variant="ghost"
-                className="h-12 gap-2 px-4"
+                className="hidden h-10 gap-2 px-4 sm:inline-flex sm:h-12"
                 onClick={handleExportPDF}
                 disabled={exporting}
               >
@@ -412,7 +521,7 @@ export function Dashboard() {
             </div>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-3 xl:grid-cols-1">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-1">
             <div className="data-tile">
               <p className="section-kicker mb-2 !text-neutral-400">Integridad del sistema</p>
               <div className="flex items-end justify-between gap-4">
@@ -443,15 +552,60 @@ export function Dashboard() {
             </div>
 
             <div className="data-tile">
-              <p className="section-kicker mb-2 !text-neutral-400">Vigilancia IA</p>
-              <div className="flex items-start justify-between gap-4">
-                <p className="text-sm leading-relaxed text-neutral-300">
-                  Copilot observa ingresos, flujo operativo y riesgo comercial en tiempo real.
-                </p>
-                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-emerald-400/14 bg-emerald-500/8">
-                  <Zap className="h-4.5 w-4.5 text-emerald-300" />
-                </div>
+              <div className="mb-2 flex items-center justify-between">
+                <p className="section-kicker !text-neutral-400">Meta diaria</p>
+                <button
+                  onClick={() => { setGoalInput(dailyGoal > 0 ? String(dailyGoal) : ''); setIsGoalEditing(true); }}
+                  className="flex items-center gap-1 rounded-lg border border-white/8 bg-white/[0.03] px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-neutral-500 transition-colors hover:text-white"
+                >
+                  <Pencil className="h-3 w-3" />
+                  Editar
+                </button>
               </div>
+              {isGoalEditing ? (
+                <div className="flex gap-2">
+                  <input
+                    autoFocus
+                    type="number"
+                    min="0"
+                    value={goalInput}
+                    onChange={e => setGoalInput(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') saveGoal(); if (e.key === 'Escape') setIsGoalEditing(false); }}
+                    className="flex-1 rounded-xl border border-white/12 bg-white/[0.04] px-3 py-2 text-sm text-white placeholder-neutral-600 focus:border-blue-400/40 focus:outline-none"
+                    placeholder="Ej. 1000"
+                  />
+                  <button onClick={saveGoal} className="flex h-10 w-10 items-center justify-center rounded-xl border border-emerald-400/20 bg-emerald-500/10 text-emerald-300">
+                    <Check className="h-4 w-4" />
+                  </button>
+                </div>
+              ) : dailyGoal > 0 ? (
+                <div className="space-y-2">
+                  <div className="flex items-end justify-between">
+                    <div>
+                      <p className="text-2xl font-bold text-white">{formatCurrency(todayRevenue)}</p>
+                      <p className="text-xs text-neutral-500">de {formatCurrency(dailyGoal)} hoy</p>
+                    </div>
+                    {goalMet && <span className="rounded-full border border-emerald-400/20 bg-emerald-500/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-emerald-300">¡Meta!</span>}
+                  </div>
+                  <div className="h-2 overflow-hidden rounded-full bg-white/8">
+                    <motion.div
+                      initial={{ width: 0 }}
+                      animate={{ width: `${goalProgress}%` }}
+                      transition={{ duration: 0.8, ease: 'easeOut' }}
+                      className={cn('h-full rounded-full', goalMet ? 'bg-emerald-400' : goalProgress > 60 ? 'bg-blue-400' : goalProgress > 30 ? 'bg-amber-400' : 'bg-red-400')}
+                    />
+                  </div>
+                  <p className="text-xs text-neutral-500">{goalProgress.toFixed(0)}% completado</p>
+                </div>
+              ) : (
+                <div className="flex items-start gap-3">
+                  <Target className="mt-0.5 h-8 w-8 shrink-0 text-neutral-700" />
+                  <div>
+                    <p className="text-sm font-medium text-neutral-400">Sin meta configurada</p>
+                    <p className="mt-0.5 text-xs text-neutral-600">Toca "Editar" para fijar tu objetivo diario de ventas.</p>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -460,14 +614,14 @@ export function Dashboard() {
       {showChecklist && (
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
           <Card className="overflow-hidden border-blue-400/14 bg-[linear-gradient(180deg,rgba(32,67,138,0.18),rgba(12,16,24,0.96))]">
-            <div className="grid gap-6 lg:grid-cols-[0.8fr_1.2fr]">
+            <div className="grid gap-4 lg:gap-6 lg:grid-cols-[0.8fr_1.2fr]">
               <div>
-                <p className="section-kicker mb-3">Secuencia de activación</p>
-                <h2 className="section-title text-2xl md:text-3xl">{t('dashboard.setup.title')}</h2>
-                <p className="mt-3 section-subtitle">{t('dashboard.setup.description')}</p>
+                <p className="section-kicker mb-2">Secuencia de activación</p>
+                <h2 className="section-title text-xl md:text-3xl">{t('dashboard.setup.title')}</h2>
+                <p className="mt-2 section-subtitle hidden sm:block">{t('dashboard.setup.description')}</p>
               </div>
 
-              <div className="grid gap-4 md:grid-cols-3">
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-4">
                 {[
                   {
                     label: t('dashboard.setup.register_product'),
@@ -520,9 +674,9 @@ export function Dashboard() {
         </motion.div>
       )}
 
-      <div className="grid gap-6 xl:grid-cols-[1.3fr_0.7fr]">
-        <div className="space-y-6">
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 md:gap-6 xl:grid-cols-[1.3fr_0.7fr]">
+        <div className="space-y-4 md:space-y-6">
+          <div className="grid grid-cols-2 gap-3 md:gap-4 xl:grid-cols-4">
             {statCards.map((stat, index) => (
               <motion.div
                 key={stat.label}
@@ -533,18 +687,18 @@ export function Dashboard() {
                 <Card className={cn('relative overflow-hidden bg-[rgba(9,12,18,0.94)]', stat.ring)}>
                   <div className={cn('absolute inset-x-0 top-0 h-20 bg-gradient-to-b opacity-80', stat.ring)} />
                   <div className="relative">
-                    <div className="mb-5 flex items-start justify-between gap-3">
-                      <div>
-                        <p className="section-kicker mb-2 !text-neutral-500">{stat.signal}</p>
-                        <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-neutral-400">{stat.label}</p>
+                    <div className="mb-3 flex items-start justify-between gap-2 md:mb-5 md:gap-3">
+                      <div className="min-w-0">
+                        <p className="section-kicker mb-1 !text-neutral-500 md:mb-2">{stat.signal}</p>
+                        <p className="truncate text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-400 md:text-[11px] md:tracking-[0.18em]">{stat.label}</p>
                       </div>
-                      <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03]">
+                      <div className="hidden h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03] sm:flex">
                         <stat.icon className={cn('h-5 w-5', stat.accent)} />
                       </div>
                     </div>
-                    <p className="text-3xl font-bold tracking-tight text-white">{stat.value}</p>
-                    <div className="mt-4 flex items-center justify-between text-xs">
-                      <span className="font-mono uppercase tracking-[0.18em] text-neutral-500">Señal</span>
+                    <p className="text-xl font-bold tracking-tight text-white md:text-3xl">{stat.value}</p>
+                    <div className="mt-3 flex items-center justify-between text-xs md:mt-4">
+                      <span className="hidden font-mono uppercase tracking-[0.18em] text-neutral-500 sm:inline">Señal</span>
                       <span className="font-mono text-blue-200">{stat.change}</span>
                     </div>
                   </div>
@@ -553,13 +707,13 @@ export function Dashboard() {
             ))}
           </div>
 
-          <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
+          <div className="grid gap-4 md:gap-6 lg:grid-cols-[1.1fr_0.9fr]">
             <Card className="overflow-hidden">
-              <div className="mb-6 flex items-center justify-between gap-4">
+              <div className="mb-4 flex items-center justify-between gap-4 md:mb-6">
                 <div>
-                  <p className="section-kicker mb-2">Telemetría financiera</p>
-                  <h3 className="section-title text-2xl">{t('dashboard.financial_intelligence')}</h3>
-                  <p className="section-subtitle mt-2">{t('dashboard.revenue_optimization')}</p>
+                  <p className="section-kicker mb-1 md:mb-2">Telemetría financiera</p>
+                  <h3 className="section-title text-xl md:text-2xl">{t('dashboard.financial_intelligence')}</h3>
+                  <p className="section-subtitle mt-1 hidden sm:block md:mt-2">{t('dashboard.revenue_optimization')}</p>
                 </div>
                 <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-blue-400/14 bg-blue-500/10">
                   <TrendingUp className="h-5 w-5 text-blue-300" />
@@ -617,11 +771,11 @@ export function Dashboard() {
             </Card>
 
             <Card className="overflow-hidden">
-              <div className="mb-6 flex items-center justify-between gap-4">
+              <div className="mb-4 flex items-center justify-between gap-4 md:mb-6">
                 <div>
-                  <p className="section-kicker mb-2">Flujo operativo</p>
-                  <h3 className="section-title text-2xl">{t('dashboard.system_log')}</h3>
-                  <p className="section-subtitle mt-2">Eventos en vivo priorizados por relevancia operativa.</p>
+                  <p className="section-kicker mb-1 md:mb-2">Flujo operativo</p>
+                  <h3 className="section-title text-xl md:text-2xl">{t('dashboard.system_log')}</h3>
+                  <p className="section-subtitle mt-1 hidden sm:block md:mt-2">Eventos en vivo priorizados por relevancia operativa.</p>
                 </div>
                 <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-amber-400/14 bg-amber-500/10">
                   <History className="h-5 w-5 text-amber-300" />
@@ -668,9 +822,9 @@ export function Dashboard() {
           </div>
         </div>
 
-        <div className="space-y-6">
+        <div className="space-y-4 md:space-y-6">
           <Card className="overflow-hidden border-blue-400/14 bg-[linear-gradient(180deg,rgba(28,43,90,0.52),rgba(8,11,16,0.96))]">
-            <div className="mb-5 flex items-center gap-3">
+            <div className="mb-4 flex items-center gap-3 md:mb-5">
               <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-blue-300/16 bg-blue-500/12">
                 <Cpu className="h-5 w-5 text-blue-200" />
               </div>
@@ -759,6 +913,109 @@ export function Dashboard() {
             </div>
           </Card>
 
+          {invoiceMetrics.invoicesCount > 0 && (
+            <Card className={cn(
+              'overflow-hidden',
+              invoiceMetrics.overdueCount > 0
+                ? 'border-amber-400/16 bg-[linear-gradient(180deg,rgba(92,60,10,0.22),rgba(8,11,16,0.96))]'
+                : 'border-blue-400/14 bg-[linear-gradient(180deg,rgba(28,43,90,0.32),rgba(8,11,16,0.96))]'
+            )}>
+              <div className="mb-5 flex items-center justify-between gap-3">
+                <div>
+                  <p className="section-kicker mb-2 !text-neutral-500">Facturación</p>
+                  <h3 className="section-title text-xl">Cobro pendiente</h3>
+                </div>
+                <div className={cn(
+                  'flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border',
+                  invoiceMetrics.overdueCount > 0
+                    ? 'border-amber-400/20 bg-amber-500/10 text-amber-200'
+                    : 'border-blue-400/20 bg-blue-500/10 text-blue-200'
+                )}>
+                  <FileText className="h-5 w-5" />
+                </div>
+              </div>
+
+              <p className="font-mono text-3xl font-bold text-white">{formatCurrency(invoiceMetrics.unpaidTotal)}</p>
+              <p className="mt-1 text-xs text-neutral-400">
+                {invoiceMetrics.invoicesCount} documento{invoiceMetrics.invoicesCount === 1 ? '' : 's'} ·{' '}
+                {invoiceMetrics.overdueCount > 0
+                  ? `${invoiceMetrics.overdueCount} vencida${invoiceMetrics.overdueCount === 1 ? '' : 's'}`
+                  : 'Sin vencimientos'}
+              </p>
+
+              <button
+                onClick={() => navigate('/invoices')}
+                className={cn(
+                  'mt-4 flex w-full items-center justify-center gap-2 rounded-2xl border py-2.5 text-[11px] font-black uppercase tracking-[0.2em] transition-all',
+                  invoiceMetrics.overdueCount > 0
+                    ? 'border-amber-400/16 text-amber-200/80 hover:border-amber-400/25 hover:bg-amber-500/8'
+                    : 'border-blue-400/16 text-blue-200/80 hover:border-blue-400/25 hover:bg-blue-500/8'
+                )}
+              >
+                Abrir facturación
+                <ChevronRight className="h-3.5 w-3.5" />
+              </button>
+            </Card>
+          )}
+
+          {stockAlerts.length > 0 && (
+            <Card className="border-amber-400/14 bg-[linear-gradient(180deg,rgba(92,60,10,0.28),rgba(8,11,16,0.96))]">
+              <div className="mb-5 flex items-center justify-between gap-3">
+                <div>
+                  <p className="section-kicker mb-2 !text-amber-400/70">Presión de inventario</p>
+                  <h3 className="section-title text-xl">Predicción de rotura de stock</h3>
+                  <p className="section-subtitle mt-1">Basado en velocidad de ventas de los últimos 14 días.</p>
+                </div>
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-amber-400/20 bg-amber-500/10">
+                  <AlertTriangle className="h-5 w-5 text-amber-300" />
+                </div>
+              </div>
+              <div className="space-y-2">
+                {stockAlerts.map(alert => {
+                  const isUrgent = alert.daysLeft !== null && alert.daysLeft <= 3;
+                  const isCritical = alert.stockLevel === 0;
+                  return (
+                    <button
+                      key={alert.id}
+                      onClick={() => navigate('/inventory')}
+                      className={cn(
+                        'surface-elevated block w-full p-3 text-left transition-all',
+                        isCritical ? 'border-red-400/20 bg-red-500/5 hover:border-red-400/30' :
+                        isUrgent ? 'border-amber-400/20 bg-amber-500/5 hover:border-amber-400/30' :
+                        'hover:border-white/10'
+                      )}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="truncate text-sm font-semibold text-white">{alert.name}</p>
+                        <span className={cn(
+                          'shrink-0 rounded-full border px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-wider',
+                          isCritical ? 'border-red-400/20 bg-red-500/10 text-red-300' :
+                          isUrgent ? 'border-amber-400/20 bg-amber-500/10 text-amber-300' :
+                          'border-white/10 bg-white/5 text-neutral-400'
+                        )}>
+                          {isCritical ? 'Sin stock' :
+                           alert.daysLeft !== null ? `~${alert.daysLeft}d` : `${alert.stockLevel} u.`}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-xs text-neutral-500">
+                        {isCritical ? 'Agotado — reabastecer ahora' :
+                         alert.daysLeft !== null ? `${alert.stockLevel} u. restantes · ${alert.velocity.toFixed(1)} u/día` :
+                         `${alert.stockLevel} unidades · sin ventas recientes`}
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
+              <button
+                onClick={() => navigate('/inventory')}
+                className="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl border border-amber-400/14 py-2.5 text-[11px] font-black uppercase tracking-[0.2em] text-amber-300/80 transition-all hover:border-amber-400/25 hover:bg-amber-500/8"
+              >
+                Ver inventario completo
+                <ChevronRight className="h-3.5 w-3.5" />
+              </button>
+            </Card>
+          )}
+
           <Card>
             <div className="mb-5 flex items-center justify-between">
               <div>
@@ -770,30 +1027,61 @@ export function Dashboard() {
 
             <div className="space-y-3">
               {[
+                ...(invoiceMetrics.overdueCount > 0
+                  ? [{
+                      label: `Cobrar ${invoiceMetrics.overdueCount} factura${invoiceMetrics.overdueCount === 1 ? '' : 's'} vencida${invoiceMetrics.overdueCount === 1 ? '' : 's'}`,
+                      detail: `Tienes ${formatCurrency(invoiceMetrics.unpaidTotal)} pendiente. Revisa las facturas vencidas y dispara recordatorios al cliente.`,
+                      action: () => navigate('/invoices'),
+                      tone: 'amber' as const,
+                    }]
+                  : invoiceMetrics.unpaidTotal > 0
+                    ? [{
+                        label: 'Revisar cobros pendientes',
+                        detail: `${formatCurrency(invoiceMetrics.unpaidTotal)} aún sin cobrar. Marca como pagadas las que ya hayas conciliado.`,
+                        action: () => navigate('/invoices'),
+                        tone: 'blue' as const,
+                      }]
+                    : []),
                 {
                   label: 'Revisar presión por bajo stock',
                   detail: 'Abre la inteligencia de inventario e inspecciona cobertura antes de que la demanda aumente.',
                   action: () => navigate('/inventory'),
+                  tone: 'blue' as const,
                 },
                 {
                   label: 'Inspeccionar flujo transaccional',
                   detail: 'Revisa pedidos recientes y detecta fricciones de conversión antes de que escalen.',
                   action: () => navigate('/orders'),
+                  tone: 'blue' as const,
                 },
                 {
                   label: 'Pedir un informe ejecutivo al operador IA',
                   detail: 'Genera un resumen de ingresos, movimiento de clientes y riesgos operativos.',
                   action: () => window.dispatchEvent(new CustomEvent('open-copilot')),
+                  tone: 'blue' as const,
                 },
               ].map((item) => (
                 <button
                   key={item.label}
                   onClick={item.action}
-                  className="surface-elevated block w-full p-4 text-left transition-all hover:border-blue-400/16 hover:bg-white/[0.035]"
+                  className={cn(
+                    'surface-elevated block w-full p-4 text-left transition-all',
+                    item.tone === 'amber'
+                      ? 'border-amber-400/20 bg-amber-500/[0.06] hover:border-amber-400/30 hover:bg-amber-500/[0.10]'
+                      : 'hover:border-blue-400/16 hover:bg-white/[0.035]'
+                  )}
                 >
                   <div className="flex items-start gap-3">
-                    <div className="mt-0.5 flex h-9 w-9 items-center justify-center rounded-2xl border border-blue-400/12 bg-blue-500/8">
-                      <ChevronRight className="h-4 w-4 text-blue-300" />
+                    <div className={cn(
+                      'mt-0.5 flex h-9 w-9 items-center justify-center rounded-2xl border',
+                      item.tone === 'amber'
+                        ? 'border-amber-400/20 bg-amber-500/12'
+                        : 'border-blue-400/12 bg-blue-500/8'
+                    )}>
+                      <ChevronRight className={cn(
+                        'h-4 w-4',
+                        item.tone === 'amber' ? 'text-amber-300' : 'text-blue-300'
+                      )} />
                     </div>
                     <div>
                       <p className="text-sm font-semibold text-white">{item.label}</p>

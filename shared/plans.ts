@@ -63,7 +63,10 @@ export const PLAN_DEFINITIONS: Record<PlanId, PlanDefinition> = {
 export const PLAN_IDS = Object.keys(PLAN_DEFINITIONS) as PlanId[];
 
 export function getPlanDefinition(planId?: string | null): PlanDefinition {
-  if (!planId || !(planId in PLAN_DEFINITIONS)) {
+  // Use the explicit id list, NOT `planId in PLAN_DEFINITIONS`: `in` also
+  // matches inherited Object.prototype keys (e.g. 'toString', 'constructor'),
+  // which would return undefined and crash callers reading plan.limits.*.
+  if (!planId || !PLAN_IDS.includes(planId as PlanId)) {
     return PLAN_DEFINITIONS.starter;
   }
   return PLAN_DEFINITIONS[planId as PlanId];

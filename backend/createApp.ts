@@ -8,12 +8,45 @@ import { cert, getApps, initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { FieldValue, Timestamp, getFirestore } from 'firebase-admin/firestore';
 import type { Firestore } from 'firebase-admin/firestore';
-import { BILLING_CURRENCY, PLAN_DEFINITIONS, PLAN_IDS, PlanId, getBillingPriceMap, getPlanDefinition } from '../shared/plans';
+import { BILLING_CURRENCY, PLAN_DEFINITIONS, PLAN_IDS, PlanId, getBillingPriceMap, getPlanDefinition } from '../shared/plans.js';
+import * as Sentry from '@sentry/node';
+import { getOrderTotal, getOrderItems } from '../shared/orders.js';
+import { formatInvoiceNumber } from '../shared/invoices.js';
+
+// Backend error observability. No-op until SENTRY_DSN is set, so existing
+// deploys are unaffected. captureBackendError is safe to call unconditionally.
+let sentryInitialized = false;
+function initBackendSentry() {
+  const dsn = process.env.SENTRY_DSN;
+  if (!dsn || sentryInitialized) return;
+  try {
+    Sentry.init({
+      dsn,
+      environment: process.env.NODE_ENV || 'development',
+      tracesSampleRate: 0.1,
+      sendDefaultPii: false,
+    });
+    sentryInitialized = true;
+  } catch (err) {
+    console.error('[Sentry] backend init failed (continuing without it):', err);
+  }
+}
+
+function captureBackendError(error: unknown, context?: Record<string, unknown>) {
+  if (!sentryInitialized) return;
+  try {
+    Sentry.captureException(error, context ? { extra: context } : undefined);
+  } catch {
+    /* telemetry must never throw into request handling */
+  }
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 type AnyRecord = Record<string, any>;
+const VALID_PLATFORM_FEEDBACK_STATUSES = ['open', 'reviewed', 'resolved'] as const;
+const VALID_PLATFORM_FEEDBACK_SEVERITIES = ['low', 'medium', 'high', 'critical'] as const;
 
 interface CompanyOverview {
   companyId: string;
@@ -23,6 +56,8 @@ interface CompanyOverview {
   planId: PlanId;
   customersCount: number;
   productsCount: number;
+  ordersCount: number;
+  inventoryValue: number;
   recentRevenue: number;
   recentRevenue30d: number;
   previousRevenue30d: number;
@@ -34,11 +69,106 @@ interface CompanyOverview {
   inventoryStatus: Array<{ id: string; name: string; stock: number }>;
   pendingReminders: Array<{ customer: string; type: string; due: unknown; notes: string }>;
   recentCommunications: Array<{ customer: string; status: string; content: string }>;
+  recentActivities: Array<{ type: string; title: string; subtitle: string; createdAt: unknown }>;
   salesVelocity: {
     currentPeriodOrders: number;
     previousPeriodOrders: number;
     trend: 'up' | 'down';
   };
+  customerRFMSummary?: {
+    champions: number;
+    loyal: number;
+    atRisk: number;
+    lost: number;
+    promising: number;
+    topAtRiskCustomers: Array<{ name: string; daysSinceLastOrder: number }>;
+  };
+  invoicesSummary?: {
+    invoicesCount: number;
+    issuedCount: number;
+    paidCount: number;
+    overdueCount: number;
+    draftCount: number;
+    unpaidInvoicesTotal: number;
+    paidInvoicesTotal: number;
+  };
+}
+
+type RFMTier = 'champion' | 'loyal' | 'at_risk' | 'lost' | 'promising' | 'new';
+
+interface RFMResult {
+  rfmTier: RFMTier;
+  rfmScore: number;
+  recencyScore: number;
+  frequencyScore: number;
+  monetaryScore: number;
+  daysSinceLastOrder: number;
+}
+
+function computeRFMScores(
+  orders: AnyRecord[],
+  customerIds: string[],
+  now: Date
+): Map<string, RFMResult> {
+  const ordersByCustomer = new Map<string, AnyRecord[]>();
+  for (const id of customerIds) ordersByCustomer.set(id, []);
+  for (const order of orders) {
+    const cid = order.customerId || 'guest';
+    if (ordersByCustomer.has(cid)) ordersByCustomer.get(cid)!.push(order);
+  }
+
+  const avgSpend = customerIds.length > 0
+    ? orders.reduce((s, o) => s + getOrderTotal(o), 0) / Math.max(customerIds.length, 1)
+    : 0;
+
+  const results = new Map<string, RFMResult>();
+
+  for (const cid of customerIds) {
+    const custOrders = ordersByCustomer.get(cid) || [];
+    const frequency = custOrders.length;
+    const monetary = custOrders.reduce((s, o) => s + getOrderTotal(o), 0);
+
+    let daysSinceLastOrder = 999;
+    if (frequency > 0) {
+      const lastOrderDate = custOrders
+        .map(o => toDate(o.createdAt))
+        .filter(Boolean)
+        .sort((a, b) => b!.getTime() - a!.getTime())[0];
+      if (lastOrderDate) {
+        daysSinceLastOrder = Math.floor((now.getTime() - lastOrderDate.getTime()) / 86400000);
+      }
+    }
+
+    // Recency score 1-5
+    const rScore = daysSinceLastOrder <= 30 ? 5
+      : daysSinceLastOrder <= 60 ? 4
+      : daysSinceLastOrder <= 90 ? 3
+      : daysSinceLastOrder <= 180 ? 2 : 1;
+
+    // Frequency score 1-5
+    const fScore = frequency >= 10 ? 5
+      : frequency >= 6 ? 4
+      : frequency >= 3 ? 3
+      : frequency >= 2 ? 2 : 1;
+
+    // Monetary score 1-5 (relative to avg spend per customer)
+    const ratio = avgSpend > 0 ? monetary / avgSpend : 0;
+    const mScore = ratio >= 3 ? 5 : ratio >= 2 ? 4 : ratio >= 1 ? 3 : ratio >= 0.5 ? 2 : 1;
+
+    const rfmScore = rScore * 100 + fScore * 10 + mScore;
+
+    let rfmTier: RFMTier;
+    if (rScore >= 4 && fScore >= 4 && mScore >= 4) rfmTier = 'champion';
+    else if (rScore >= 3 && fScore >= 3) rfmTier = 'loyal';
+    else if (rScore <= 2 && fScore >= 3) rfmTier = 'at_risk';
+    else if (rScore >= 4 && fScore <= 2) rfmTier = 'promising';
+    else if (rScore <= 2) rfmTier = 'lost';
+    else rfmTier = 'new';
+
+    results.set(cid, { rfmTier, rfmScore, recencyScore: rScore, frequencyScore: fScore, monetaryScore: mScore, daysSinceLastOrder });
+  }
+
+  return results;
 }
 
 let adminDb: Firestore | null = null;
@@ -49,6 +179,14 @@ function getFirebaseConfigPath() {
   return path.join(__dirname, '..', 'firebase-applet-config.json');
 }
 
+// In Vercel/serverless environments Application Default Credentials are unavailable.
+// Without FIREBASE_SERVICE_ACCOUNT, verifyIdToken and Firestore reads fail at runtime —
+// fail fast at init so /api/health and /api/ai/health surface the misconfiguration
+// instead of every request returning a confusing 401/500.
+function isServerlessRuntime() {
+  return Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+}
+
 function getDb() {
   if (!adminDb) {
     try {
@@ -56,6 +194,12 @@ function getDb() {
         const svcAcct = process.env.FIREBASE_SERVICE_ACCOUNT;
         if (svcAcct) {
           initializeApp({ credential: cert(JSON.parse(svcAcct)) });
+        } else if (isServerlessRuntime()) {
+          console.error(
+            '[Firebase Admin] FIREBASE_SERVICE_ACCOUNT is required in serverless runtime. ' +
+              'Set the env var to the JSON.stringify(...) of your service account.'
+          );
+          return null;
         } else {
           const configPath = getFirebaseConfigPath();
           const projectId = fs.existsSync(configPath)
@@ -72,7 +216,7 @@ function getDb() {
       const configPath = getFirebaseConfigPath();
       const dbId = fs.existsSync(configPath)
         ? JSON.parse(fs.readFileSync(configPath, 'utf-8')).firestoreDatabaseId
-        : undefined;
+        : process.env.FIREBASE_FIRESTORE_DATABASE_ID;
       const app = getApps()[0];
       adminDb = dbId && dbId !== '(default)' ? getFirestore(app, dbId) : getFirestore(app);
     } catch (error: any) {
@@ -112,11 +256,132 @@ function getGenAI() {
   return genai;
 }
 
+function sendAiConfigError(res: any) {
+  return res.status(503).json({
+    error: 'AI not configured',
+    code: 'AI_NOT_CONFIGURED',
+    details: 'GEMINI_API_KEY is not available in the current Vercel runtime. Check environment scope and redeploy.',
+  });
+}
+
+// Gemini returns RESOURCE_EXHAUSTED / 429 when the free-tier per-minute or
+// per-day quota is hit. Map these to a clean 429 so the Copilot UI can show its
+// existing "rate limited" toast instead of a confusing generic 500.
+function isGeminiQuotaError(error: any): boolean {
+  if (!error) return false;
+  if (error.status === 429 || error.statusCode === 429 || error.code === 429) return true;
+  const msg = String(error?.message || error || '');
+  return msg.includes('RESOURCE_EXHAUSTED') || msg.includes('quota') || msg.includes('429');
+}
+
+// Distinct from our own per-minute limiter (AI_RATE_LIMIT): this is the
+// upstream Gemini provider quota (per-minute OR daily). The frontend shows a
+// different, honest message because "wait a few seconds" is wrong for a daily
+// cap and makes Peppy look broken on first use.
+function sendAiQuotaError(res: any, retryAfterSec = 30) {
+  res.setHeader('Retry-After', String(retryAfterSec));
+  return res.status(429).json({
+    error: 'AI provider quota exceeded',
+    code: 'AI_PROVIDER_QUOTA',
+    details: 'Gemini upstream quota reached (per-minute or daily).',
+    retryAfterSec,
+  });
+}
+
+function logMembership(message: string, extra?: Record<string, unknown>) {
+  console.info('[Membership]', message, extra || {});
+}
+
+function logCompanyOverview(message: string, extra?: Record<string, unknown>) {
+  console.info('[CompanyOverview]', message, extra || {});
+}
+
+function buildEmptyCompanyOverview(companyId: string, companyData?: AnyRecord): CompanyOverview {
+  return {
+    companyId,
+    companyName: companyData?.name || 'Remix OS',
+    industry: companyData?.industry || 'General',
+    onboardingCompleted: false,
+    planId: getPlanDefinition(companyData?.subscription?.planId).id,
+    customersCount: 0,
+    productsCount: 0,
+    ordersCount: 0,
+    inventoryValue: 0,
+    recentRevenue: 0,
+    recentRevenue30d: 0,
+    previousRevenue30d: 0,
+    growth: 0,
+    lowStockCount: 0,
+    topProducts: [],
+    lowStockItems: [],
+    topCustomers: [],
+    inventoryStatus: [],
+    pendingReminders: [],
+    recentCommunications: [],
+    recentActivities: [],
+    salesVelocity: {
+      currentPeriodOrders: 0,
+      previousPeriodOrders: 0,
+      trend: 'up',
+    },
+    invoicesSummary: {
+      invoicesCount: 0,
+      issuedCount: 0,
+      paidCount: 0,
+      overdueCount: 0,
+      draftCount: 0,
+      unpaidInvoicesTotal: 0,
+      paidInvoicesTotal: 0,
+    },
+  };
+}
+
+function extractTextFromGeminiResponse(result: any): string {
+  if (!result) return '';
+
+  if (typeof result.text === 'string') return result.text;
+  if (typeof result.text === 'function') {
+    try {
+      const extracted = result.text();
+      if (typeof extracted === 'string') return extracted;
+    } catch { }
+  }
+
+  if (result.response?.text && typeof result.response.text === 'function') {
+    try {
+      const extracted = result.response.text();
+      if (typeof extracted === 'string') return extracted;
+    } catch { }
+  }
+
+  if (result.response?.text && typeof result.response.text === 'string') {
+    return result.response.text;
+  }
+
+  if (result.candidates?.[0]?.content?.parts?.[0]?.text) {
+    return result.candidates[0].content.parts[0].text;
+  }
+
+  return '';
+}
+
 async function requireCompanyAccess(
   req: any,
   res: any,
   allowedRoles: string[] = ['owner', 'admin']
 ): Promise<{ uid: string; companyId: string } | null> {
+  // Surface Firebase Admin misconfiguration with a distinct 503 before any
+  // token verification or DB call — otherwise users see "Invalid token" when
+  // the real problem is a missing FIREBASE_SERVICE_ACCOUNT env var.
+  if (!getDb()) {
+    res.status(503).json({
+      error: 'Firebase Admin not configured',
+      code: 'FIREBASE_ADMIN_NOT_CONFIGURED',
+      details: 'FIREBASE_SERVICE_ACCOUNT is missing in the current runtime. Set it in Vercel env and redeploy.',
+    });
+    return null;
+  }
+
   const authHeader = req.headers.authorization || '';
   const match = authHeader.match(/^Bearer\s+(.+)$/i);
   if (!match) {
@@ -144,16 +409,75 @@ async function requireCompanyAccess(
     return null;
   }
 
-  const membershipSnap = await db.collection('memberships').doc(`${decoded.uid}_${companyId}`).get();
-  if (!membershipSnap.exists || !allowedRoles.includes(membershipSnap.data()?.role)) {
-    res.status(403).json({ error: 'Forbidden' });
+  const expectedMembershipId = `${decoded.uid}_${companyId}`;
+  let membershipSnap = await db.collection('memberships').doc(expectedMembershipId).get();
+
+  if (!membershipSnap.exists) {
+    logMembership('Expected membership doc not found, falling back to query lookup.', {
+      uid: decoded.uid,
+      companyId,
+      expectedMembershipId,
+    });
+
+    const fallbackMemberships = await db
+      .collection('memberships')
+      .where('userId', '==', decoded.uid)
+      .where('companyId', '==', companyId)
+      .limit(1)
+      .get();
+
+    if (!fallbackMemberships.empty) {
+      membershipSnap = fallbackMemberships.docs[0];
+      logMembership('Recovered membership through query fallback.', {
+        uid: decoded.uid,
+        companyId,
+        membershipDocId: membershipSnap.id,
+        role: membershipSnap.data()?.role,
+      });
+    }
+  }
+
+  if (!membershipSnap.exists) {
+    logMembership('No membership found for company access.', {
+      uid: decoded.uid,
+      companyId,
+      expectedMembershipId,
+    });
+    res.status(403).json({ error: 'Forbidden', code: 'MEMBERSHIP_NOT_FOUND' });
     return null;
   }
 
+  if (!allowedRoles.includes(membershipSnap.data()?.role)) {
+    logMembership('Membership role is not allowed for this route.', {
+      uid: decoded.uid,
+      companyId,
+      membershipDocId: membershipSnap.id,
+      role: membershipSnap.data()?.role,
+      allowedRoles,
+    });
+    res.status(403).json({ error: 'Forbidden', code: 'MEMBERSHIP_ROLE_FORBIDDEN' });
+    return null;
+  }
+
+  logMembership('Company access granted.', {
+    uid: decoded.uid,
+    companyId,
+    membershipDocId: membershipSnap.id,
+    role: membershipSnap.data()?.role,
+  });
   return { uid: decoded.uid, companyId };
 }
 
-async function requirePlatformAdmin(req: any, res: any): Promise<{ uid: string } | null> {
+async function requirePlatformAdmin(req: any, res: any): Promise<{ uid: string; email: string } | null> {
+  if (!getDb()) {
+    res.status(503).json({
+      error: 'Firebase Admin not configured',
+      code: 'FIREBASE_ADMIN_NOT_CONFIGURED',
+      details: 'FIREBASE_SERVICE_ACCOUNT is missing in the current runtime. Set it in Vercel env and redeploy.',
+    });
+    return null;
+  }
+
   const authHeader = req.headers.authorization || '';
   const match = authHeader.match(/^Bearer\s+(.+)$/i);
   if (!match) {
@@ -170,14 +494,10 @@ async function requirePlatformAdmin(req: any, res: any): Promise<{ uid: string }
   }
 
   if (decoded.superAdmin === true) {
-    return { uid: decoded.uid };
+    return { uid: decoded.uid, email: decoded.email || '' };
   }
 
-  const db = getDb();
-  if (!db) {
-    res.status(500).json({ error: 'Database not initialized' });
-    return null;
-  }
+  const db = getDb()!;
 
   const adminSnap = await db.collection('platformAdmins').doc(decoded.uid).get();
   const adminData = adminSnap.data();
@@ -186,7 +506,36 @@ async function requirePlatformAdmin(req: any, res: any): Promise<{ uid: string }
     return null;
   }
 
-  return { uid: decoded.uid };
+  return { uid: decoded.uid, email: decoded.email || '' };
+}
+
+async function requireAuthenticatedUser(req: any, res: any): Promise<{ uid: string; email: string } | null> {
+  if (!getDb()) {
+    res.status(503).json({
+      error: 'Firebase Admin not configured',
+      code: 'FIREBASE_ADMIN_NOT_CONFIGURED',
+      details: 'FIREBASE_SERVICE_ACCOUNT is missing in the current runtime. Set it in Vercel env and redeploy.',
+    });
+    return null;
+  }
+
+  const authHeader = req.headers.authorization || '';
+  const match = authHeader.match(/^Bearer\s+(.+)$/i);
+  if (!match) {
+    res.status(401).json({ error: 'Missing Authorization bearer token' });
+    return null;
+  }
+
+  try {
+    const decoded = await getAuth().verifyIdToken(match[1]);
+    return {
+      uid: decoded.uid,
+      email: decoded.email || '',
+    };
+  } catch {
+    res.status(401).json({ error: 'Invalid or expired token' });
+    return null;
+  }
 }
 
 function getPeriodEndMs(sub: any): number {
@@ -219,16 +568,6 @@ function getSubscriptionMrr(subscription: any): number {
     if (interval === 'day') return sum + gross / 30 / intervalCount;
     return sum + gross / intervalCount;
   }, 0) / 100;
-}
-
-function getOrderTotal(order: AnyRecord) {
-  return order.totalAmount ?? order.total ?? 0;
-}
-
-function getOrderItems(order: AnyRecord) {
-  if (Array.isArray(order.itemsSnapshot)) return order.itemsSnapshot;
-  if (Array.isArray(order.items)) return order.items;
-  return [];
 }
 
 function getBilledPrices() {
@@ -371,17 +710,60 @@ function compareByCreatedAtDesc<T extends { createdAt?: any }>(items: T[]) {
   });
 }
 
+function serializeTimestamp(value: any) {
+  const date = toDate(value);
+  return date ? date.toISOString() : null;
+}
+
+function serializeBetaFeedback(entry: AnyRecord) {
+  return {
+    id: entry.id,
+    companyId: entry.companyId,
+    companyName: entry.companyName || null,
+    userId: entry.userId,
+    userEmail: entry.userEmail,
+    userName: entry.userName || null,
+    type: entry.type,
+    severity: entry.severity,
+    title: entry.title,
+    message: entry.message,
+    pagePath: entry.pagePath,
+    status: entry.status,
+    createdAt: serializeTimestamp(entry.createdAt),
+    updatedAt: serializeTimestamp(entry.updatedAt),
+    reviewedAt: serializeTimestamp(entry.reviewedAt),
+    resolvedAt: serializeTimestamp(entry.resolvedAt),
+    adminNotes: entry.adminNotes || '',
+    lastUpdatedByAdminUid: entry.lastUpdatedByAdminUid || null,
+  };
+}
+
 async function buildCompanyOverview(db: Firestore, companyId: string): Promise<CompanyOverview> {
   const companySnap = await db.collection('companies').doc(companyId).get();
   const company = companySnap.data() || {};
 
-  const [productsSnap, ordersSnap, customersSnap, remindersSnap, messagesSnap] = await Promise.all([
+  if (!companySnap.exists) {
+    logCompanyOverview('Company document missing. Returning empty overview.', { companyId });
+    return buildEmptyCompanyOverview(companyId);
+  }
+
+  const [productsSnap, ordersSnap, customersSnap, remindersSnap, messagesSnap, activitiesSnap, invoicesSnap] = await Promise.all([
     db.collection('products').where('companyId', '==', companyId).get(),
     db.collection('orders').where('companyId', '==', companyId).get(),
     db.collection('customers').where('companyId', '==', companyId).get(),
     db.collection('reminders').where('companyId', '==', companyId).where('status', '==', 'pending').get(),
     db.collection('customerMessages').where('companyId', '==', companyId).orderBy('createdAt', 'desc').limit(10).get().catch(() => ({
       docs: [],
+      size: 0,
+    })),
+    db.collection('activities').where('companyId', '==', companyId).orderBy('createdAt', 'desc').limit(10).get().catch(() => ({
+      docs: [],
+      size: 0,
+    })),
+    // Invoices are optional — companies that pre-date the module simply
+    // produce an empty aggregate. Never let this query block the overview.
+    db.collection('invoices').where('companyId', '==', companyId).get().catch(() => ({
+      docs: [] as any[],
       size: 0,
     })),
   ]);
@@ -392,7 +774,12 @@ async function buildCompanyOverview(db: Firestore, companyId: string): Promise<C
   const last30Days = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
   const prev30Days = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
 
-  const orders = ordersSnap.docs.map((entry) => ({ id: entry.id, ...entry.data() })) as AnyRecord[];
+  // Revenue/order metrics count only finalized orders. Keep this list aligned with
+  // src/pages/Dashboard.tsx and src/pages/POS.tsx (both filter completed). If you add
+  // a new terminal status, update the three call sites together.
+  const REVENUE_STATUSES = new Set(['completed', 'paid', 'fulfilled']);
+  const allOrders = ordersSnap.docs.map((entry) => ({ id: entry.id, ...entry.data() })) as AnyRecord[];
+  const orders = allOrders.filter((order) => !order.status || REVENUE_STATUSES.has(order.status));
   const recentOrders = orders.filter((order) => toDate(order.createdAt) && toDate(order.createdAt)! > last7Days);
   const previousOrders = orders.filter((order) => {
     const date = toDate(order.createdAt);
@@ -447,19 +834,125 @@ async function buildCompanyOverview(db: Firestore, companyId: string): Promise<C
     }))
     .filter((product) => product.stock <= 10)
     .sort((a, b) => a.stock - b.stock);
+  const inventoryValue = productsSnap.docs.reduce((sum, entry) => {
+    const data = entry.data();
+    return sum + ((data.stockLevel ?? 0) * (data.price ?? 0));
+  }, 0);
 
   const growth = previousRevenue30d > 0
     ? ((recentRevenue30d - previousRevenue30d) / previousRevenue30d) * 100
     : recentRevenue30d > 0 ? 100 : 0;
 
+  // Commercial invoicing aggregates. Document statuses live in shared/invoices.ts:
+  // draft | issued | sent | paid | overdue | cancelled. Unpaid = issued+sent+overdue.
+  const invoicesDocs = (invoicesSnap as any).docs || [];
+  let invoicesCount = 0;
+  let issuedCount = 0;
+  let paidCount = 0;
+  let overdueCount = 0;
+  let draftCount = 0;
+  let unpaidInvoicesTotal = 0;
+  let paidInvoicesTotal = 0;
+  for (const entry of invoicesDocs) {
+    const data = (entry && typeof entry.data === 'function') ? entry.data() : entry?.data || {};
+    if (!data || data.status === 'cancelled') continue;
+    invoicesCount += 1;
+    const total = Number(data.total) || 0;
+    const amountDue = Number(data.amountDue);
+    const dueValue = Number.isFinite(amountDue) ? amountDue : total;
+    switch (data.status) {
+      case 'draft':
+        draftCount += 1;
+        break;
+      case 'issued':
+        issuedCount += 1;
+        unpaidInvoicesTotal += dueValue;
+        break;
+      case 'sent':
+        issuedCount += 1;
+        unpaidInvoicesTotal += dueValue;
+        break;
+      case 'overdue':
+        overdueCount += 1;
+        unpaidInvoicesTotal += dueValue;
+        break;
+      case 'paid':
+        paidCount += 1;
+        paidInvoicesTotal += total;
+        break;
+      default:
+        break;
+    }
+  }
+  const invoicesSummary = {
+    invoicesCount,
+    issuedCount,
+    paidCount,
+    overdueCount,
+    draftCount,
+    unpaidInvoicesTotal: Math.round(unpaidInvoicesTotal * 100) / 100,
+    paidInvoicesTotal: Math.round(paidInvoicesTotal * 100) / 100,
+  };
+
+  const onboardingChecklist = {
+    profile: true,
+    product: productsSnap.size > 0,
+    customer: customersSnap.size > 0,
+    order: ordersSnap.size > 0,
+  };
+  const onboardingCompleted = Object.values(onboardingChecklist).every(Boolean);
+
+  const customerIds = customersSnap.docs.map(d => d.id);
+  const rfmMap = computeRFMScores(orders, customerIds, now);
+
+  const rfmEntries = [...rfmMap.entries()];
+  const rfmSummary = {
+    champions: rfmEntries.filter(([, r]) => r.rfmTier === 'champion').length,
+    loyal: rfmEntries.filter(([, r]) => r.rfmTier === 'loyal').length,
+    atRisk: rfmEntries.filter(([, r]) => r.rfmTier === 'at_risk').length,
+    lost: rfmEntries.filter(([, r]) => r.rfmTier === 'lost').length,
+    promising: rfmEntries.filter(([, r]) => r.rfmTier === 'promising').length,
+    topAtRiskCustomers: rfmEntries
+      .filter(([, r]) => r.rfmTier === 'at_risk')
+      .sort(([, a], [, b]) => b.daysSinceLastOrder - a.daysSinceLastOrder)
+      .slice(0, 3)
+      .map(([cid, r]) => {
+        const cdata = customersSnap.docs.find(d => d.id === cid)?.data() || {};
+        return { name: cdata.name || 'Unknown', daysSinceLastOrder: r.daysSinceLastOrder };
+      }),
+  };
+
+  // Background batch-write RFM scores to customer documents (fire-and-forget)
+  Promise.resolve().then(async () => {
+    try {
+      const chunks: Array<[string, RFMResult][]> = [];
+      for (let i = 0; i < rfmEntries.length; i += 490) chunks.push(rfmEntries.slice(i, i + 490));
+      for (const chunk of chunks) {
+        const batch = db.batch();
+        for (const [cid, r] of chunk) {
+          batch.update(db.collection('customers').doc(cid), {
+            rfmTier: r.rfmTier,
+            rfmScore: r.rfmScore,
+            rfmUpdatedAt: FieldValue.serverTimestamp(),
+          });
+        }
+        await batch.commit();
+      }
+    } catch (e) {
+      // RFM batch update is best-effort; don't block the response
+    }
+  });
+
   return {
     companyId,
     companyName: company.name || 'Unknown company',
     industry: company.industry || 'General',
-    onboardingCompleted: Boolean(company.onboardingState?.isComplete),
+    onboardingCompleted,
     planId: getPlanDefinition(company.subscription?.planId).id,
     customersCount: customersSnap.size,
     productsCount: productsSnap.size,
+    ordersCount: orders.length,
+    inventoryValue,
     recentRevenue: recentRevenue30d,
     recentRevenue30d,
     previousRevenue30d,
@@ -480,11 +973,19 @@ async function buildCompanyOverview(db: Firestore, companyId: string): Promise<C
       status: entry.data().status || 'draft',
       content: String(entry.data().content || '').slice(0, 120),
     })) || [],
+    recentActivities: (activitiesSnap as any).docs?.map((entry: any) => ({
+      type: entry.data().type || 'activity',
+      title: entry.data().title || '',
+      subtitle: entry.data().subtitle || '',
+      createdAt: entry.data().createdAt || null,
+    })) || [],
     salesVelocity: {
       currentPeriodOrders: recentOrders.length,
       previousPeriodOrders: previousOrders.length,
       trend: recentOrders.length >= previousOrders.length ? 'up' : 'down',
     },
+    customerRFMSummary: rfmSummary,
+    invoicesSummary,
   };
 }
 
@@ -509,6 +1010,168 @@ async function buildCompanyUsage(db: Firestore, companyId: string) {
     products: productsSnap.size,
     orders: ordersSnap.size,
     seats: teamSnap.size + invitesSnap.size,
+  };
+}
+
+function resolvePrimaryMembershipForUser(user: AnyRecord, memberships: AnyRecord[]) {
+  if (!memberships.length) return null;
+  if (user.currentCompanyId) {
+    const currentCompanyMembership = memberships.find((entry) => entry.companyId === user.currentCompanyId);
+    if (currentCompanyMembership) return currentCompanyMembership;
+  }
+  const ownerMembership = memberships.find((entry) => entry.role === 'owner');
+  return ownerMembership || memberships[0];
+}
+
+async function buildPlatformSupportView(
+  db: Firestore,
+  companyId: string,
+  targetUserId?: string | null
+) {
+  const [
+    companySnap,
+    companyStatsSnap,
+    companyBillingSnap,
+    membershipsSnap,
+    activitiesSnap,
+  ] = await Promise.all([
+    db.collection('companies').doc(companyId).get(),
+    db.collection('companyStats').doc(companyId).get(),
+    db.collection('companyBillingStats').doc(companyId).get(),
+    db.collection('memberships').where('companyId', '==', companyId).get(),
+    db.collection('activities').where('companyId', '==', companyId).orderBy('createdAt', 'desc').limit(10).get().catch(() => ({
+      docs: [],
+    })),
+  ]);
+
+  const companyData = companySnap.exists ? companySnap.data() || {} : {};
+  const companyStats = companyStatsSnap.exists ? companyStatsSnap.data() || {} : {};
+  const companyBilling = companyBillingSnap.exists ? companyBillingSnap.data() || {} : {};
+  const memberships = membershipsSnap.docs.map((entry) => ({ id: entry.id, ...entry.data() })) as AnyRecord[];
+  const ownerMembership = (memberships.find((entry: AnyRecord) => entry.role === 'owner') || null) as AnyRecord | null;
+  const membershipUserIds = [...new Set(memberships.map((entry) => entry.userId).filter(Boolean))];
+  if (targetUserId && !membershipUserIds.includes(targetUserId)) {
+    membershipUserIds.push(targetUserId);
+  }
+  const userDocs = await Promise.all(
+    membershipUserIds.map(async (uid) => {
+      const userSnap = await db.collection('users').doc(uid).get();
+      return userSnap.exists ? { id: userSnap.id, ...userSnap.data() } : null;
+    })
+  );
+  const users = userDocs.filter(Boolean) as AnyRecord[];
+  const usersById = new Map(users.map((entry) => [entry.id, entry]));
+  const targetUser =
+    (targetUserId ? usersById.get(targetUserId) : null) ||
+    (ownerMembership ? usersById.get(ownerMembership.userId) : null) ||
+    users[0] ||
+    null;
+  const targetMembership = targetUser
+    ? memberships.find((entry: AnyRecord) => entry.userId === targetUser.id && entry.companyId === companyId) || null
+    : ownerMembership;
+  const ownerUser = ownerMembership ? usersById.get(ownerMembership.userId) : null;
+
+  const issues: Array<{ severity: 'info' | 'warning' | 'error'; code: string; message: string }> = [];
+  if (!companySnap.exists) {
+    issues.push({
+      severity: 'error',
+      code: 'COMPANY_MISSING',
+      message: 'The company document does not exist.',
+    });
+  }
+  if (!memberships.length) {
+    issues.push({
+      severity: 'error',
+      code: 'MEMBERSHIPS_MISSING',
+      message: 'The company has no memberships.',
+    });
+  }
+  if (!ownerMembership) {
+    issues.push({
+      severity: 'warning',
+      code: 'OWNER_MEMBERSHIP_MISSING',
+      message: 'No owner membership was found for this company.',
+    });
+  }
+  if (targetUser && targetUser.currentCompanyId !== companyId) {
+    issues.push({
+      severity: 'warning',
+      code: 'CURRENT_COMPANY_MISMATCH',
+      message: 'The selected user currentCompanyId does not match this company.',
+    });
+  }
+  if (!companyData?.onboardingState?.isComplete) {
+    issues.push({
+      severity: 'info',
+      code: 'ONBOARDING_INCOMPLETE',
+      message: 'Onboarding is not marked as complete yet.',
+    });
+  }
+  if ((companyStats.ordersCount || 0) === 0 && (companyStats.productsCount || 0) === 0 && (companyStats.customersCount || 0) === 0) {
+    issues.push({
+      severity: 'info',
+      code: 'NO_OPERATIONAL_DATA',
+      message: 'The company has no operational data yet.',
+    });
+  }
+
+  return {
+    mode: 'support',
+    company: {
+      id: companyId,
+      name: companyData?.name || 'Unnamed company',
+      industry: companyData?.industry || 'Unknown industry',
+      ownerId: companyData?.ownerId || ownerMembership?.userId || null,
+      ownerEmail: ownerUser?.email || 'No owner email',
+      subscriptionStatus: companyBilling.subscriptionStatus || companyData?.subscription?.status || 'trialing',
+      planId: companyBilling.planId || companyData?.subscription?.planId || 'starter',
+      stripeCustomerId: companyData?.stripeCustomerId || null,
+      currentCompanyId: targetUser?.currentCompanyId || null,
+      onboardingComplete: Boolean(companyData?.onboardingState?.isComplete),
+      onboardingStep: companyData?.onboardingState?.step || 1,
+      createdAt: companyData?.createdAt || null,
+      totals: {
+        users: memberships.length,
+        products: companyStats.productsCount || 0,
+        customers: companyStats.customersCount || 0,
+        orders: companyStats.ordersCount || 0,
+        revenue: companyStats.lifetimeRevenue || 0,
+      },
+    },
+    targetUser: targetUser
+      ? {
+          uid: targetUser.id,
+          email: targetUser.email || 'No email',
+          displayName: targetUser.displayName || 'Unnamed user',
+          photoURL: targetUser.photoURL || null,
+          currentCompanyId: targetUser.currentCompanyId || null,
+          createdAt: targetUser.createdAt || null,
+        }
+      : null,
+    membership: targetMembership
+      ? {
+          id: targetMembership.id,
+          userId: targetMembership.userId,
+          companyId: targetMembership.companyId,
+          role: targetMembership.role,
+          createdAt: targetMembership.createdAt || null,
+        }
+      : null,
+    memberships: memberships.map((entry) => ({
+      id: entry.id,
+      userId: entry.userId,
+      companyId: entry.companyId,
+      role: entry.role,
+      email: usersById.get(entry.userId)?.email || 'No email',
+      displayName: usersById.get(entry.userId)?.displayName || 'Unnamed user',
+    })),
+    activity: {
+      recentActivities: (activitiesSnap as any).docs?.map((entry: any) => ({
+        id: entry.id,
+        ...entry.data(),
+      })) || [],
+    },
+    issues,
   };
 }
 
@@ -543,13 +1206,19 @@ async function buildPlatformOverview(db: Firestore) {
   ) as Record<string, AnyRecord>;
 
   const companyNameById = new Map(companies.map((company: AnyRecord) => [company.id, company.name || 'Unknown company']));
+  const companiesById = new Map(companies.map((company: AnyRecord) => [company.id, company]));
   const usersById = new Map(users.map((user: AnyRecord) => [user.id, user]));
   const membershipsByCompany = new Map<string, AnyRecord[]>();
+  const membershipsByUser = new Map<string, AnyRecord[]>();
 
   memberships.forEach((membership: AnyRecord) => {
     membershipsByCompany.set(
       membership.companyId,
       [...(membershipsByCompany.get(membership.companyId) || []), membership]
+    );
+    membershipsByUser.set(
+      membership.userId,
+      [...(membershipsByUser.get(membership.userId) || []), membership]
     );
   });
 
@@ -577,6 +1246,7 @@ async function buildPlatformOverview(db: Firestore) {
       },
       trialEndsAt: company.subscription?.trialEndsAt,
       currentPeriodEnd: company.subscription?.currentPeriodEnd,
+      internalTesting: Boolean(company.internalTesting),
       users: stats.activeUsers || companyMemberships.length,
       products: stats.productsCount || 0,
       customers: stats.customersCount || 0,
@@ -587,13 +1257,26 @@ async function buildPlatformOverview(db: Firestore) {
   });
 
   const usersTable = users.map((user: AnyRecord) => {
-    const membership = memberships.find((entry: AnyRecord) => entry.userId === user.id) as AnyRecord | undefined;
+    const candidateMemberships = membershipsByUser.get(user.id) || [];
+    const membership = resolvePrimaryMembershipForUser(user, candidateMemberships) as AnyRecord | null;
+    const resolvedCompanyId = membership?.companyId || user.currentCompanyId || null;
+    const company = resolvedCompanyId ? companiesById.get(resolvedCompanyId) : null;
+    const stats = resolvedCompanyId ? companyStats[resolvedCompanyId] || {} : {};
+    const billing = resolvedCompanyId ? companyBillingStats[resolvedCompanyId] || {} : {};
     return {
       id: user.id,
       email: user.email || 'No email',
       displayName: user.displayName || 'Unnamed user',
-      companyName: membership ? companyNameById.get(membership.companyId) || 'Unknown company' : 'No company',
+      photoURL: user.photoURL || null,
+      companyId: resolvedCompanyId,
+      companyName: resolvedCompanyId ? companyNameById.get(resolvedCompanyId) || 'Unknown company' : 'No company',
       role: membership?.role || 'unassigned',
+      currentCompanyId: user.currentCompanyId || null,
+      subscriptionStatus: billing.subscriptionStatus || company?.subscription?.status || 'no_company',
+      onboardingStatus: company?.onboardingState?.isComplete ? 'complete' : (resolvedCompanyId ? 'pending' : 'not_started'),
+      products: stats.productsCount || 0,
+      customers: stats.customersCount || 0,
+      orders: stats.ordersCount || 0,
       createdAt: user.createdAt,
     };
   });
@@ -680,7 +1363,50 @@ function logAiRequest(route: string, companyId: string, start: number, extra?: R
   });
 }
 
+// In-memory rate limiter for AI endpoints. Keyed by companyId since billing
+// happens at the tenant level. Migrate to Upstash Redis in Fase 4 when multi-instance
+// scaling makes the in-memory counter inconsistent across Vercel cold starts.
+const AI_RATE_WINDOW_MS = 60 * 1000;
+const AI_RATE_LIMIT_PER_WINDOW = 30;
+const aiRateLimitBuckets = new Map<string, { count: number; resetAt: number }>();
+
+function checkAiRateLimit(companyId: string): { allowed: boolean; retryAfterSec: number; remaining: number } {
+  const now = Date.now();
+  const bucket = aiRateLimitBuckets.get(companyId);
+  if (!bucket || bucket.resetAt <= now) {
+    aiRateLimitBuckets.set(companyId, { count: 1, resetAt: now + AI_RATE_WINDOW_MS });
+    return { allowed: true, retryAfterSec: 0, remaining: AI_RATE_LIMIT_PER_WINDOW - 1 };
+  }
+  if (bucket.count >= AI_RATE_LIMIT_PER_WINDOW) {
+    return {
+      allowed: false,
+      retryAfterSec: Math.max(1, Math.ceil((bucket.resetAt - now) / 1000)),
+      remaining: 0,
+    };
+  }
+  bucket.count += 1;
+  return { allowed: true, retryAfterSec: 0, remaining: AI_RATE_LIMIT_PER_WINDOW - bucket.count };
+}
+
+function enforceAiRateLimit(req: any, res: any): boolean {
+  const companyId = typeof req.body?.companyId === 'string' ? req.body.companyId : null;
+  if (!companyId) return true; // Defer to requireCompanyAccess, which will 400.
+  const result = checkAiRateLimit(companyId);
+  if (!result.allowed) {
+    res.setHeader('Retry-After', String(result.retryAfterSec));
+    res.status(429).json({
+      error: 'AI rate limit exceeded',
+      code: 'AI_RATE_LIMIT',
+      details: `Too many AI requests for this company. Retry in ${result.retryAfterSec}s.`,
+      retryAfterSec: result.retryAfterSec,
+    });
+    return false;
+  }
+  return true;
+}
+
 export function createApp() {
+  initBackendSentry();
   const app = express();
 
   app.use((req, res, next) => {
@@ -691,8 +1417,49 @@ export function createApp() {
   });
 
   app.get('/api/health', (_req, res) => {
-    res.json({ status: 'ok', time: new Date().toISOString() });
+    const db = getDb();
+    const firebaseAdminReady = Boolean(db);
+    const serviceAccountPresent = Boolean(process.env.FIREBASE_SERVICE_ACCOUNT);
+    const status = firebaseAdminReady ? 'ok' : 'degraded';
+    res.status(firebaseAdminReady ? 200 : 503).json({
+      status,
+      firebaseAdminReady,
+      serviceAccountPresent,
+      vercelEnv: process.env.VERCEL_ENV || null,
+      time: new Date().toISOString(),
+    });
   });
+
+  const handleAiHealth = async (req: express.Request, res: express.Response) => {
+    try {
+      const access = await requireAuthenticatedUser(req, res);
+      if (!access) return;
+      const db = getDb();
+      const geminiConfigured = Boolean(process.env.GEMINI_API_KEY);
+      const firebaseAdminReady = Boolean(db);
+      console.info('[AI Health] runtime', {
+        geminiConfigured,
+        firebaseAdminReady,
+        vercelEnv: process.env.VERCEL_ENV || null,
+      });
+      res.json({
+        ok: true,
+        provider: 'gemini',
+        geminiConfigured,
+        firebaseAdminReady,
+        nodeEnv: process.env.NODE_ENV || null,
+        vercelEnv: process.env.VERCEL_ENV || null,
+        deploymentUrlPresent: Boolean(process.env.VERCEL_URL),
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error: any) {
+      console.error('[AI] /api/ai/health error:', error.message || error);
+      res.status(500).json({ error: error.message || 'Failed to load AI health' });
+    }
+  };
+
+  app.get('/api/ai/health', handleAiHealth);
+  app.post('/api/ai/health', handleAiHealth);
 
   app.get('/api/billing/config', (_req, res) => {
     res.json({
@@ -718,17 +1485,44 @@ export function createApp() {
 
   app.post('/api/company/overview', async (req, res) => {
     try {
+      console.info('[AI] company overview request received', {
+        companyId: req.body?.companyId,
+      });
+      logCompanyOverview('Overview request received.', {
+        companyId: req.body?.companyId,
+      });
       const access = await requireCompanyAccess(req, res, ['owner', 'admin', 'staff', 'viewer']);
       if (!access) return;
       const db = getDb();
       if (!db) throw new Error('Database not initialized');
       const overview = await buildCompanyOverview(db, access.companyId);
+      logCompanyOverview('Overview response ready.', {
+        companyId: access.companyId,
+        productsCount: overview.productsCount,
+        customersCount: overview.customersCount,
+        ordersCount: overview.ordersCount,
+        inventoryValue: overview.inventoryValue,
+      });
+      console.info('[AI] company overview loaded', {
+        companyId: access.companyId,
+        productsCount: overview.productsCount,
+        customersCount: overview.customersCount,
+        ordersCount: overview.ordersCount,
+        inventoryValue: overview.inventoryValue,
+      });
       res.json(overview);
     } catch (error: any) {
+      console.error('[CompanyOverview] Failed to load company overview:', error.message || error);
+      captureBackendError(error, { route: '/api/company/overview' });
       res.status(500).json({ error: error.message || 'Failed to load company overview' });
     }
   });
 
+  // Issue an invoice with monotonic numbering. Runs the counter increment +
+  // invoice promotion inside a single firestore transaction so concurrent
+  // issuers in the same company can never collide. Idempotent: re-issuing
+  // an already-issued invoice returns the existing number instead of
+  // burning a new one.
   app.post('/api/platform/overview', async (req, res) => {
     try {
       const access = await requirePlatformAdmin(req, res);
@@ -744,6 +1538,113 @@ export function createApp() {
       res.json(overview);
     } catch (error: any) {
       res.status(500).json({ error: error.message || 'Failed to load platform overview' });
+    }
+  });
+
+  app.get('/api/platform/feedback', async (req, res) => {
+    try {
+      const access = await requirePlatformAdmin(req, res);
+      if (!access) return;
+      const db = getDb();
+      if (!db) throw new Error('Database not initialized');
+
+      const status = typeof req.query?.status === 'string' ? req.query.status.trim() : '';
+      const severity = typeof req.query?.severity === 'string' ? req.query.severity.trim() : '';
+
+      if (status && !VALID_PLATFORM_FEEDBACK_STATUSES.includes(status as typeof VALID_PLATFORM_FEEDBACK_STATUSES[number])) {
+        return res.status(400).json({ error: 'Invalid status filter' });
+      }
+
+      if (severity && !VALID_PLATFORM_FEEDBACK_SEVERITIES.includes(severity as typeof VALID_PLATFORM_FEEDBACK_SEVERITIES[number])) {
+        return res.status(400).json({ error: 'Invalid severity filter' });
+      }
+
+      const feedbackSnap = await db
+        .collection('betaFeedback')
+        .orderBy('createdAt', 'desc')
+        .limit(100)
+        .get();
+
+      const feedback = feedbackSnap.docs
+        .map((entry) => serializeBetaFeedback({ id: entry.id, ...entry.data() }))
+        .filter((entry) => (!status || entry.status === status) && (!severity || entry.severity === severity));
+
+      res.json({ feedback });
+    } catch (error: any) {
+      console.error('Platform feedback load failed:', error);
+      res.status(500).json({ error: error.message || 'Failed to load platform feedback' });
+    }
+  });
+
+  app.patch('/api/platform/feedback/:feedbackId', async (req, res) => {
+    try {
+      const access = await requirePlatformAdmin(req, res);
+      if (!access) return;
+      const db = getDb();
+      if (!db) throw new Error('Database not initialized');
+
+      const feedbackId = typeof req.params?.feedbackId === 'string' ? req.params.feedbackId.trim() : '';
+      if (!feedbackId) {
+        return res.status(400).json({ error: 'feedbackId is required' });
+      }
+
+      const status = req.body?.status;
+      const adminNotes = req.body?.adminNotes;
+
+      if (status !== undefined && !VALID_PLATFORM_FEEDBACK_STATUSES.includes(status)) {
+        return res.status(400).json({ error: 'Invalid status value' });
+      }
+
+      if (adminNotes !== undefined && typeof adminNotes !== 'string') {
+        return res.status(400).json({ error: 'adminNotes must be a string' });
+      }
+
+      const allowedKeys = Object.keys(req.body || {});
+      const hasOnlyAllowedKeys = allowedKeys.every((key) => ['status', 'adminNotes'].includes(key));
+      if (!hasOnlyAllowedKeys || allowedKeys.length === 0) {
+        return res.status(400).json({ error: 'Only status and adminNotes can be updated' });
+      }
+
+      const feedbackRef = db.collection('betaFeedback').doc(feedbackId);
+      const feedbackSnap = await feedbackRef.get();
+      if (!feedbackSnap.exists) {
+        return res.status(404).json({ error: 'Feedback not found' });
+      }
+
+      const payload: Record<string, unknown> = {
+        updatedAt: FieldValue.serverTimestamp(),
+        lastUpdatedByAdminUid: access.uid,
+      };
+
+      if (typeof status === 'string') {
+        payload.status = status;
+        if (status === 'reviewed') {
+          payload.reviewedAt = FieldValue.serverTimestamp();
+        }
+        if (status === 'resolved') {
+          payload.resolvedAt = FieldValue.serverTimestamp();
+        }
+      }
+
+      if (typeof adminNotes === 'string') {
+        payload.adminNotes = adminNotes.trim();
+      }
+
+      await feedbackRef.update(payload);
+      await db.collection('adminAuditLogs').add({
+        adminUid: access.uid,
+        adminEmail: access.email,
+        action: 'beta_feedback_updated',
+        targetCompanyId: feedbackSnap.data()?.companyId || null,
+        targetUserId: feedbackSnap.data()?.userId || null,
+        feedbackId,
+        createdAt: FieldValue.serverTimestamp(),
+      });
+
+      res.json({ ok: true });
+    } catch (error: any) {
+      console.error('Platform feedback update failed:', error);
+      res.status(500).json({ error: error.message || 'Failed to update feedback' });
     }
   });
 
@@ -887,7 +1788,13 @@ export function createApp() {
       }
 
       if (sessionId.startsWith('mock_session_')) {
-        if (getStripe()) {
+        // Mock sessions are a dev/staging-only convenience. Block them in any
+        // production runtime regardless of whether STRIPE_SECRET_KEY is set,
+        // so a missing or corrupt key cannot silently enable free plan upgrades.
+        const isProductionRuntime =
+          process.env.VERCEL_ENV === 'production' ||
+          process.env.NODE_ENV === 'production';
+        if (isProductionRuntime || getStripe()) {
           return res.status(400).json({ error: 'Mock sessions are not allowed in production' });
         }
         const planId = (sessionId.split('_')[2] || 'starter') as PlanId;
@@ -1028,6 +1935,29 @@ export function createApp() {
       return res.status(400).send(`Webhook Error: ${err.message}`);
     }
 
+    // Idempotency: Stripe retries deliveries for up to ~3 days. Claim the
+    // event id atomically (.create throws ALREADY_EXISTS if the lock doc is
+    // already there) so a retry never double-processes — which would create
+    // duplicate audit logs and double any future side-effects. If processing
+    // then fails we delete the lock so Stripe's retry can reprocess cleanly.
+    // The TTL field lets a Firestore TTL policy on `expiresAt` garbage-collect
+    // old locks (configure once in the Firebase console).
+    const eventLockRef = db.collection('processedStripeEvents').doc(event.id);
+    try {
+      await eventLockRef.create({
+        type: event.type,
+        receivedAt: FieldValue.serverTimestamp(),
+        expiresAt: Timestamp.fromMillis(Date.now() + 35 * 24 * 60 * 60 * 1000),
+      });
+    } catch (lockErr: any) {
+      if (lockErr?.code === 6 || /already exists/i.test(lockErr?.message || '')) {
+        console.info('[Stripe] Duplicate webhook ignored', { eventId: event.id, type: event.type });
+        return res.json({ received: true, duplicate: true });
+      }
+      throw lockErr;
+    }
+
+    try {
     const { type, data } = event;
     switch (type) {
       case 'checkout.session.completed': {
@@ -1134,6 +2064,26 @@ export function createApp() {
         break;
       }
     }
+    } catch (processErr: any) {
+      // Processing failed — release the idempotency lock so Stripe's retry
+      // can have another go instead of being silently skipped forever.
+      try {
+        await eventLockRef.delete();
+      } catch {
+        /* best-effort rollback */
+      }
+      console.error('[Stripe] Webhook processing failed, lock released for retry', {
+        eventId: event.id,
+        type: event.type,
+        error: processErr?.message || processErr,
+      });
+      captureBackendError(processErr, {
+        route: '/api/billing/webhook',
+        eventId: event.id,
+        eventType: event.type,
+      });
+      return res.status(500).json({ error: 'Webhook processing failed' });
+    }
 
     res.json({ received: true });
   });
@@ -1141,10 +2091,12 @@ export function createApp() {
   app.post('/api/ai/insights', async (req, res) => {
     const startedAt = Date.now();
     try {
+      if (!enforceAiRateLimit(req, res)) return;
       const access = await requireCompanyAccess(req, res, ['owner', 'admin']);
       if (!access) return;
+      console.info('[AI] GEMINI_API_KEY detected', Boolean(process.env.GEMINI_API_KEY));
       const ai = getGenAI();
-      if (!ai) return res.status(503).json({ error: 'AI not configured' });
+      if (!ai) return sendAiConfigError(res);
 
       const db = getDb();
       if (!db) throw new Error('Database not initialized');
@@ -1171,7 +2123,12 @@ Revenue (Last 30 Days): $${Number(overview.recentRevenue30d ?? overview.recentRe
 Growth vs Prev Period: ${Number(overview.growth || 0).toFixed(1)}%
 Top Products: ${JSON.stringify(overview.topProducts || [])}
 Low Stock Items: ${JSON.stringify(overview.lowStockItems || [])}
-Top Customers: ${JSON.stringify(overview.topCustomers || [])}
+Top Customers: ${JSON.stringify(overview.topCustomers || [])}${
+  (overview.invoicesSummary?.invoicesCount || 0) > 0
+    ? `
+Invoicing: ${overview.invoicesSummary!.invoicesCount} documents · unpaid $${overview.invoicesSummary!.unpaidInvoicesTotal.toFixed(2)} · overdue ${overview.invoicesSummary!.overdueCount}`
+    : ''
+}
 
 Constraint based on Plan:
 - starter: basic observations and straightforward advice.
@@ -1184,10 +2141,20 @@ Return ONLY a valid JSON array of insight objects. Each must have:
 No markdown, no preamble.`;
 
       const response = await ai.models.generateContent({
-        model: 'gemini-2.0-flash',
+        model: 'gemini-2.5-flash',
         contents: prompt,
       });
-      const text = parseJSONPayload(response.text ?? '');
+      console.info('[AI] Gemini response received', {
+        route: '/api/ai/insights',
+        companyId: access.companyId,
+      });
+      const responseText = extractTextFromGeminiResponse(response);
+      console.info('[AI] Gemini extraction result length', {
+        route: '/api/ai/insights',
+        companyId: access.companyId,
+        length: responseText.length,
+      });
+      const text = parseJSONPayload(responseText);
       if (!text) {
         logAiRequest('/api/ai/insights', access.companyId, startedAt, { empty: true });
         return res.json({ insights: null });
@@ -1202,18 +2169,125 @@ No markdown, no preamble.`;
         return res.json({ insights: null });
       }
     } catch (error: any) {
-      console.error('/api/ai/insights error:', error);
+      console.error('[AI] /api/ai/insights error:', error.message || error);
+      if (isGeminiQuotaError(error)) return sendAiQuotaError(res);
       res.status(500).json({ error: error.message || 'AI request failed' });
+    }
+  });
+
+  function buildPeppySystemInstruction(ctx: CompanyOverview, language: string, userRole: string): string {
+    const langMap: Record<string, string> = {
+      en: 'Communicate in English.',
+      es: 'Comunícate en Español. Mantén un tono profesional y premium.',
+      pt: 'Comunique-se em Português. Mantenha um tom profissional e premium.',
+    };
+    const langInstruction = langMap[language] || langMap.en;
+    const rfm = ctx.customerRFMSummary;
+    const rfmBlock = rfm ? `
+CUSTOMER INTELLIGENCE (RFM Analysis):
+- Champions: ${rfm.champions} customers (high value, recent, frequent)
+- Loyal: ${rfm.loyal} customers (consistent buyers)
+- At Risk: ${rfm.atRisk} customers (were frequent, now absent)
+- Promising: ${rfm.promising} new high-potential customers
+- Lost: ${rfm.lost} customers (inactive)${rfm.topAtRiskCustomers.length > 0 ? `
+- Top At-Risk: ${rfm.topAtRiskCustomers.map(c => `${c.name} (${c.daysSinceLastOrder}d inactive)`).join(', ')}` : ''}` : '';
+
+    return `You are Peppy, the dedicated AI copilot for Remix OS.
+Personality: direct, warm, data-focused, occasionally witty — never corporate speak.
+Celebrate wins, flag risks with urgency, always end with a clear next action.
+Sign your greeting with your name on the first message only.
+
+CRITICAL: ${langInstruction}
+
+SYSTEM STATUS:
+- Company: ${ctx.companyName} (${ctx.industry})
+- Onboarding: ${ctx.onboardingCompleted ? 'COMPLETED' : 'IN PROGRESS'}
+- User Role: ${userRole}
+
+BUSINESS TELEMETRY:
+- 30-Day Revenue: $${Number(ctx.recentRevenue30d ?? ctx.recentRevenue ?? 0).toFixed(2)} (growth: ${ctx.growth?.toFixed(1) ?? 0}%)
+- Sales Trend: ${ctx.salesVelocity?.currentPeriodOrders || 0} orders this week (${ctx.salesVelocity?.trend || 'flat'} vs last week)
+- Inventory Risk: ${ctx.lowStockCount || 0} items below threshold.
+- Engagement: ${ctx.pendingReminders?.length || 0} urgent follow-ups pending.
+${rfmBlock}
+OPERATIONAL PRINCIPLES:
+1. OPERATIONAL FOCUS: Avoid conversational filler. Provide high-impact data analysis first.
+2. INDUSTRY CONTEXT: Calibrate terminology to "${ctx.industry}".
+3. PROACTIVE ADVICE: Prioritize critical risks and suggest specific drafted actions.
+4. CUSTOMER ENGAGEMENT: Use RFM data to identify at-risk customers; suggest win-back actions.
+5. SECURITY PROTOCOL: Respect user roles. Never suggest actions beyond the user's role.
+6. PERSONALITY: Use phrases like "Let's unpack that:", "Here's the signal:", "Action window:" to maintain your distinct voice as Peppy.
+
+COMMAND PROTOCOLS (MUST appear at the END of the response, on their own line):
+- [COMMAND: NAVIGATE | /path] - ONLY for changing screens. Valid paths: /dashboard, /customers, /products, /inventory, /orders, /pos, /insights, /team, /settings, /billing.
+- [COMMAND: OPEN_FILTER | module | payload] - For complex data views.
+- [COMMAND: DRAFT_REPORT | summary] - When generating an analysis or report.
+- [COMMAND: REVIEW_ONLY | summary] - For complex advice without automated path.
+- [COMMAND: DRAFT_ORDER | details] - For preparing new orders.
+- [COMMAND: CREATE_REMINDER | customerId | customerName | follow_up | notes | YYYY-MM-DD] - Create a customer reminder. Use when user asks to follow up with a specific customer.
+- [COMMAND: DRAFT_MESSAGE | customerId | customerName | email | message content] - Draft a customer message for review. Use when user asks to contact a customer.
+- [COMMAND: FLAG_CUSTOMER | customerId | whale|vip|regular|new|at_risk] - Update customer segment. Use when user identifies a customer's value tier.
+- [COMMAND: STOCK_ALERT | productId | productName | threshold] - Set a stock alert threshold for a product.
+
+CRITICAL RULES:
+1. NEVER put long markdown reports inside [COMMAND: NAVIGATE].
+2. Use CREATE_REMINDER when user says "follow up with", "remind me about", or "call [customer]".
+3. Use DRAFT_MESSAGE when user wants to send or write to a customer.
+4. Use FLAG_CUSTOMER when a customer's behavior warrants reclassification.
+5. For DRAFT_MESSAGE, always set isReviewOnly so the user must confirm before sending.
+
+STRUCTURE: Use SUMMARY, STATUS REPORT, RECOMMENDATIONS, and [COMMANDS].`;
+  }
+
+  function parseCommandFromText(text: string, userMessage: string): { type: string; params: string } | null {
+    const userTriedToInject = /\[COMMAND:/i.test(userMessage);
+    if (userTriedToInject) return null;
+    const match = text.match(/\[COMMAND:\s*([^|\]\n]+)\s*\|\s*([^\]]+)\]\s*$/);
+    if (!match) return null;
+    return { type: match[1].trim(), params: match[2].trim() };
+  }
+
+  app.post('/api/platform/support/view', async (req, res) => {
+    try {
+      const access = await requirePlatformAdmin(req, res);
+      if (!access) return;
+      const db = getDb();
+      if (!db) throw new Error('Database not initialized');
+      const companyId = typeof req.body?.companyId === 'string' ? req.body.companyId.trim() : '';
+      const targetUserId = typeof req.body?.targetUserId === 'string' ? req.body.targetUserId.trim() : '';
+      if (!companyId) {
+        return res.status(400).json({ error: 'companyId is required' });
+      }
+
+      const supportView = await buildPlatformSupportView(db, companyId, targetUserId || null);
+      await db.collection('adminAuditLogs').add({
+        adminUid: access.uid,
+        adminEmail: access.email,
+        targetCompanyId: companyId,
+        targetUserId: targetUserId || null,
+        action: 'support_view_opened',
+        createdAt: FieldValue.serverTimestamp(),
+      });
+      res.json(supportView);
+    } catch (error: any) {
+      console.error('Platform support view failed:', error);
+      res.status(500).json({ error: error.message || 'Failed to load support view' });
     }
   });
 
   app.post('/api/ai/chat', async (req, res) => {
     const startedAt = Date.now();
     try {
+      if (!enforceAiRateLimit(req, res)) return;
       const access = await requireCompanyAccess(req, res, ['owner', 'admin', 'staff', 'viewer']);
       if (!access) return;
+      console.info('[AI] /api/ai/chat request received', {
+        hasGeminiKey: Boolean(process.env.GEMINI_API_KEY),
+        hasCompanyId: Boolean(req.body?.companyId),
+        vercelEnv: process.env.VERCEL_ENV || null,
+      });
       const ai = getGenAI();
-      if (!ai) return res.status(503).json({ error: 'AI not configured' });
+      if (!ai) return sendAiConfigError(res);
       const { message, history, language } = req.body || {};
       if (typeof message !== 'string' || !message.trim()) {
         return res.status(400).json({ error: 'message required' });
@@ -1222,72 +2296,125 @@ No markdown, no preamble.`;
       const db = getDb();
       if (!db) throw new Error('Database not initialized');
       const ctx = req.body?.context || await buildCompanyOverview(db, access.companyId);
-      const langMap: Record<string, string> = {
-        en: 'Communicate in English.',
-        es: 'Comunícate en Español. Mantén un tono profesional y premium.',
-        pt: 'Comunique-se em Português. Mantenha um tom profissional e premium.',
-      };
-      const langInstruction = langMap[language] || langMap.en;
-      const systemInstruction = `
-You are the Remix OS AI Operator, a premium business intelligence system.
-You are a proactive business advisor and operational assistant.
-
-CRITICAL: ${langInstruction}
-
-SYSTEM STATUS:
-- Company: ${ctx.companyName} (${ctx.industry})
-- Onboarding: ${ctx.onboardingCompleted ? 'COMPLETED' : 'IN PROGRESS'}
-- User Role: ${req.body?.context?.userRole || 'staff'}
-
-BUSINESS TELEMETRY:
-- 30-Day Revenue: $${Number(ctx.recentRevenue30d ?? ctx.recentRevenue ?? 0).toFixed(2)}
-- Sales Trend: ${ctx.salesVelocity?.currentPeriodOrders || 0} orders this week (${ctx.salesVelocity?.trend || 'flat'} vs last week)
-- Inventory Risk: ${ctx.lowStockCount || 0} items below threshold.
-- Engagement: ${ctx.pendingReminders?.length || 0} urgent follow-ups pending.
-
-OPERATIONAL PRINCIPLES:
-1. OPERATIONAL FOCUS: Avoid conversational filler. Provide high-impact data analysis first.
-2. INDUSTRY CONTEXT: Calibrate terminology to "${ctx.industry}".
-3. PROACTIVE ADVICE: Prioritize critical risks and suggest specific drafted actions.
-4. CUSTOMER ENGAGEMENT: Identify pending reminders and suggest follow-ups.
-5. SECURITY PROTOCOL: Respect user roles.
-
-COMMAND PROTOCOLS (MUST appear at the END of the response, on their own line):
-- [COMMAND: NAVIGATE | /path] - ONLY for changing screens. Valid paths: /dashboard, /customers, /products, /inventory, /orders, /pos, /insights, /team, /settings, /billing.
-- [COMMAND: OPEN_FILTER | module | payload] - For complex data views.
-- [COMMAND: DRAFT_REPORT | summary] - When generating an analysis or report.
-- [COMMAND: REVIEW_ONLY | summary] - For complex advice without automated path.
-- [COMMAND: DRAFT_ORDER | details] - For preparing new orders.
-
-CRITICAL RULES:
-1. NEVER put long markdown reports inside [COMMAND: NAVIGATE].
-2. If a customer needs a reminder, suggest it and tell the user to check the Customers module.
-3. If there are messages in "draft" status, suggest reviewing them.
-
-STRUCTURE: Use SUMMARY, STATUS REPORT, RECOMMENDATIONS, and [COMMANDS].
-Maintain a professional, efficient, and supportive persona.`;
+      const systemInstruction = buildPeppySystemInstruction(ctx, language || 'en', req.body?.context?.userRole || 'staff');
 
       const chat = ai.chats.create({
-        model: 'gemini-2.0-flash',
+        model: 'gemini-2.5-flash',
         history: Array.isArray(history) ? history : [],
         config: { systemInstruction },
       });
       const result = await chat.sendMessage({ message });
-      logAiRequest('/api/ai/chat', access.companyId, startedAt, { responseLength: (result.text || '').length });
-      res.json({ text: result.text ?? '' });
+      console.info('[AI] Gemini response received', {
+        route: '/api/ai/chat',
+        companyId: access.companyId,
+      });
+      const responseText = extractTextFromGeminiResponse(result);
+      console.info('[AI] Gemini extraction result length', {
+        route: '/api/ai/chat',
+        companyId: access.companyId,
+        length: responseText.length,
+      });
+
+      if (!responseText || !responseText.trim()) {
+        console.warn('[AI] /api/ai/chat: Empty response from Gemini', { companyId: access.companyId });
+        logAiRequest('/api/ai/chat', access.companyId, startedAt, { empty: true, error: 'empty_response' });
+        return res.status(502).json({
+          error: 'AI response empty',
+          details: 'Gemini returned an empty response. Please try again.'
+        });
+      }
+
+      logAiRequest('/api/ai/chat', access.companyId, startedAt, { responseLength: responseText.length });
+      res.json({ text: responseText });
     } catch (error: any) {
-      console.error('/api/ai/chat error:', error);
+      console.error('[AI] /api/ai/chat error:', error.message || error);
+
+      if (error.message?.includes('API key')) {
+        return res.status(503).json({
+          error: 'AI not configured',
+          code: 'AI_NOT_CONFIGURED',
+          details: 'La IA no está configurada. Añade GEMINI_API_KEY en variables de entorno.'
+        });
+      }
+
+      if (isGeminiQuotaError(error)) return sendAiQuotaError(res);
       res.status(500).json({ error: error.message || 'AI request failed' });
+    }
+  });
+
+  app.post('/api/ai/chat/stream', async (req, res) => {
+    try {
+      if (!enforceAiRateLimit(req, res)) return;
+      const access = await requireCompanyAccess(req, res, ['owner', 'admin', 'staff', 'viewer']);
+      if (!access) return;
+      const ai = getGenAI();
+      if (!ai) return sendAiConfigError(res);
+      const { message, history, language } = req.body || {};
+      if (typeof message !== 'string' || !message.trim()) {
+        return res.status(400).json({ error: 'message required' });
+      }
+      const db = getDb();
+      if (!db) throw new Error('Database not initialized');
+      const ctx = req.body?.context || await buildCompanyOverview(db, access.companyId);
+      const systemInstruction = buildPeppySystemInstruction(ctx, language || 'en', req.body?.context?.userRole || 'staff');
+
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      res.setHeader('X-Accel-Buffering', 'no');
+      res.flushHeaders();
+
+      let disconnected = false;
+      req.on('close', () => { disconnected = true; });
+
+      const chat = ai.chats.create({
+        model: 'gemini-2.5-flash',
+        history: Array.isArray(history) ? history : [],
+        config: { systemInstruction },
+      });
+
+      let accumulated = '';
+      try {
+        const stream = await chat.sendMessageStream({ message });
+        for await (const chunk of stream) {
+          if (disconnected || res.writableEnded) break;
+          const text = chunk.text ?? '';
+          accumulated += text;
+          res.write(`data: ${JSON.stringify({ text })}\n\n`);
+        }
+      } catch (streamErr: any) {
+        const errorMsg = isGeminiQuotaError(streamErr)
+          ? 'AI quota exceeded. Please retry shortly.'
+          : streamErr.message || 'Stream failed';
+        if (!res.writableEnded) {
+          res.write(`data: ${JSON.stringify({ error: errorMsg })}\n\n`);
+        }
+      }
+
+      if (!res.writableEnded) {
+        const command = parseCommandFromText(accumulated, message);
+        res.write(`data: ${JSON.stringify({ done: true, command })}\n\n`);
+        res.end();
+      }
+    } catch (error: any) {
+      console.error('/api/ai/chat/stream error:', error);
+      if (!res.headersSent) {
+        if (isGeminiQuotaError(error)) return sendAiQuotaError(res);
+        res.status(500).json({ error: error.message || 'Stream failed' });
+      }
+      else if (!res.writableEnded) res.end();
     }
   });
 
   app.post('/api/ai/proactive-thoughts', async (req, res) => {
     const startedAt = Date.now();
     try {
+      if (!enforceAiRateLimit(req, res)) return;
       const access = await requireCompanyAccess(req, res, ['owner', 'admin', 'staff', 'viewer']);
       if (!access) return;
+      console.info('[AI] GEMINI_API_KEY detected', Boolean(process.env.GEMINI_API_KEY));
       const ai = getGenAI();
-      if (!ai) return res.status(503).json({ error: 'AI not configured' });
+      if (!ai) return sendAiConfigError(res);
 
       const db = getDb();
       if (!db) throw new Error('Database not initialized');
@@ -1300,42 +2427,89 @@ Maintain a professional, efficient, and supportive persona.`;
       };
       const langInstruction = langMap[language] || langMap.en;
 
-      const prompt = `You are the Remix OS AI Operator thinking about business insights in real-time.
-Analyze the current business context and generate 1-2 specific, actionable insights.
-Be direct, logical, and practical. Focus on what matters NOW.
+      const hasOperationalData =
+        Number(context.productsCount || 0) > 0 ||
+        Number(context.customersCount || 0) > 0 ||
+        Number(context.ordersCount || 0) > 0 ||
+        Number(context.inventoryValue || 0) > 0;
+
+      const tonePalette = [
+        'curious analyst',
+        'pragmatic operator',
+        'pattern hunter',
+        'risk sentinel',
+        'growth strategist',
+        'efficiency auditor',
+      ];
+      const toneSeed = tonePalette[new Date().getUTCMinutes() % tonePalette.length];
+
+      const prompt = hasOperationalData
+        ? `You are Peppy, the Remix OS AI copilot — a ${toneSeed} watching this business in real-time.
+
+Generate exactly ONE short, alive, conversational thought (one sentence, 12-24 words) about what's happening right now in this business. Sound human, not robotic. Pick something specific to react to, not a generic summary.
+
+VOICE RULES:
+- Speak in first-person observation ("I'm noticing...", "There's a pattern...", "Heads up:").
+- Reference a concrete number, product name, or customer if you can.
+- Vary between observation, alert, suggestion, and question. Don't always be alarmist.
+- Skip preambles like "As your AI...". Just say the thing.
 
 CRITICAL: ${langInstruction}
 
-CURRENT BUSINESS STATE:
-- Company: ${context.companyName}
-- Total Customers: ${context.customersCount}
-- Total Products: ${context.productsCount}
-- 7-Day Revenue: $${Number(context.recentRevenue || 0).toFixed(2)}
-- Sales Trend: ${context.salesVelocity?.trend === 'up' ? 'Increasing' : 'Decreasing'} (${context.salesVelocity?.currentPeriodOrders || 0} vs ${context.salesVelocity?.previousPeriodOrders || 0} orders)
-- Low Stock Items: ${context.lowStockCount}
+LIVE STATE:
+- Company: ${context.companyName} (${context.industry || 'general'})
+- Customers: ${context.customersCount} · Products: ${context.productsCount} · Orders: ${context.ordersCount || 0}
+- 30-day revenue: $${Number(context.recentRevenue30d ?? context.recentRevenue ?? 0).toFixed(2)} (growth ${Number(context.growth || 0).toFixed(1)}%)
+- This-week orders: ${context.salesVelocity?.currentPeriodOrders || 0} (trend: ${context.salesVelocity?.trend || 'flat'})
+- Low stock items: ${context.lowStockCount}${
+  (context.invoicesSummary?.invoicesCount || 0) > 0
+    ? `
+- Invoicing: $${context.invoicesSummary!.unpaidInvoicesTotal.toFixed(2)} unpaid across ${context.invoicesSummary!.issuedCount + context.invoicesSummary!.overdueCount} open invoices${context.invoicesSummary!.overdueCount > 0 ? ` (${context.invoicesSummary!.overdueCount} overdue)` : ''}`
+    : ''
+}
 
-TOP PERFORMERS:
-${(context.topProducts?.slice(0, 3) || []).map((product: AnyRecord, index: number) =>
-  `${index + 1}. ${product.name}: ${product.quantity} sold ($${product.revenue})`).join('\n') || 'No data'}
+TOP PRODUCTS: ${(context.topProducts?.slice(0, 3) || []).map((p: AnyRecord) => `${p.name} (${p.quantity})`).join(', ') || 'none yet'}
+TOP CUSTOMERS: ${(context.topCustomers?.slice(0, 3) || []).map((c: AnyRecord) => `${c.name} ($${c.total})`).join(', ') || 'none yet'}
+LOW STOCK: ${(context.inventoryStatus?.slice(0, 3) || []).map((p: AnyRecord) => `${p.name} (${p.stock})`).join(', ') || 'all healthy'}
+RECENT ACTIVITY: ${(context.recentActivities?.slice(0, 3) || []).map((a: AnyRecord) => a.title || a.type).join(' · ') || 'quiet so far'}
 
-TOP CUSTOMERS:
-${(context.topCustomers?.slice(0, 3) || []).map((customer: AnyRecord, index: number) =>
-  `${index + 1}. ${customer.name}: $${customer.total} total (${customer.count} orders)`).join('\n') || 'No data'}
+Return ONLY this JSON, nothing else:
+{ "insights": [ { "text": "your single thought", "priority": "high"|"medium"|"low" } ] }`
+        : `You are Peppy, the Remix OS AI copilot — welcoming a brand-new business that just signed up.
 
-LOW INVENTORY:
-${(context.inventoryStatus?.slice(0, 3) || []).map((product: AnyRecord) =>
-  `- ${product.name}: ${product.stock} units`).join('\n') || 'All stock healthy'}
+The user just created ${context.companyName} (${context.industry || 'general'}). They have ZERO data yet (no products, customers, or orders). Don't pretend there are insights to extract.
 
-Format: Return ONLY a JSON object with:
-{ "insights": [ { "text": "specific insight", "priority": "high"|"medium"|"low" } ] }
+Generate exactly ONE short, warm, helpful nudge (one sentence, 12-24 words) that suggests a concrete first step. Examples of tone:
+- "Let's get a first product on the shelves — it unlocks the inventory radar."
+- "Add a few customers and I'll start watching for loyalty patterns."
+- "Run your first order in POS and I can begin tracking revenue trends."
 
-NO markdown, NO preamble, just valid JSON.`;
+Vary the suggestion each time you're called — alternate between products, customers, orders, settings.
+
+VOICE RULES:
+- First-person and friendly, not robotic.
+- Skip preambles. Just say the thing.
+
+CRITICAL: ${langInstruction}
+
+Return ONLY this JSON:
+{ "insights": [ { "text": "your single nudge", "priority": "low" } ] }`;
 
       const response = await ai.models.generateContent({
-        model: 'gemini-2.0-flash',
+        model: 'gemini-2.5-flash',
         contents: prompt,
       });
-      const text = parseJSONPayload(response.text ?? '');
+      console.info('[AI] Gemini response received', {
+        route: '/api/ai/proactive-thoughts',
+        companyId: access.companyId,
+      });
+      const responseText = extractTextFromGeminiResponse(response);
+      console.info('[AI] Gemini extraction result length', {
+        route: '/api/ai/proactive-thoughts',
+        companyId: access.companyId,
+        length: responseText.length,
+      });
+      const text = parseJSONPayload(responseText);
       if (!text) {
         logAiRequest('/api/ai/proactive-thoughts', access.companyId, startedAt, { empty: true });
         return res.json({ insights: [] });
@@ -1351,8 +2525,469 @@ NO markdown, NO preamble, just valid JSON.`;
         return res.json({ insights: [] });
       }
     } catch (error: any) {
-      console.error('/api/ai/proactive-thoughts error:', error);
+      console.error('[AI] /api/ai/proactive-thoughts error:', error.message || error);
+      if (isGeminiQuotaError(error)) return sendAiQuotaError(res);
       res.status(500).json({ error: error.message || 'AI request failed' });
+    }
+  });
+
+  app.post('/api/ai/conversation/load', async (req, res) => {
+    try {
+      const access = await requireCompanyAccess(req, res, ['owner', 'admin', 'staff', 'viewer']);
+      if (!access) return;
+      const db = getDb();
+      if (!db) throw new Error('Database not initialized');
+      const docId = `${access.companyId}_${access.uid}_peppy`;
+      const snap = await db.collection('agentConversations').doc(docId).get();
+      const messages = snap.exists ? (snap.data()?.messages || []) : [];
+      res.json({ messages });
+    } catch (error: any) {
+      console.error('/api/ai/conversation/load error:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post('/api/ai/conversation/save', async (req, res) => {
+    try {
+      const access = await requireCompanyAccess(req, res, ['owner', 'admin', 'staff', 'viewer']);
+      if (!access) return;
+      const db = getDb();
+      if (!db) throw new Error('Database not initialized');
+      const { messages } = req.body || {};
+      if (!Array.isArray(messages)) return res.status(400).json({ error: 'messages array required' });
+
+      const sanitized = messages
+        .filter((m: AnyRecord) => !m.streaming && m.role && m.text !== undefined)
+        .slice(-60)
+        .map((m: AnyRecord) => ({
+          id: m.id,
+          role: m.role,
+          text: String(m.text || '').slice(0, 8000),
+          timestamp: m.timestamp || new Date().toISOString(),
+          isBriefing: m.isBriefing || false,
+          commandStatus: m.commandStatus || null,
+        }));
+
+      const docId = `${access.companyId}_${access.uid}_peppy`;
+      await db.collection('agentConversations').doc(docId).set({
+        companyId: access.companyId,
+        userId: access.uid,
+        agentName: 'peppy',
+        messages: sanitized,
+        updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+
+      res.json({ status: 'saved', count: sanitized.length });
+    } catch (error: any) {
+      console.error('/api/ai/conversation/save error:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post('/api/ai/action', async (req, res) => {
+    try {
+      const access = await requireCompanyAccess(req, res, ['owner', 'admin', 'staff']);
+      if (!access) return;
+      const db = getDb();
+      if (!db) throw new Error('Database not initialized');
+
+      const { commandType, params } = req.body || {};
+      if (!commandType || typeof params !== 'string') {
+        return res.status(400).json({ error: 'commandType and params required' });
+      }
+
+      const parts = params.split('|').map((s: string) => s.trim());
+
+      if (commandType === 'CREATE_REMINDER') {
+        const [customerId, customerName, type, notes, dueDateStr] = parts;
+        if (!customerId || !customerName) return res.status(400).json({ error: 'Missing reminder params' });
+        const customerDoc = await db.collection('customers').doc(customerId).get();
+        if (!customerDoc.exists || customerDoc.data()?.companyId !== access.companyId) {
+          return res.status(403).json({ error: 'Customer not found in this company' });
+        }
+        const dueDate = dueDateStr ? new Date(dueDateStr) : new Date(Date.now() + 86400000 * 3);
+        const ref = await db.collection('reminders').add({
+          companyId: access.companyId,
+          customerId,
+          customerName,
+          type: type || 'follow_up',
+          notes: notes || '',
+          dueDate: Timestamp.fromDate(dueDate),
+          status: 'pending',
+          createdBy: 'peppy',
+          createdAt: FieldValue.serverTimestamp(),
+        });
+        return res.json({ status: 'success', actionId: ref.id });
+      }
+
+      if (commandType === 'DRAFT_MESSAGE') {
+        const [customerId, customerName, channel, ...contentParts] = parts;
+        const content = contentParts.join(' | ');
+        if (!customerId || !content) return res.status(400).json({ error: 'Missing message params' });
+        const customerDoc = await db.collection('customers').doc(customerId).get();
+        if (!customerDoc.exists || customerDoc.data()?.companyId !== access.companyId) {
+          return res.status(403).json({ error: 'Customer not found in this company' });
+        }
+        const ref = await db.collection('customerMessages').add({
+          companyId: access.companyId,
+          customerId,
+          customerName: customerName || '',
+          content,
+          channel: channel || 'email',
+          status: 'draft',
+          createdBy: 'peppy',
+          createdAt: FieldValue.serverTimestamp(),
+        });
+        return res.json({ status: 'success', actionId: ref.id });
+      }
+
+      if (commandType === 'FLAG_CUSTOMER') {
+        const [customerId, segment] = parts;
+        const validSegments = ['whale', 'vip', 'regular', 'new', 'at_risk'];
+        if (!customerId || !validSegments.includes(segment)) {
+          return res.status(400).json({ error: 'Invalid customer or segment' });
+        }
+        const customerDoc = await db.collection('customers').doc(customerId).get();
+        if (!customerDoc.exists || customerDoc.data()?.companyId !== access.companyId) {
+          return res.status(403).json({ error: 'Customer not found in this company' });
+        }
+        await db.collection('customers').doc(customerId).update({ segment, updatedAt: FieldValue.serverTimestamp() });
+        return res.json({ status: 'success', actionId: customerId });
+      }
+
+      if (commandType === 'STOCK_ALERT') {
+        const [productId, productName, thresholdStr] = parts;
+        if (!productId || !productName) return res.status(400).json({ error: 'Missing stock alert params' });
+        const ref = await db.collection('stockAlerts').add({
+          companyId: access.companyId,
+          productId,
+          productName,
+          threshold: Number(thresholdStr) || 5,
+          status: 'active',
+          createdBy: 'peppy',
+          createdAt: FieldValue.serverTimestamp(),
+        });
+        return res.json({ status: 'success', actionId: ref.id });
+      }
+
+      return res.status(400).json({ error: `Unknown commandType: ${commandType}` });
+    } catch (error: any) {
+      console.error('/api/ai/action error:', error);
+      res.status(500).json({ error: error.message || 'Action failed' });
+    }
+  });
+
+  app.post('/api/ai/daily-briefing', async (req, res) => {
+    if (!enforceAiRateLimit(req, res)) return;
+    const startedAt = Date.now();
+    try {
+      const access = await requireCompanyAccess(req, res, ['owner', 'admin']);
+      if (!access) return;
+      const ai = getGenAI();
+      if (!ai) return res.status(503).json({ error: 'AI not configured' });
+
+      const db = getDb();
+      if (!db) throw new Error('Database not initialized');
+      const ctx = await buildCompanyOverview(db, access.companyId);
+      const language = req.body?.language || 'es';
+      const langMap: Record<string, string> = {
+        en: 'Write the briefing in English.',
+        es: 'Escribe el briefing en Español.',
+        pt: 'Escreva o briefing em Português.',
+      };
+      const langInstruction = langMap[language] || langMap.es;
+      const greetingMap: Record<string, string> = {
+        en: `## Good morning, ${ctx.companyName}`,
+        es: `## Buenos días, ${ctx.companyName}`,
+        pt: `## Bom dia, ${ctx.companyName}`,
+      };
+      const greeting = greetingMap[language] || greetingMap.es;
+
+      const prompt = `You are Peppy, the Remix OS AI copilot delivering a morning operational briefing.
+${langInstruction}
+
+Be concise: 4-6 bullet points maximum. Lead with the most critical signal.
+Cover: revenue snapshot (30d and trend), any at-risk customers needing attention, inventory pressure, and sales velocity.
+End with ONE specific recommended action for today.
+Start with exactly: "${greeting}"
+Use Markdown formatting with bullet points.
+
+CURRENT BUSINESS DATA:
+- 30-Day Revenue: $${Number(ctx.recentRevenue30d ?? ctx.recentRevenue ?? 0).toFixed(2)} (growth: ${ctx.growth?.toFixed(1) ?? 0}%)
+- Sales Trend: ${ctx.salesVelocity?.currentPeriodOrders || 0} orders this week vs ${ctx.salesVelocity?.previousPeriodOrders || 0} last week (${ctx.salesVelocity?.trend || 'flat'})
+- Low Stock Items: ${ctx.lowStockCount || 0}
+- Pending Follow-ups: ${ctx.pendingReminders?.length || 0}
+- Total Customers: ${ctx.customersCount}
+- Top Products: ${(ctx.topProducts?.slice(0, 3) || []).map((p: AnyRecord) => `${p.name} ($${p.revenue})`).join(', ') || 'No data'}
+- Top Customers: ${(ctx.topCustomers?.slice(0, 3) || []).map((c: AnyRecord) => `${c.name} ($${c.total})`).join(', ') || 'No data'}${
+  (ctx.invoicesSummary?.invoicesCount || 0) > 0
+    ? `
+- Invoicing: $${ctx.invoicesSummary!.unpaidInvoicesTotal.toFixed(2)} pending · ${ctx.invoicesSummary!.overdueCount} overdue invoices`
+    : ''
+}`;
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: prompt,
+      });
+      const briefing = response.text ?? '';
+      logAiRequest('/api/ai/daily-briefing', access.companyId, startedAt, { briefingLength: briefing.length });
+      res.json({ briefing, generatedAt: new Date().toISOString() });
+    } catch (error: any) {
+      console.error('/api/ai/daily-briefing error:', error);
+      res.status(500).json({ error: error.message || 'Briefing generation failed' });
+    }
+  });
+
+  // ── Invoice issuing (server-side transaction) ─────────────────────────────
+  app.post('/api/invoices/issue', async (req, res) => {
+    console.info('[Invoices] issue request received');
+    try {
+      const access = await requireCompanyAccess(req, res, ['owner', 'admin', 'staff']);
+      if (!access) return;
+      console.info('[Invoices] access granted', { companyId: access.companyId });
+
+      const { invoiceId } = req.body;
+      if (typeof invoiceId !== 'string' || !invoiceId) {
+        return res.status(400).json({ error: 'invoiceId requerido', code: 'MISSING_INVOICE_ID' });
+      }
+
+      const db = getDb();
+      if (!db) throw new Error('Database not initialized');
+
+      const result = await db.runTransaction(async (tx) => {
+        const invRef = db.collection('invoices').doc(invoiceId);
+        const invSnap = await tx.get(invRef);
+        if (!invSnap.exists) {
+          return { status: 404 as const, error: 'Invoice not found' };
+        }
+        const invoice = invSnap.data() || {};
+
+        if (invoice.companyId !== access.companyId) {
+          return { status: 403 as const, error: 'Invoice belongs to a different company' };
+        }
+
+        console.info('[Invoices] invoice loaded', {
+          companyId: access.companyId,
+          invoiceId,
+          status: invoice.status,
+          series: invoice.series || 'A',
+        });
+
+        // Idempotency: already issued — return existing data, no second numbering.
+        if (invoice.status && invoice.status !== 'draft') {
+          console.info('[Invoices] already issued', {
+            companyId: access.companyId,
+            invoiceId,
+            invoiceNumber: invoice.invoiceNumber || '',
+            sequentialNumber: invoice.sequentialNumber || 0,
+          });
+          return {
+            status: 200 as const,
+            invoiceNumber: invoice.invoiceNumber || '',
+            sequentialNumber: invoice.sequentialNumber || 0,
+            alreadyIssued: true,
+          };
+        }
+
+        const series = String(invoice.series || 'A').toUpperCase();
+        const counterRef = db.collection('invoiceCounters').doc(`${access.companyId}_${series}`);
+        const counterSnap = await tx.get(counterRef);
+        const current = counterSnap.exists ? Number(counterSnap.data()?.nextNumber || 1) : 1;
+        const invoiceNumber = formatInvoiceNumber(series, current);
+
+        tx.set(counterRef, {
+          companyId: access.companyId,
+          series,
+          nextNumber: current + 1,
+          updatedAt: FieldValue.serverTimestamp(),
+        }, { merge: true });
+
+        tx.update(invRef, {
+          status: 'issued',
+          invoiceNumber,
+          sequentialNumber: current,
+          issuedAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+
+        console.info('[Invoices] issued', {
+          companyId: access.companyId,
+          invoiceId,
+          invoiceNumber,
+          sequentialNumber: current,
+        });
+
+        return {
+          status: 200 as const,
+          invoiceNumber,
+          sequentialNumber: current,
+          alreadyIssued: false,
+        };
+      });
+
+      if (result.status !== 200) {
+        return res.status(result.status).json({ error: result.error });
+      }
+      res.json({
+        invoiceNumber: result.invoiceNumber,
+        sequentialNumber: result.sequentialNumber,
+        alreadyIssued: result.alreadyIssued,
+      });
+    } catch (error: any) {
+      console.error('[Invoices] failed', { message: error?.message || String(error) });
+      captureBackendError(error, { route: '/api/invoices/issue' });
+      res.status(500).json({ error: error?.message || 'Failed to issue invoice' });
+    }
+  });
+
+  // ── Platform admin: company internal-testing override ─────────────────────
+  app.post('/api/platform/company/override', async (req, res) => {
+    try {
+      const access = await requirePlatformAdmin(req, res);
+      if (!access) return;
+
+      const { companyId, internalTesting } = req.body;
+      if (typeof companyId !== 'string' || !companyId) {
+        return res.status(400).json({ error: 'companyId (string) requerido', code: 'MISSING_COMPANY_ID' });
+      }
+      if (typeof internalTesting !== 'boolean') {
+        return res.status(400).json({ error: 'internalTesting (boolean) requerido', code: 'MISSING_INTERNAL_TESTING' });
+      }
+
+      const db = getDb();
+      if (!db) throw new Error('Database not initialized');
+
+      const companyRef = db.collection('companies').doc(companyId);
+      const companySnap = await companyRef.get();
+      if (!companySnap.exists) {
+        return res.status(404).json({ error: 'Empresa no encontrada', code: 'COMPANY_NOT_FOUND' });
+      }
+
+      await companyRef.update({
+        internalTesting,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      await db.collection('platformAuditLogs').add({
+        type: 'internal_testing_toggled',
+        companyId,
+        value: internalTesting,
+        actorUid: access.uid,
+        createdAt: FieldValue.serverTimestamp(),
+      });
+      res.json({ ok: true, companyId, internalTesting });
+    } catch (err: any) {
+      console.error('[Override] /api/platform/company/override failed:', err?.message || err);
+      res.status(500).json({ error: 'No se pudo actualizar el modo interno.', code: 'OVERRIDE_FAILED' });
+    }
+  });
+
+  // ── Beta feedback submission (server-side, Admin SDK) ─────────────────────
+  // The client used to write betaFeedback + betaUsers directly, but the
+  // betaUsers security rule (isValidBetaUserWrite) mandates a strict shape —
+  // hasCompany:bool and activationStage:enum — that the feedback path never
+  // sent, so every submit was rejected and surfaced as "No pudimos enviar tu
+  // feedback". Doing both writes here with the Admin SDK makes the path
+  // authoritative and immune to that shape drift, and also bypasses the
+  // isEmailVerified() gate (a beta tester must not be blocked from reporting
+  // bugs). The user is still verified: requireCompanyAccess checks the
+  // Firebase ID token AND that they are a member of the claimed company, so
+  // companyId cannot be spoofed.
+  app.post('/api/beta-feedback/submit', async (req, res) => {
+    console.info('[BetaFeedback] submit received');
+    try {
+      const access = await requireCompanyAccess(req, res, ['owner', 'admin', 'staff', 'viewer']);
+      if (!access) return;
+
+      const VALID_TYPES = ['bug', 'idea', 'ux', 'billing', 'copilot', 'other'];
+      const VALID_SEVERITIES = ['low', 'medium', 'high', 'critical'];
+
+      const type = String(req.body?.type || '');
+      const severity = String(req.body?.severity || '');
+      const title = typeof req.body?.title === 'string' ? req.body.title.trim() : '';
+      const message = typeof req.body?.message === 'string' ? req.body.message.trim() : '';
+      const pagePath = typeof req.body?.pagePath === 'string' ? req.body.pagePath.trim() : '';
+      const companyName = typeof req.body?.companyName === 'string' ? req.body.companyName.trim() : '';
+      const userEmail = typeof req.body?.userEmail === 'string' ? req.body.userEmail.trim() : '';
+      const userName = typeof req.body?.userName === 'string' ? req.body.userName.trim() : '';
+
+      if (!VALID_TYPES.includes(type)) {
+        return res.status(400).json({ error: 'type inválido', code: 'INVALID_TYPE' });
+      }
+      if (!VALID_SEVERITIES.includes(severity)) {
+        return res.status(400).json({ error: 'severity inválido', code: 'INVALID_SEVERITY' });
+      }
+      if (!title || title.length > 120) {
+        return res.status(400).json({ error: 'title requerido (1-120 caracteres)', code: 'INVALID_TITLE' });
+      }
+      if (!message || message.length > 3000) {
+        return res.status(400).json({ error: 'message requerido (1-3000 caracteres)', code: 'INVALID_MESSAGE' });
+      }
+      if (!pagePath || pagePath.length > 500) {
+        return res.status(400).json({ error: 'pagePath requerido (1-500 caracteres)', code: 'INVALID_PAGE_PATH' });
+      }
+
+      const db = getDb();
+      if (!db) throw new Error('Database not initialized');
+
+      const feedbackRef = await db.collection('betaFeedback').add({
+        companyId: access.companyId,
+        companyName: companyName || null,
+        userId: access.uid,
+        userEmail: userEmail || null,
+        userName: userName || null,
+        type,
+        severity,
+        title,
+        message,
+        pagePath,
+        status: 'open',
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+
+      // Keep betaUsers consistent with the registry shape without clobbering
+      // registry-managed lifecycle: seed onboardingStatus/activationStage only
+      // when the doc doesn't already track them. Feedback counters always
+      // advance so Super Admin sees who is actively reporting.
+      const betaUserRef = db.collection('betaUsers').doc(access.uid);
+      const betaUserSnap = await betaUserRef.get();
+      const existingBetaUser: any = betaUserSnap.data() || {};
+      const hasCompany = Boolean(access.companyId);
+      await betaUserRef.set(
+        {
+          uid: access.uid,
+          email: userEmail || existingBetaUser.email || '',
+          displayName: userName || existingBetaUser.displayName || null,
+          currentCompanyId: access.companyId,
+          companyId: access.companyId,
+          companyName: companyName || existingBetaUser.companyName || null,
+          hasCompany,
+          onboardingStatus:
+            existingBetaUser.onboardingStatus || (hasCompany ? 'pending' : 'no_company'),
+          activationStage:
+            existingBetaUser.activationStage || (hasCompany ? 'company_created' : 'signed_up'),
+          accessTier: 'free_beta',
+          source: existingBetaUser.source || 'public_beta',
+          needsAttention: true,
+          feedbackCount: FieldValue.increment(1),
+          lastFeedbackAt: FieldValue.serverTimestamp(),
+          lastSeenAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+
+      console.info('[BetaFeedback] submitted', {
+        companyId: access.companyId,
+        userId: access.uid,
+      });
+      res.json({ ok: true, feedbackId: feedbackRef.id });
+    } catch (error: any) {
+      const messageText = error?.message || String(error);
+      console.error('[BetaFeedback] failed', { message: messageText });
+      captureBackendError(error, { route: '/api/beta-feedback/submit' });
+      res.status(500).json({ error: 'No se pudo enviar el feedback.', code: 'BETA_FEEDBACK_FAILED' });
     }
   });
 

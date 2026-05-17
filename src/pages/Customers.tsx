@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ChangeEvent } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Card, Button, Input, Label, cn } from '../components/Common';
 import { 
@@ -49,6 +49,16 @@ import { PLANS, isLimitReached, getCompanyUsage } from '../lib/plans';
 import { exportToCSV } from '../lib/exportUtils';
 import { format } from 'date-fns';
 import { ImageUpload } from '../components/ImageUpload';
+import { CustomerImportRow, ImportPreview, buildCustomerImportPreview, chunkArray, downloadCsvTemplate, normalizePhone, readImportFile, withImportFileName } from '../lib/importUtils';
+import { EmptyStatePanel } from '../components/EmptyStatePanel';
+
+interface ImportResultSummary {
+  created: number;
+  invalid: number;
+  duplicates_in_file: number;
+  duplicates_existing: number;
+  total_processed: number;
+}
 
 interface Customer {
   id: string;
@@ -93,10 +103,10 @@ interface CustomerMessage {
 }
 
 const MESSAGE_TEMPLATES_LOCALIZED = (t: any) => [
-  { id: 'follow_up', label: t('customers.details.messages.templates.follow_up'), content: 'Hi {name}, checking in to see if you have any questions about our recent offerings.' },
-  { id: 'payment', label: t('customers.details.messages.templates.payment'), content: 'Dear {name}, this is a friendly reminder that invoice payment is now due. Thank you!' },
-  { id: 'order_ready', label: t('customers.details.messages.templates.order_ready'), content: 'Good news {name}! Your recent order is processed and ready for collection.' },
-  { id: 'thank_you', label: t('customers.details.messages.templates.thank_you'), content: 'Thank you for your continued business, {name}! We truly appreciate your support.' },
+  { id: 'follow_up', label: t('customers.details.messages.templates.follow_up'), content: 'Hola {name}, solo queria retomar la conversacion y confirmar si necesitas apoyo con la ultima propuesta.' },
+  { id: 'payment', label: t('customers.details.messages.templates.payment'), content: 'Hola {name}, te recordamos que hay un pago pendiente. Si necesitas soporte para completarlo, estamos disponibles.' },
+  { id: 'order_ready', label: t('customers.details.messages.templates.order_ready'), content: 'Hola {name}, tu pedido ya fue procesado y esta listo para entrega o recogida.' },
+  { id: 'thank_you', label: t('customers.details.messages.templates.thank_you'), content: 'Gracias por seguir confiando en nosotros, {name}. Valoramos mucho tu preferencia.' },
 ];
 
 export function Customers() {
@@ -110,9 +120,16 @@ export function Customers() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [isImportOpen, setIsImportOpen] = useState(false);
+  const [importPreview, setImportPreview] = useState<ImportPreview<CustomerImportRow> | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importResult, setImportResult] = useState<ImportResultSummary | null>(null);
+  const [importing, setImporting] = useState(false);
   const [detailCustomer, setDetailCustomer] = useState<Customer | null>(null);
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [messages, setMessages] = useState<CustomerMessage[]>([]);
+  const [customerDataError, setCustomerDataError] = useState<string | null>(null);
+  const [customersError, setCustomersError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [segmentFilter, setSegmentFilter] = useState('all');
   const [loading, setLoading] = useState(false);
@@ -148,24 +165,35 @@ export function Customers() {
 
   const fetchCustomerData = async (customerId: string) => {
     if (!company) return;
-    
-    // Fetch reminders
-    const rq = query(
-      collection(db, 'reminders'), 
-      where('customerId', '==', customerId),
-      orderBy('dueDate', 'asc')
-    );
-    const rSnap = await getDocs(rq);
-    setReminders(rSnap.docs.map(d => ({ id: d.id, ...d.data() } as Reminder)));
 
-    // Fetch messages
-    const mq = query(
-      collection(db, 'customerMessages'), 
-      where('customerId', '==', customerId),
-      orderBy('createdAt', 'desc')
-    );
-    const mSnap = await getDocs(mq);
-    setMessages(mSnap.docs.map(d => ({ id: d.id, ...d.data() } as CustomerMessage)));
+    // Scope by companyId at the query level (multi-tenant isolation enforced
+    // by the composite indexes in firestore.indexes.json + Firestore rules).
+    // Resilient: if a query fails (e.g. composite index not yet deployed, or
+    // a permission/network error) we surface a retry banner instead of
+    // leaving the reminders/messages tabs silently blank.
+    try {
+      const rq = query(
+        collection(db, 'reminders'),
+        where('companyId', '==', company.id),
+        where('customerId', '==', customerId),
+        orderBy('dueDate', 'asc')
+      );
+      const rSnap = await getDocs(rq);
+      setReminders(rSnap.docs.map(d => ({ id: d.id, ...d.data() } as Reminder)));
+
+      const mq = query(
+        collection(db, 'customerMessages'),
+        where('companyId', '==', company.id),
+        where('customerId', '==', customerId),
+        orderBy('createdAt', 'desc')
+      );
+      const mSnap = await getDocs(mq);
+      setMessages(mSnap.docs.map(d => ({ id: d.id, ...d.data() } as CustomerMessage)));
+      setCustomerDataError(null);
+    } catch (err) {
+      console.error('fetchCustomerData failed:', err);
+      setCustomerDataError('No se pudieron cargar los recordatorios y mensajes de este cliente.');
+    }
   };
 
   const handleAddReminder = async (e: React.FormEvent) => {
@@ -222,19 +250,21 @@ export function Customers() {
 
   const handleCreateNew = async () => {
     if (!company) return;
-    const planId = company.subscription?.planId || 'starter';
-    const plan = PLANS[planId];
-    try {
-      const usage = await getCompanyUsage(company.id);
-      if (isLimitReached(usage.customers, plan.limits.customers)) {
-        setIsUpgradeModalOpen(true);
-        return;
-      }
-    } catch (e) {
-      console.warn('Plan usage check failed, falling back to local count', e);
-      if (isLimitReached(customers.length, plan.limits.customers)) {
-        setIsUpgradeModalOpen(true);
-        return;
+    if (!company.internalTesting) {
+      const planId = company.subscription?.planId || 'starter';
+      const plan = PLANS[planId];
+      try {
+        const usage = await getCompanyUsage(company.id);
+        if (isLimitReached(usage.customers, plan.limits.customers)) {
+          setIsUpgradeModalOpen(true);
+          return;
+        }
+      } catch (e) {
+        console.warn('Plan usage check failed, falling back to local count', e);
+        if (isLimitReached(customers.length, plan.limits.customers)) {
+          setIsUpgradeModalOpen(true);
+          return;
+        }
       }
     }
     setSelectedCustomer(null);
@@ -244,10 +274,16 @@ export function Customers() {
 
   const fetchCustomers = async () => {
     if (!company) return;
-    const q = query(collection(db, 'customers'), where('companyId', '==', company.id));
-    const snap = await getDocs(q);
-    const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as Customer));
-    setCustomers(list);
+    try {
+      const q = query(collection(db, 'customers'), where('companyId', '==', company.id));
+      const snap = await getDocs(q);
+      const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as Customer));
+      setCustomers(list);
+      setCustomersError(null);
+    } catch (err) {
+      console.error('fetchCustomers failed:', err);
+      setCustomersError('No se pudo cargar la lista de clientes.');
+    }
   };
 
   useEffect(() => {
@@ -258,7 +294,7 @@ export function Customers() {
     e.preventDefault();
     if (!company || !form.name) return;
     if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
-      setFormError('Please enter a valid email address.');
+      setFormError('Ingresa un email valido.');
       return;
     }
     setFormError(null);
@@ -303,7 +339,7 @@ export function Customers() {
       fetchCustomers();
     } catch (err: any) {
       console.error(err);
-      alert(err?.message || 'Failed to save customer.');
+      alert(err?.message || 'No se pudo guardar el cliente.');
     } finally {
       setLoading(false);
     }
@@ -327,6 +363,111 @@ export function Customers() {
     setForm({ name: '', email: '', phone: '', imageURL: '' });
   };
 
+  const handleOpenImport = () => {
+    setIsImportOpen((prev) => !prev);
+    setImportError(null);
+    setImportResult(null);
+    if (isImportOpen) {
+      setImportPreview(null);
+    }
+  };
+
+  const handleCustomerImportFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const parsed = await readImportFile(file);
+      const preview = buildCustomerImportPreview(
+        parsed,
+        new Set(customers.map((customer) => customer.email?.trim().toLowerCase()).filter(Boolean)),
+        new Set(customers.map((customer) => normalizePhone(customer.phone)).filter(Boolean))
+      );
+      setImportPreview(withImportFileName(preview, file.name));
+      setImportError(null);
+      setImportResult(null);
+    } catch (error: any) {
+      setImportPreview(null);
+      setImportError(error?.message || 'No se pudo leer el archivo.');
+    } finally {
+      event.target.value = '';
+    }
+  };
+
+  const handleConfirmCustomerImport = async () => {
+    if (!company || !importPreview) return;
+
+    const validRows = importPreview.rows
+      .filter((row) => row.normalized && row.issues.length === 0 && row.duplicateKeys.length === 0)
+      .map((row) => row.normalized as CustomerImportRow);
+
+    if (validRows.length === 0) {
+      setImportError('No hay filas válidas para importar.');
+      return;
+    }
+
+    if (!company.internalTesting) {
+      const planId = company.subscription?.planId || 'starter';
+      const plan = PLANS[planId];
+      try {
+        const usage = await getCompanyUsage(company.id);
+        if (isLimitReached(usage.customers + validRows.length, plan.limits.customers + 1)) {
+          setIsUpgradeModalOpen(true);
+          setImportError('Tu plan actual no permite importar esa cantidad de clientes.');
+          return;
+        }
+      } catch (error) {
+        console.warn('Usage check failed before customer import', error);
+        if (isLimitReached(customers.length + validRows.length, plan.limits.customers + 1)) {
+          setIsUpgradeModalOpen(true);
+          setImportError('Tu plan actual no permite importar esa cantidad de clientes.');
+          return;
+        }
+      }
+    }
+
+    setImporting(true);
+    try {
+      for (const chunk of chunkArray(validRows, 400)) {
+        const batch = writeBatch(db);
+        chunk.forEach((row) => {
+          const customerRef = doc(collection(db, 'customers'));
+          batch.set(customerRef, {
+            ...row,
+            email: row.email || '',
+            phone: row.phone || '',
+            companyId: company.id,
+            createdAt: serverTimestamp(),
+          });
+        });
+        await batch.commit();
+      }
+
+      await addDoc(collection(db, 'activities'), {
+        type: 'customer_import',
+        title: 'Importación de clientes',
+        subtitle: `${validRows.length} clientes importados desde ${importPreview.fileName}`,
+        companyId: company.id,
+        createdAt: serverTimestamp(),
+      });
+
+      setImportResult({
+        created: validRows.length,
+        invalid: importPreview.invalidRows,
+        duplicates_in_file: importPreview.duplicateInFileRows,
+        duplicates_existing: importPreview.duplicateExistingRows,
+        total_processed: importPreview.totalRows,
+      });
+      setImportError(null);
+      setImportPreview(null);
+      await fetchCustomers();
+    } catch (error: any) {
+      setImportError(error?.message || 'No se pudo completar la importación.');
+    } finally {
+      setImporting(false);
+    }
+  };
+
   const handleDelete = async (id: string) => {
     if (!company) return;
     if (!confirm(t('customers.delete_confirm'))) return;
@@ -340,14 +481,14 @@ export function Customers() {
         limit(1)
       ));
       if (!ordersSnap.empty) {
-        alert('This customer has orders and cannot be deleted.');
+        alert('Este cliente tiene pedidos y no se puede eliminar.');
         return;
       }
       await deleteDoc(doc(db, 'customers', id));
       fetchCustomers();
     } catch (err: any) {
       console.error(err);
-      alert(err?.message || 'Failed to delete customer.');
+      alert(err?.message || 'No se pudo eliminar el cliente.');
     }
   };
 
@@ -382,6 +523,7 @@ export function Customers() {
     const lastOrderDate = c.lastOrderAt?.toDate ? c.lastOrderAt.toDate() : null;
     return Boolean(lastOrderDate && lastOrderDate > thirtyDaysAgo);
   }).length;
+  const hasActiveFilters = search.trim().length > 0 || segmentFilter !== 'all';
 
   const getSegmentClasses = (segment?: string) =>
     SEGMENTS.find((s) => s.id === segment)?.color || 'bg-neutral-500/10 text-neutral-300 border-white/10';
@@ -394,16 +536,16 @@ export function Customers() {
             <div className="mb-4 flex flex-wrap items-center gap-2">
               <span className="operator-badge">
                 <span className="status-dot bg-blue-400 text-blue-400" />
-                Customer Graph
+                Relacion con clientes
               </span>
               <span className="telemetry-chip">
                 <Radar className="h-3 w-3 text-blue-300" />
-                Relationship Watch
+                CRM en vivo
               </span>
             </div>
             <h1 className="section-title text-4xl md:text-5xl text-white">{t('customers.title')}</h1>
             <p className="mt-3 max-w-2xl text-sm leading-relaxed text-neutral-300 md:text-base">
-              Track customer quality, engagement posture and direct follow-up actions from one operational layer.
+              Organiza clientes, seguimiento y oportunidad comercial desde una sola vista operativa.
             </p>
           </div>
           <div className="flex flex-col gap-3 sm:flex-row">
@@ -421,6 +563,11 @@ export function Customers() {
               <Download className="w-4 h-4" /> {t('common.export')}
             </Button>
             {canEditCustomers && (
+              <Button variant="secondary" onClick={handleOpenImport} className="h-12 gap-2 px-6">
+                <Download className="w-4 h-4" /> Importar clientes
+              </Button>
+            )}
+            {canEditCustomers && (
               <Button onClick={handleCreateNew} className="h-12 gap-2 px-6">
                 <Plus className="w-4 h-4" /> {t('customers.add')}
               </Button>
@@ -430,31 +577,31 @@ export function Customers() {
 
         <div className="mt-6 grid gap-3 md:grid-cols-3">
           <div className="data-tile">
-            <p className="section-kicker mb-2 !text-neutral-500">Customer Nodes</p>
+            <p className="section-kicker mb-2 !text-neutral-500">Clientes</p>
             <div className="flex items-end justify-between gap-4">
               <div>
                 <p className="text-3xl font-bold text-white">{customers.length}</p>
-                <p className="mt-1 text-sm text-neutral-400">Profiles currently tracked in the relationship graph.</p>
+                <p className="mt-1 text-sm text-neutral-400">Perfiles activos dentro de tu base comercial.</p>
               </div>
               <Users className="h-5 w-5 text-blue-300" />
             </div>
           </div>
           <div className="data-tile">
-            <p className="section-kicker mb-2 !text-neutral-500">High Value Segments</p>
+            <p className="section-kicker mb-2 !text-neutral-500">Alto valor</p>
             <div className="flex items-end justify-between gap-4">
               <div>
                 <p className="text-3xl font-bold text-white">{whalesCount}</p>
-                <p className="mt-1 text-sm text-neutral-400">VIP and whale profiles prioritized for operator follow-up.</p>
+                <p className="mt-1 text-sm text-neutral-400">Clientes VIP o whale listos para priorizar.</p>
               </div>
               <Sparkles className="h-5 w-5 text-amber-300" />
             </div>
           </div>
           <div className="data-tile">
-            <p className="section-kicker mb-2 !text-neutral-500">Active Relationships</p>
+            <p className="section-kicker mb-2 !text-neutral-500">Activos</p>
             <div className="flex items-end justify-between gap-4">
               <div>
                 <p className="text-3xl font-bold text-white">{activeCount}</p>
-                <p className="mt-1 text-sm text-neutral-400">Profiles marked active in the latest operational cycle.</p>
+                <p className="mt-1 text-sm text-neutral-400">Clientes con actividad reciente en el ciclo actual.</p>
               </div>
               <Contact className="h-5 w-5 text-emerald-300" />
             </div>
@@ -470,12 +617,88 @@ export function Customers() {
         limitName={t('nav.customers')}
       />
 
+      {isImportOpen && canEditCustomers && (
+        <Card className="space-y-6">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <p className="section-kicker mb-2">Importacion masiva</p>
+              <h2 className="section-title text-2xl">Importar clientes</h2>
+              <p className="mt-2 max-w-2xl text-sm text-neutral-400">
+                Soporta CSV y JSON. Limite inicial: 1000 filas por importacion. El `companyId` se resuelve desde tu sesion.
+              </p>
+            </div>
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <Button
+                type="button"
+                variant="secondary"
+                className="h-12 gap-2 px-6"
+                onClick={() => downloadCsvTemplate('clientes-template.csv', ['name', 'email', 'phone', 'segment', 'status', 'notes'])}
+              >
+                <Download className="h-4 w-4" /> Descargar plantilla
+              </Button>
+              <label className="inline-flex cursor-pointer items-center justify-center rounded-2xl border border-blue-400/30 bg-[linear-gradient(180deg,rgba(91,136,255,0.95),rgba(50,95,219,0.95))] px-5 py-2.5 text-sm font-semibold text-white shadow-[0_14px_34px_rgba(61,103,255,0.32)]">
+                Seleccionar archivo
+                <input type="file" accept=".csv,.json,application/json,text/csv" className="hidden" onChange={handleCustomerImportFile} />
+              </label>
+            </div>
+          </div>
+
+          {company.internalTesting && (
+            <p className="rounded-xl border border-amber-500/20 bg-amber-500/8 px-4 py-2.5 text-xs text-amber-300">
+              Modo interno activo: límites de importación desactivados para pruebas.
+            </p>
+          )}
+
+          {importError && (
+            <p className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">{importError}</p>
+          )}
+
+          {importResult && (
+            <p className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
+              Importacion completada. Procesadas: {importResult.total_processed}. Creados: {importResult.created}. Invalidos: {importResult.invalid}. Duplicados en archivo: {importResult.duplicates_in_file}. Duplicados existentes: {importResult.duplicates_existing}.
+            </p>
+          )}
+
+          {importPreview && (
+            <div className="space-y-5">
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+                <div className="data-tile"><p className="section-kicker mb-2 !text-neutral-500">Archivo</p><p className="text-sm font-semibold text-white">{importPreview.fileName}</p></div>
+                <div className="data-tile"><p className="section-kicker mb-2 !text-neutral-500">Filas</p><p className="text-3xl font-bold text-white">{importPreview.totalRows}</p></div>
+                <div className="data-tile"><p className="section-kicker mb-2 !text-neutral-500">Validas</p><p className="text-3xl font-bold text-emerald-300">{importPreview.validRows}</p></div>
+                <div className="data-tile"><p className="section-kicker mb-2 !text-neutral-500">Invalidas</p><p className="text-3xl font-bold text-red-300">{importPreview.invalidRows}</p></div>
+                <div className="data-tile"><p className="section-kicker mb-2 !text-neutral-500">Dup. archivo</p><p className="text-3xl font-bold text-amber-300">{importPreview.duplicateInFileRows}</p></div>
+                <div className="data-tile"><p className="section-kicker mb-2 !text-neutral-500">Dup. existentes</p><p className="text-3xl font-bold text-orange-300">{importPreview.duplicateExistingRows}</p></div>
+              </div>
+
+              <div className="space-y-3">
+                {importPreview.rows.filter((row) => row.issues.length > 0 || row.duplicateKeys.length > 0).slice(0, 20).map((row) => (
+                  <div key={`${row.index}-${row.raw.email || row.raw.phone || row.raw.name}`} className="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
+                    <p className="text-xs font-black uppercase tracking-[0.2em] text-white">Fila {row.index}</p>
+                    <p className="mt-2 text-sm text-neutral-300">{row.raw.name || 'Sin nombre'} / {row.raw.email || row.raw.phone || 'Sin identificador'}</p>
+                    <p className="mt-2 text-xs leading-relaxed text-amber-200">{[...row.issues, ...row.duplicateKeys].join(' | ')}</p>
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
+                <Button type="button" variant="secondary" onClick={() => { setImportPreview(null); setImportError(null); setImportResult(null); }}>
+                  Limpiar preview
+                </Button>
+                <Button type="button" disabled={importing || importPreview.validRows === 0} onClick={handleConfirmCustomerImport}>
+                  {importing ? 'Importando...' : 'Confirmar importacion'}
+                </Button>
+              </div>
+            </div>
+          )}
+        </Card>
+      )}
+
       <Card className="overflow-hidden p-0">
         <div className="space-y-6 border-b border-white/[0.05] bg-white/[0.02] p-6">
           <div>
-            <p className="section-kicker mb-2">Audience Filters</p>
+            <p className="section-kicker mb-2">Filtros</p>
             <h2 className="section-title text-2xl">{t('customers.table.identity')}</h2>
-            <p className="mt-2 text-sm text-neutral-400">Filter customer segments, search profiles and open operator actions from the active graph.</p>
+            <p className="mt-2 text-sm text-neutral-400">Filtra segmentos, busca perfiles y abre acciones comerciales desde la base activa.</p>
           </div>
           <div className="flex flex-wrap gap-2">
             {SEGMENTS.map(seg => (
@@ -502,6 +725,19 @@ export function Customers() {
             />
           </div>
         </div>
+
+        {customersError && (
+          <div className="mx-6 mt-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-red-500/30 bg-red-500/[0.08] px-4 py-3 text-sm text-red-200">
+            <span>{customersError}</span>
+            <button
+              type="button"
+              onClick={() => fetchCustomers()}
+              className="rounded-xl border border-red-400/30 px-3 py-1.5 text-xs font-bold uppercase tracking-[0.16em] text-red-100 transition-colors hover:bg-red-500/15"
+            >
+              Reintentar
+            </button>
+          </div>
+        )}
 
         <div className="hidden sm:block overflow-x-auto">
           <table className="w-full border-collapse">
@@ -543,7 +779,7 @@ export function Customers() {
                         <span className="font-medium text-neutral-200 group-hover:text-blue-400 transition-colors">{customer.name}</span>
                         {customer.segment && (
                           <span className={cn('mt-1 inline-block w-fit rounded-full border px-2 py-0.5 text-[8px] font-black uppercase tracking-[0.16em]', getSegmentClasses(customer.segment))}>
-                            {customer.segment}
+                            {SEGMENTS.find((seg) => seg.id === customer.segment)?.label || customer.segment}
                           </span>
                         )}
                       </div>
@@ -612,7 +848,7 @@ export function Customers() {
                   <p className="font-bold text-neutral-200 truncate">{customer.name}</p>
                   <div className="flex items-center gap-3 mt-1">
                     <span className="text-[10px] text-neutral-500 flex items-center gap-1.5 truncate">
-                      <Mail className="w-2.5 h-2.5" /> {customer.email || 'No email'}
+                      <Mail className="w-2.5 h-2.5" /> {customer.email || 'Sin email'}
                     </span>
                   </div>
                 </div>
@@ -629,21 +865,26 @@ export function Customers() {
         </div>
 
         {filtered.length === 0 && (
-          <div className="py-24 text-center">
-            <div className="flex flex-col items-center gap-6 text-neutral-600 max-w-md mx-auto p-6">
-              <div className="w-20 h-20 rounded-[28px] border border-dashed border-white/10 flex items-center justify-center bg-white/[0.01]">
-                <Contact className="w-10 h-10 opacity-20" />
-              </div>
-              <div className="space-y-2">
-                <p className="text-lg font-bold text-neutral-200">{t('customers.empty.title')}</p>
-                <p className="text-xs leading-relaxed text-neutral-500 px-4">{t('customers.empty.subtitle')}</p>
-              </div>
-              {canEditCustomers && (
-                <Button onClick={handleCreateNew} className="gap-2 px-8 h-12">
-                  <Plus className="w-4 h-4" /> {t('customers.add')}
-                </Button>
-              )}
-            </div>
+          <div className="px-4 py-16 sm:px-6">
+            <EmptyStatePanel
+              eyebrow={hasActiveFilters ? 'Sin resultados' : 'CRM operativo'}
+              title={hasActiveFilters ? 'No hay clientes para este filtro.' : 'Tus clientes apareceran aqui.'}
+              description={hasActiveFilters
+                ? 'Prueba otra busqueda o segmento para recuperar resultados.'
+                : 'Centraliza contactos, seguimiento y oportunidades comerciales.'}
+              icon={<Contact className="h-7 w-7" />}
+              primaryActionLabel={canEditCustomers ? 'Anadir cliente' : undefined}
+              onPrimaryAction={canEditCustomers ? handleCreateNew : undefined}
+              secondaryActionLabel={hasActiveFilters ? 'Limpiar filtros' : 'Importar clientes'}
+              onSecondaryAction={() => {
+                if (hasActiveFilters) {
+                  setSearch('');
+                  setSegmentFilter('all');
+                  return;
+                }
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+            />
           </div>
         )}
       </Card>
@@ -661,7 +902,7 @@ export function Customers() {
                 <h2 className="font-display text-xl font-bold text-white uppercase tracking-tight">
                   {selectedCustomer ? t('customers.modal.modification') : t('customers.modal.initialization')}
                 </h2>
-                <button onClick={handleCloseModal} className="p-2 text-neutral-500 hover:text-white transition-colors rounded-full hover:bg-white/5">
+                <button type="button" aria-label="Cerrar" onClick={handleCloseModal} className="p-2 text-neutral-500 hover:text-white transition-colors rounded-full hover:bg-white/5">
                   <Plus className="w-6 h-6 rotate-45" />
                 </button>
               </div>
@@ -745,7 +986,9 @@ export function Customers() {
                     <p className="text-neutral-500 text-xs font-mono uppercase tracking-widest">{detailCustomer.id}</p>
                   </div>
                 </div>
-                <button 
+                <button
+                  type="button"
+                  aria-label="Cerrar"
                   onClick={() => setDetailCustomer(null)}
                   className="p-3 text-neutral-500 hover:text-white transition-colors rounded-full hover:bg-white/5"
                 >
@@ -781,11 +1024,11 @@ export function Customers() {
                     <div className="grid grid-cols-2 gap-8">
                       <div className="space-y-2">
                         <p className="text-[10px] font-black text-neutral-600 uppercase tracking-widest">{t('customers.email')}</p>
-                        <p className="text-sm text-neutral-200 font-medium truncate">{detailCustomer.email || 'NODATA'}</p>
+                        <p className="text-sm text-neutral-200 font-medium truncate">{detailCustomer.email || 'Sin dato'}</p>
                       </div>
                       <div className="space-y-2">
                         <p className="text-[10px] font-black text-neutral-600 uppercase tracking-widest">{t('customers.phone')}</p>
-                        <p className="text-sm text-neutral-200 font-medium">{detailCustomer.phone || 'NODATA'}</p>
+                        <p className="text-sm text-neutral-200 font-medium">{detailCustomer.phone || 'Sin dato'}</p>
                       </div>
                     </div>
                     
@@ -826,13 +1069,26 @@ export function Customers() {
 
                 {activeTab === 'reminders' && (
                   <div className="space-y-8">
+                    {customerDataError && detailCustomer && (
+                      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-red-500/30 bg-red-500/[0.08] px-4 py-3 text-sm text-red-200">
+                        <span>{customerDataError}</span>
+                        <button
+                          type="button"
+                          onClick={() => fetchCustomerData(detailCustomer.id)}
+                          className="rounded-xl border border-red-400/30 px-3 py-1.5 text-xs font-bold uppercase tracking-[0.16em] text-red-100 transition-colors hover:bg-red-500/15"
+                        >
+                          Reintentar
+                        </button>
+                      </div>
+                    )}
                     <div className="bg-black/40 rounded-2xl p-6 border border-white/[0.05]">
                       <h3 className="text-[11px] font-black text-white uppercase tracking-widest mb-4">{t('customers.details.reminders.new_title')}</h3>
                       <form onSubmit={handleAddReminder} className="space-y-4">
                         <div className="grid grid-cols-2 gap-4">
                           <div className="space-y-2">
                             <Label>{t('customers.details.reminders.vector_type')}</Label>
-                            <select 
+                            <select
+                              aria-label={t('customers.details.reminders.vector_type')}
                               className="w-full h-11 px-4 rounded-xl bg-neutral-800 border border-white/10 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                               value={reminderForm.type}
                               onChange={e => setReminderForm({...reminderForm, type: e.target.value as any})}
@@ -900,6 +1156,18 @@ export function Customers() {
 
                 {activeTab === 'messages' && (
                   <div className="space-y-8">
+                    {customerDataError && detailCustomer && (
+                      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-red-500/30 bg-red-500/[0.08] px-4 py-3 text-sm text-red-200">
+                        <span>{customerDataError}</span>
+                        <button
+                          type="button"
+                          onClick={() => fetchCustomerData(detailCustomer.id)}
+                          className="rounded-xl border border-red-400/30 px-3 py-1.5 text-xs font-bold uppercase tracking-[0.16em] text-red-100 transition-colors hover:bg-red-500/15"
+                        >
+                          Reintentar
+                        </button>
+                      </div>
+                    )}
                     <div className="bg-black/40 rounded-2xl p-6 border border-white/[0.05]">
                       <h3 className="text-[11px] font-black text-white uppercase tracking-widest mb-4">{t('customers.details.messages.draft_title')}</h3>
                       <div className="flex gap-2 p-1 bg-neutral-800 rounded-xl mb-4 border border-white/5">
@@ -930,7 +1198,7 @@ export function Customers() {
                                   {chan === 'email' && <Mail className="w-3 h-3" />}
                                   {chan === 'whatsapp' && <MessageSquare className="w-3 h-3" />}
                                   {chan === 'sms' && <Phone className="w-3 h-3" />}
-                                  {chan}
+                                  {chan === 'email' ? 'Email' : chan === 'whatsapp' ? 'WhatsApp' : 'SMS'}
                                 </button>
                               ))}
                            </div>
@@ -972,7 +1240,9 @@ export function Customers() {
                                   {m.channel === 'email' && <Mail className="w-3 h-3 text-blue-400" />}
                                   {m.channel === 'whatsapp' && <MessageSquare className="w-3 h-3 text-emerald-400" />}
                                   {m.channel === 'sms' && <Phone className="w-3 h-3 text-orange-400" />}
-                                  <span className="text-[10px] font-black uppercase text-neutral-400">{m.channel}</span>
+                                  <span className="text-[10px] font-black uppercase text-neutral-400">
+                                    {m.channel === 'email' ? 'Email' : m.channel === 'whatsapp' ? 'WhatsApp' : 'SMS'}
+                                  </span>
                                </div>
                                <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase border ${
                                  m.status === 'sent' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
@@ -985,7 +1255,7 @@ export function Customers() {
                             <p className="text-[11px] text-neutral-300 leading-relaxed font-medium line-clamp-2">"{m.content}"</p>
                             <div className="flex items-center justify-between pt-2">
                                <p className="text-[9px] text-neutral-600 font-mono">ID: {m.id.slice(0, 8)}</p>
-                               <p className="text-[9px] text-neutral-500">{m.createdAt?.toDate ? formatDate(m.createdAt.toDate()) : 'Syncing...'}</p>
+                               <p className="text-[9px] text-neutral-500">{m.createdAt?.toDate ? formatDate(m.createdAt.toDate()) : 'Sincronizando...'}</p>
                             </div>
                          </div>
                        ))}
@@ -1027,7 +1297,7 @@ export function Customers() {
                                     {isReminder ? (item as Reminder).notes : (item as CustomerMessage).content}
                                   </p>
                                   <p className="text-[10px] text-neutral-500">
-                                    {item.createdAt?.toDate ? formatDate(item.createdAt.toDate()) : 'Loading identity link...'}
+                                    {item.createdAt?.toDate ? formatDate(item.createdAt.toDate()) : 'Cargando historial...'}
                                   </p>
                                </div>
                             </div>
@@ -1037,7 +1307,7 @@ export function Customers() {
                        {(reminders.length === 0 && messages.length === 0) && (
                          <div className="py-20 text-center">
                             <History className="w-8 h-8 mx-auto text-neutral-800 mb-4" />
-                            <p className="text-[11px] text-neutral-600 font-medium uppercase tracking-widest">{t('customers.details.tabs.history')} is blank.</p>
+                            <p className="text-[11px] text-neutral-600 font-medium uppercase tracking-widest">No hay historial todavia.</p>
                          </div>
                        )}
                     </div>

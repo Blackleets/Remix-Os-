@@ -7,6 +7,7 @@ import {
   CreditCard,
   DollarSign,
   Flame,
+  LifeBuoy,
   Layers3,
   Loader2,
   Radar,
@@ -17,14 +18,16 @@ import {
   Sparkles,
   TrendingUp,
   Users,
+  X,
 } from 'lucide-react';
-import { addDoc, collection, doc, serverTimestamp, setDoc } from 'firebase/firestore';
+import { addDoc, collection, doc, limit, onSnapshot, orderBy, query, serverTimestamp, setDoc } from 'firebase/firestore';
 import type { ComponentType } from 'react';
+import { SuperAdminFeedbackCenter } from '../components/super-admin/FeedbackCenter';
 import { Button, Card, cn, Input, Label } from '../components/Common';
-import { db } from '../lib/firebase';
+import { auth, db } from '../lib/firebase';
 import { useLocale } from '../hooks/useLocale';
 import { usePlatformAdmin } from '../hooks/usePlatformAdmin';
-import { fetchPlatformOverview, syncPlatformBilling, syncPlatformStats } from '../services/companyApi';
+import { fetchPlatformOverview, fetchPlatformSupportView, syncPlatformBilling, syncPlatformStats } from '../services/companyApi';
 
 interface CompanyDoc {
   id: string;
@@ -32,6 +35,7 @@ interface CompanyDoc {
   ownerId?: string;
   industry?: string;
   stripeCustomerId?: string;
+  internalTesting?: boolean;
   createdAt?: any;
   onboardingState?: {
     isComplete?: boolean;
@@ -128,6 +132,7 @@ interface CompanyRow {
   plan: string;
   subscriptionStatus: string;
   stripeCustomerId?: string;
+  internalTesting: boolean;
   onboardingComplete: boolean;
   onboardingStep: number;
   onboardingChecklist: {
@@ -180,9 +185,145 @@ interface UserRow {
   id: string;
   email: string;
   displayName: string;
+  photoURL?: string | null;
+  companyId?: string | null;
   companyName: string;
   role: string;
+  currentCompanyId?: string | null;
+  subscriptionStatus?: string;
+  onboardingStatus?: string;
+  products?: number;
+  customers?: number;
+  orders?: number;
   createdAt?: any;
+}
+
+interface BetaUserRow {
+  id: string;
+  uid: string;
+  email: string;
+  displayName?: string | null;
+  companyId?: string | null;
+  companyName?: string | null;
+  onboardingStatus?: 'no_company' | 'pending' | 'ready';
+  activationStage?: 'signed_up' | 'company_created' | 'data_seeded' | 'active';
+  needsAttention?: boolean;
+  feedbackCount?: number;
+  lastSeenAt?: any;
+}
+
+interface BetaUserOpsDoc {
+  id: string;
+  userId: string;
+  targetCompanyId?: string | null;
+  followUpStatus?: 'new' | 'watching' | 'contacted' | 'qualified';
+  notes?: string | null;
+  updatedBy?: string | null;
+  updatedAt?: any;
+}
+
+type BetaConversionPriority = 'low' | 'medium' | 'high';
+
+interface SupportViewPayload {
+  mode: 'support';
+  company: {
+    id: string;
+    name: string;
+    industry: string;
+    ownerId?: string | null;
+    ownerEmail: string;
+    subscriptionStatus: string;
+    planId: string;
+    stripeCustomerId?: string | null;
+    currentCompanyId?: string | null;
+    onboardingComplete: boolean;
+    onboardingStep: number;
+    createdAt?: any;
+    totals: {
+      users: number;
+      products: number;
+      customers: number;
+      orders: number;
+      revenue: number;
+    };
+  };
+  targetUser: {
+    uid: string;
+    email: string;
+    displayName: string;
+    photoURL?: string | null;
+    currentCompanyId?: string | null;
+    createdAt?: any;
+  } | null;
+  membership: {
+    id: string;
+    userId: string;
+    companyId: string;
+    role: string;
+    createdAt?: any;
+  } | null;
+  memberships: Array<{
+    id: string;
+    userId: string;
+    companyId: string;
+    role: string;
+    email: string;
+    displayName: string;
+  }>;
+  activity: {
+    recentActivities: Array<{
+      id: string;
+      type?: string;
+      title?: string;
+      subtitle?: string;
+      createdAt?: any;
+    }>;
+  };
+  issues: Array<{
+    severity: 'info' | 'warning' | 'error';
+    code: string;
+    message: string;
+  }>;
+}
+
+const MISSING_OWNER_EMAIL = 'No owner email';
+
+function hasMissingOwnerEmail(ownerEmail?: string | null) {
+  return !ownerEmail || ownerEmail === MISSING_OWNER_EMAIL;
+}
+
+function displayOwnerEmail(ownerEmail?: string | null) {
+  return hasMissingOwnerEmail(ownerEmail) ? 'Sin owner asignado' : ownerEmail;
+}
+
+function getBetaActivationScore(entry: BetaUserRow, ops?: BetaUserOpsDoc | null) {
+  let score = 0;
+  if (entry.companyId) score += 20;
+  if (entry.activationStage === 'company_created') score += 15;
+  if (entry.activationStage === 'data_seeded') score += 35;
+  if (entry.activationStage === 'active') score += 45;
+  if (entry.onboardingStatus === 'ready') score += 20;
+  if ((entry.feedbackCount || 0) > 0) score += Math.min(15, (entry.feedbackCount || 0) * 5);
+  if (entry.needsAttention) score += 5;
+  if (ops?.followUpStatus === 'contacted') score += 5;
+  if (ops?.followUpStatus === 'qualified') score += 15;
+  return Math.min(100, score);
+}
+
+function getBetaConversionPriority(score: number): BetaConversionPriority {
+  if (score >= 75) return 'high';
+  if (score >= 40) return 'medium';
+  return 'low';
+}
+
+function getBetaNextAction(entry: BetaUserRow, score: number, ops?: BetaUserOpsDoc | null) {
+  if (!entry.companyId) return 'Llevar a onboarding y creacion de empresa.';
+  if (entry.activationStage === 'company_created') return 'Empujar carga base: productos, clientes y primer pedido.';
+  if (entry.activationStage === 'data_seeded' && (entry.feedbackCount || 0) === 0) return 'Pedir feedback temprano y validar friccion.';
+  if (score >= 75 && ops?.followUpStatus !== 'contacted') return 'Contactar owner y empujar cierre de trial.';
+  if (ops?.followUpStatus === 'contacted') return 'Calificar potencial y mapear necesidad comercial.';
+  if (entry.needsAttention) return 'Revisar soporte o feedback antes de perder activacion.';
+  return 'Mantener seguimiento ligero y observar uso.';
 }
 
 interface PlatformAlert {
@@ -211,10 +352,13 @@ interface CompanyControlForm {
   notes: string;
 }
 
+type ControlFeedbackTone = 'neutral' | 'success' | 'error';
+
 interface PlatformAuditLog {
   type: string;
   companyId?: string;
   actorUid: string;
+  value?: unknown;
   payload?: Record<string, unknown>;
   createdAt?: unknown;
 }
@@ -230,6 +374,59 @@ function toDate(value: any) {
   if (value?.toDate) return value.toDate() as Date;
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+const SUBSCRIPTION_LABELS: Record<string, string> = {
+  active: 'Activa',
+  trialing: 'En prueba',
+  past_due: 'Pago vencido',
+  canceled: 'Cancelada',
+  incomplete: 'Incompleta',
+  unpaid: 'Sin pago',
+};
+
+const ONBOARDING_LABELS: Record<string, string> = {
+  complete: 'Completo',
+  in_progress: 'En curso',
+  pending: 'Pendiente',
+  not_started: 'No iniciado',
+  unassigned: 'Sin empresa',
+  no_company: 'Sin empresa',
+};
+
+function humanizeStatus(value?: string | null, dict?: Record<string, string>) {
+  if (!value) return 'Sin dato';
+  const key = value.toLowerCase();
+  if (dict && dict[key]) return dict[key];
+  return key
+    .replace(/[_-]+/g, ' ')
+    .replace(/^\w/, (c) => c.toUpperCase());
+}
+
+function statusTone(value?: string | null): 'emerald' | 'blue' | 'amber' | 'red' | 'neutral' {
+  if (!value) return 'neutral';
+  const key = value.toLowerCase();
+  if (['active', 'complete', 'completed', 'paid'].includes(key)) return 'emerald';
+  if (['trialing', 'in_progress', 'pending'].includes(key)) return 'blue';
+  if (['past_due', 'incomplete', 'not_started', 'unpaid'].includes(key)) return 'amber';
+  if (['canceled', 'cancelled', 'failed', 'unassigned', 'no_company'].includes(key)) return 'red';
+  return 'neutral';
+}
+
+function StatusChip({ value, dict }: { value?: string | null; dict?: Record<string, string> }) {
+  const tone = statusTone(value);
+  const toneClass = {
+    emerald: 'border-emerald-400/16 bg-emerald-500/8 text-emerald-200',
+    blue: 'border-blue-400/16 bg-blue-500/8 text-blue-200',
+    amber: 'border-amber-400/16 bg-amber-500/8 text-amber-200',
+    red: 'border-red-400/16 bg-red-500/8 text-red-200',
+    neutral: 'border-white/10 bg-white/[0.03] text-neutral-300',
+  }[tone];
+  return (
+    <span className={cn('inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em]', toneClass)}>
+      {humanizeStatus(value, dict)}
+    </span>
+  );
 }
 
 function compareByCreatedAtDesc<T extends { createdAt?: any }>(items: T[]) {
@@ -282,6 +479,7 @@ export function SuperAdmin() {
   const { platformAdmin } = usePlatformAdmin();
   const [refreshKey, setRefreshKey] = useState(0);
   const [companySearch, setCompanySearch] = useState('');
+  const [userSearch, setUserSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'trialing' | 'past_due' | 'canceled'>('all');
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -322,6 +520,15 @@ export function SuperAdmin() {
   const [companiesTable, setCompaniesTable] = useState<CompanyRow[]>([]);
   const [usersTable, setUsersTable] = useState<UserRow[]>([]);
   const [latestUsers, setLatestUsers] = useState<UserRow[]>([]);
+  const [betaUsers, setBetaUsers] = useState<BetaUserRow[]>([]);
+  const [betaUserOps, setBetaUserOps] = useState<Record<string, BetaUserOpsDoc>>({});
+  const [betaUserSearch, setBetaUserSearch] = useState('');
+  const [betaStageFilter, setBetaStageFilter] = useState<'all' | 'signed_up' | 'company_created' | 'data_seeded' | 'active'>('all');
+  const [betaFollowUpFilter, setBetaFollowUpFilter] = useState<'all' | 'new' | 'watching' | 'contacted' | 'qualified'>('all');
+  const [betaPriorityFilter, setBetaPriorityFilter] = useState<'all' | 'high' | 'medium' | 'low'>('all');
+  const [selectedBetaUserId, setSelectedBetaUserId] = useState<string | null>(null);
+  const [betaUserNoteDraft, setBetaUserNoteDraft] = useState('');
+  const [savingBetaOpsId, setSavingBetaOpsId] = useState<string | null>(null);
   const [companyControls, setCompanyControls] = useState<Record<string, PlatformCompanyControlDoc>>({});
   const [companyStats, setCompanyStats] = useState<Record<string, CompanyStatsDoc>>({});
   const [companyBillingStats, setCompanyBillingStats] = useState<Record<string, CompanyBillingStatsDoc>>({});
@@ -336,6 +543,14 @@ export function SuperAdmin() {
   const [syncingStats, setSyncingStats] = useState(false);
   const [syncingBilling, setSyncingBilling] = useState(false);
   const [controlFeedback, setControlFeedback] = useState<string | null>(null);
+  const [controlFeedbackTone, setControlFeedbackTone] = useState<ControlFeedbackTone>('neutral');
+  const [supportView, setSupportView] = useState<SupportViewPayload | null>(null);
+  const [loadingSupport, setLoadingSupport] = useState(false);
+  const [supportError, setSupportError] = useState<string | null>(null);
+  const [supportRequest, setSupportRequest] = useState<{ companyId: string | null; targetUserId: string | null }>({
+    companyId: null,
+    targetUserId: null,
+  });
 
   useEffect(() => {
     let isMounted = true;
@@ -343,6 +558,7 @@ export function SuperAdmin() {
     const loadPlatformData = async () => {
       setLoading(true);
       setError(null);
+      setSupportError(null);
 
       try {
         const payload = await fetchPlatformOverview();
@@ -379,6 +595,67 @@ export function SuperAdmin() {
     };
   }, [refreshKey, t]);
 
+  useEffect(() => {
+    if (!platformAdmin?.uid) return;
+
+    const betaUsersQuery = query(collection(db, 'betaUsers'), orderBy('lastSeenAt', 'desc'), limit(24));
+    const unsubscribe = onSnapshot(
+      betaUsersQuery,
+      (snapshot) => {
+        setBetaUsers(snapshot.docs.map((entry) => ({ id: entry.id, ...entry.data() } as BetaUserRow)));
+      },
+      (error) => {
+        console.error('Failed to load beta users:', error);
+        setBetaUsers([]);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [platformAdmin?.uid]);
+
+  useEffect(() => {
+    if (!platformAdmin?.uid) return;
+
+    const unsubscribe = onSnapshot(
+      collection(db, 'betaUserOps'),
+      (snapshot) => {
+        setBetaUserOps(
+          snapshot.docs.reduce<Record<string, BetaUserOpsDoc>>((acc, entry) => {
+            acc[entry.id] = { id: entry.id, ...entry.data() } as BetaUserOpsDoc;
+            return acc;
+          }, {})
+        );
+      },
+      (error) => {
+        console.error('Failed to load beta user ops:', error);
+        setBetaUserOps({});
+      }
+    );
+
+    return () => unsubscribe();
+  }, [platformAdmin?.uid]);
+
+  const openSupportView = async (companyId?: string | null, targetUserId?: string | null) => {
+    if (!companyId) {
+      setSupportRequest({ companyId: null, targetUserId: targetUserId || null });
+      setSupportError('No hay empresa asociada para esta vista de soporte.');
+      return;
+    }
+    setSupportRequest({ companyId, targetUserId: targetUserId || null });
+    setLoadingSupport(true);
+    setSupportError(null);
+    setSupportView(null);
+    try {
+      const payload = await fetchPlatformSupportView(companyId, targetUserId);
+      setSupportView(payload as SupportViewPayload);
+    } catch (viewError) {
+      console.error('Failed to load support view:', viewError);
+      setSupportError('No se pudo cargar la vista de soporte.');
+    } finally {
+      setLoadingSupport(false);
+    }
+  };
+
   const alerts = useMemo<PlatformAlert[]>(() => {
     const items: PlatformAlert[] = [];
 
@@ -391,7 +668,7 @@ export function SuperAdmin() {
       });
     }
 
-    if (companiesTable.some((company) => company.ownerEmail === 'No owner email')) {
+    if (companiesTable.some((company) => hasMissingOwnerEmail(company.ownerEmail))) {
       items.push({
         id: 'owner-missing',
         tone: 'warning',
@@ -520,7 +797,7 @@ export function SuperAdmin() {
             company.orders === 0 ||
             company.subscriptionStatus === 'past_due' ||
             company.subscriptionStatus === 'canceled' ||
-            company.ownerEmail === 'No owner email'
+            hasMissingOwnerEmail(company.ownerEmail)
         )
         .slice(0, 6),
     [companiesTable]
@@ -534,10 +811,22 @@ export function SuperAdmin() {
         normalized.length === 0 ||
         company.name.toLowerCase().includes(normalized) ||
         company.ownerEmail.toLowerCase().includes(normalized) ||
-        company.industry.toLowerCase().includes(normalized);
+        company.industry.toLowerCase().includes(normalized) ||
+        company.id.toLowerCase().includes(normalized) ||
+        company.plan.toLowerCase().includes(normalized);
       return statusMatch && searchMatch;
     });
   }, [companiesTable, companySearch, statusFilter]);
+
+  const filteredUsers = useMemo(() => {
+    const normalized = userSearch.trim().toLowerCase();
+    if (!normalized) return usersTable;
+    return usersTable.filter((user) =>
+      [user.id, user.email, user.displayName, user.companyName, user.companyId, user.currentCompanyId, user.role]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(normalized))
+    );
+  }, [usersTable, userSearch]);
 
   const selectedCompany =
     filteredCompanies.find((company) => company.id === selectedCompanyId) ||
@@ -545,6 +834,18 @@ export function SuperAdmin() {
     filteredCompanies[0] ||
     companiesTable[0] ||
     null;
+
+  useEffect(() => {
+    setControlFeedback(null);
+    setSupportError(null);
+    setSupportView(null);
+  }, [selectedCompanyId]);
+
+  useEffect(() => {
+    if (!selectedCompanyId) return;
+    if (companiesTable.some((company) => company.id === selectedCompanyId)) return;
+    setSelectedCompanyId(companiesTable[0]?.id || null);
+  }, [companiesTable, selectedCompanyId]);
 
   const selectedCompanyHealth = useMemo(() => {
     if (!selectedCompany) return 'neutral';
@@ -566,6 +867,7 @@ export function SuperAdmin() {
 
   const selectedStats = selectedCompany ? companyStats[selectedCompany.id] || null : null;
   const selectedBilling = selectedCompany ? companyBillingStats[selectedCompany.id] || null : null;
+  const selectedControl = selectedCompany ? companyControls[selectedCompany.id] || null : null;
   const selectedTenantAgeDays = selectedCompany
     ? Math.max(
         0,
@@ -595,6 +897,110 @@ export function SuperAdmin() {
   const resolvedMrr = metrics.billingCoverage > 0 ? metrics.realMrr : metrics.estimatedMrr;
   const resolvedArr = metrics.billingCoverage > 0 ? metrics.realArr : metrics.estimatedArr;
   const usingRealBilling = metrics.billingCoverage > 0;
+  const betaUserReadyCount = betaUsers.filter((entry) => entry.onboardingStatus === 'ready').length;
+  const betaUserPendingCount = betaUsers.filter((entry) => entry.onboardingStatus === 'pending').length;
+  const betaFeedbackSignals = betaUsers.reduce((sum, entry) => sum + (entry.feedbackCount || 0), 0);
+  const betaAttentionCount = betaUsers.filter((entry) => entry.needsAttention).length;
+  const betaQualifiedCount = betaUsers.filter((entry) => betaUserOps[entry.uid]?.followUpStatus === 'qualified').length;
+  const betaHighPotentialCount = betaUsers.filter((entry) => getBetaConversionPriority(getBetaActivationScore(entry, betaUserOps[entry.uid])) === 'high').length;
+  const betaContactedCount = betaUsers.filter((entry) => betaUserOps[entry.uid]?.followUpStatus === 'contacted').length;
+  const filteredBetaUsers = useMemo(() => {
+    const normalized = betaUserSearch.trim().toLowerCase();
+    return betaUsers
+      .filter((entry) => {
+        const matchesStage = betaStageFilter === 'all' || entry.activationStage === betaStageFilter;
+        const followUpStatus = betaUserOps[entry.uid]?.followUpStatus || 'new';
+        const matchesFollowUp = betaFollowUpFilter === 'all' || followUpStatus === betaFollowUpFilter;
+        const priority = getBetaConversionPriority(getBetaActivationScore(entry, betaUserOps[entry.uid]));
+        const matchesPriority = betaPriorityFilter === 'all' || priority === betaPriorityFilter;
+        const matchesSearch = !normalized || [
+          entry.displayName,
+          entry.email,
+          entry.companyName,
+          entry.companyId,
+          entry.uid,
+        ]
+          .filter(Boolean)
+          .some((value) => String(value).toLowerCase().includes(normalized));
+        return matchesStage && matchesFollowUp && matchesPriority && matchesSearch;
+      })
+      .sort((left, right) => {
+        const rightScore = getBetaActivationScore(right, betaUserOps[right.uid]);
+        const leftScore = getBetaActivationScore(left, betaUserOps[left.uid]);
+        return rightScore - leftScore;
+      });
+  }, [betaFollowUpFilter, betaPriorityFilter, betaStageFilter, betaUserOps, betaUserSearch, betaUsers]);
+  const selectedBetaUser = useMemo(
+    () => filteredBetaUsers.find((entry) => entry.uid === selectedBetaUserId) || filteredBetaUsers[0] || null,
+    [filteredBetaUsers, selectedBetaUserId]
+  );
+  const selectedBetaOps = selectedBetaUser ? betaUserOps[selectedBetaUser.uid] || null : null;
+  const betaNoteDirty = (betaUserNoteDraft.trim() || '') !== ((selectedBetaOps?.notes || '').trim());
+  const selectedBetaScore = selectedBetaUser ? getBetaActivationScore(selectedBetaUser, selectedBetaOps) : 0;
+  const selectedBetaPriority = selectedBetaUser ? getBetaConversionPriority(selectedBetaScore) : 'low';
+  const selectedBetaNextAction = selectedBetaUser ? getBetaNextAction(selectedBetaUser, selectedBetaScore, selectedBetaOps) : '';
+
+  useEffect(() => {
+    if (!selectedBetaUserId && filteredBetaUsers.length > 0) {
+      setSelectedBetaUserId(filteredBetaUsers[0].uid);
+      return;
+    }
+    if (selectedBetaUserId && !filteredBetaUsers.some((entry) => entry.uid === selectedBetaUserId)) {
+      setSelectedBetaUserId(filteredBetaUsers[0]?.uid || null);
+    }
+  }, [filteredBetaUsers, selectedBetaUserId]);
+
+  useEffect(() => {
+    setBetaUserNoteDraft(selectedBetaOps?.notes || '');
+  }, [selectedBetaOps?.notes, selectedBetaUser?.uid]);
+
+  const saveBetaUserFollowUp = async (
+    entry: BetaUserRow,
+    payload: {
+      followUpStatus?: 'new' | 'watching' | 'contacted' | 'qualified';
+      notes?: string;
+    }
+  ) => {
+    if (!platformAdmin?.uid) return;
+    setSavingBetaOpsId(entry.uid);
+    const resolvedStatus = payload.followUpStatus || betaUserOps[entry.uid]?.followUpStatus || 'new';
+    try {
+      await setDoc(
+        doc(db, 'betaUserOps', entry.uid),
+        {
+          userId: entry.uid,
+          targetCompanyId: entry.companyId || null,
+          followUpStatus: resolvedStatus,
+          notes: payload.notes !== undefined ? payload.notes.trim() : (betaUserOps[entry.uid]?.notes || null),
+          updatedBy: platformAdmin.uid,
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+      await addDoc(collection(db, 'platformAuditLogs'), {
+        type: 'beta_user_followup_updated',
+        actorUid: platformAdmin.uid,
+        payload: {
+          betaUserId: entry.uid,
+          followUpStatus: resolvedStatus,
+          companyId: entry.companyId || null,
+          noteUpdated: payload.notes !== undefined,
+        },
+        createdAt: serverTimestamp(),
+      } as PlatformAuditLog);
+    } catch (saveError) {
+      console.error('Failed to save beta user follow-up:', saveError);
+    } finally {
+      setSavingBetaOpsId(null);
+    }
+  };
+  const hasControlChanges = selectedCompany
+    ? controlForm.lifecycleStatus !== (selectedControl?.lifecycleStatus || 'active')
+      || controlForm.priority !== (selectedControl?.priority || 'normal')
+      || controlForm.nextAction.trim() !== (selectedControl?.nextAction || '')
+      || controlForm.assignedTo.trim() !== (selectedControl?.assignedTo || '')
+      || controlForm.notes.trim() !== (selectedControl?.notes || '')
+    : false;
 
   useEffect(() => {
     if (!selectedCompany) return;
@@ -607,12 +1013,39 @@ export function SuperAdmin() {
       notes: existingControl?.notes || '',
     });
     setControlFeedback(null);
+    setControlFeedbackTone('neutral');
   }, [companyControls, selectedCompany?.id]);
+
+  const toggleInternalTesting = async () => {
+    if (!selectedCompany || !platformAdmin?.uid) return;
+    const next = !selectedCompany.internalTesting;
+    try {
+      const token = await auth.currentUser?.getIdToken();
+      const res = await fetch('/api/platform/company/override', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ companyId: selectedCompany.id, internalTesting: next }),
+      });
+      if (!res.ok) throw new Error('Override failed');
+      setControlFeedback(
+        next ? '✓ Modo interno activado. Límites de plan desactivados.' : 'Modo interno desactivado.'
+      );
+      setControlFeedbackTone(next ? 'success' : 'neutral');
+      setRefreshKey((k) => k + 1);
+    } catch {
+      setControlFeedback('Error al cambiar modo interno.');
+      setControlFeedbackTone('error');
+    }
+  };
 
   const saveCompanyControl = async () => {
     if (!selectedCompany || !platformAdmin?.uid) return;
     setSavingControl(true);
     setControlFeedback(null);
+    setControlFeedbackTone('neutral');
     try {
       await setDoc(
         doc(db, 'platformCompanyControls', selectedCompany.id),
@@ -652,9 +1085,11 @@ export function SuperAdmin() {
         createdAt: serverTimestamp(),
       } as PlatformAuditLog);
       setControlFeedback(t('super_admin.company_panel.saved'));
+      setControlFeedbackTone('success');
     } catch (saveError) {
       console.error('Failed to save platform company control:', saveError);
       setControlFeedback(t('super_admin.company_panel.save_failed'));
+      setControlFeedbackTone('error');
     } finally {
       setSavingControl(false);
     }
@@ -665,6 +1100,8 @@ export function SuperAdmin() {
   ) => {
     if (!selectedCompany || !platformAdmin?.uid) return;
     try {
+      setControlFeedback(null);
+      setControlFeedbackTone('neutral');
       await addDoc(collection(db, 'platformAuditLogs'), {
         type,
         companyId: selectedCompany.id,
@@ -677,9 +1114,11 @@ export function SuperAdmin() {
         createdAt: serverTimestamp(),
       } as PlatformAuditLog);
       setControlFeedback(t(`super_admin.company_panel.action_feedback.${type}`));
+      setControlFeedbackTone('success');
     } catch (auditError) {
       console.error(`Failed to log ${type}:`, auditError);
       setControlFeedback(t('super_admin.company_panel.save_failed'));
+      setControlFeedbackTone('error');
     }
   };
 
@@ -691,6 +1130,7 @@ export function SuperAdmin() {
       await syncPlatformStats();
       setRefreshKey((current) => current + 1);
       setControlFeedback(t('super_admin.metrics.sync_success'));
+      setControlFeedbackTone('success');
     } catch (syncError) {
       console.error('Failed to sync company stats:', syncError);
       setError(t('super_admin.errors.stats_sync_failed'));
@@ -706,6 +1146,7 @@ export function SuperAdmin() {
       const payload = await syncPlatformBilling(selectedCompany?.id || null);
       setRefreshKey((current) => current + 1);
       setControlFeedback(t('super_admin.metrics.billing_sync_success', { count: payload.syncedCompanies || 0 }));
+      setControlFeedbackTone('success');
     } catch (syncError) {
       console.error('Failed to sync billing stats:', syncError);
       setError(t('super_admin.errors.billing_sync_failed'));
@@ -778,7 +1219,16 @@ export function SuperAdmin() {
         </Card>
       ) : error ? (
         <Card className="border-red-500/20 bg-red-500/10 p-6 text-red-200">
-          {error}
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <span>{error}</span>
+            <Button
+              variant="secondary"
+              onClick={() => setRefreshKey((current) => current + 1)}
+              className="border-red-400/20 bg-black/30 text-red-100"
+            >
+              Reintentar
+            </Button>
+          </div>
         </Card>
       ) : (
         <>
@@ -1020,10 +1470,30 @@ export function SuperAdmin() {
                       <th className="table-header">{t('super_admin.tables.orders')}</th>
                       <th className="table-header">{t('super_admin.tables.revenue')}</th>
                       <th className="table-header">{t('super_admin.tables.created_at')}</th>
+                      <th className="table-header">Soporte</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredCompanies.slice(0, 10).map((company) => (
+                    {filteredCompanies.length === 0 ? (
+                      <tr className="border-t border-white/[0.04]">
+                        <td colSpan={11} className="px-4 py-6 text-center text-sm text-neutral-500">
+                          <p>{companiesTable.length === 0 ? 'Todavia no hay empresas registradas.' : 'No hay empresas que coincidan con los filtros actuales.'}</p>
+                          {(statusFilter !== 'all' || companySearch.trim()) ? (
+                            <Button
+                              type="button"
+                              variant="secondary"
+                              className="mt-4 border-white/10 bg-white/[0.03]"
+                              onClick={() => {
+                                setStatusFilter('all');
+                                setCompanySearch('');
+                              }}
+                            >
+                              Limpiar filtros
+                            </Button>
+                          ) : null}
+                        </td>
+                      </tr>
+                    ) : filteredCompanies.slice(0, 10).map((company) => (
                       <tr
                         key={company.id}
                         className={cn(
@@ -1032,8 +1502,15 @@ export function SuperAdmin() {
                         )}
                         onClick={() => setSelectedCompanyId(company.id)}
                       >
-                        <td className="table-cell font-semibold text-white">{company.name}</td>
-                        <td className="table-cell text-neutral-400">{company.ownerEmail}</td>
+                        <td className="table-cell font-semibold text-white">
+                          <span>{company.name}</span>
+                          {company.internalTesting && (
+                            <span className="ml-2 inline-flex items-center rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-amber-300">
+                              Test
+                            </span>
+                          )}
+                        </td>
+                        <td className="table-cell text-neutral-400">{displayOwnerEmail(company.ownerEmail)}</td>
                         <td className="table-cell uppercase text-neutral-300">{company.plan}</td>
                         <td className="table-cell uppercase text-neutral-300">{companyBillingStats[company.id]?.subscriptionStatus || company.subscriptionStatus}</td>
                         <td className="table-cell text-neutral-300">{company.users}</td>
@@ -1042,6 +1519,18 @@ export function SuperAdmin() {
                         <td className="table-cell text-neutral-300">{company.orders}</td>
                         <td className="table-cell text-white font-mono">{formatCurrency(company.revenue)}</td>
                         <td className="table-cell text-neutral-400">{toDate(company.createdAt)?.toLocaleDateString() || '-'}</td>
+                        <td className="table-cell">
+                          <Button
+                            variant="secondary"
+                            className="border-white/10 bg-black/30 px-3 py-2 text-xs"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void openSupportView(company.id, company.ownerId || null);
+                            }}
+                          >
+                            Abrir soporte
+                          </Button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -1056,24 +1545,43 @@ export function SuperAdmin() {
                     <p className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-600">{t('super_admin.company_panel.label')}</p>
                     <h2 className="mt-2 text-lg font-bold text-white">{t('super_admin.company_panel.title')}</h2>
                   </div>
-                  <div
-                    className={cn(
-                      'rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.22em]',
-                      selectedCompanyHealth === 'healthy'
-                        ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-300'
-                        : selectedCompanyHealth === 'risk'
-                          ? 'border-red-500/20 bg-red-500/10 text-red-300'
-                          : 'border-amber-500/20 bg-amber-500/10 text-amber-300'
-                    )}
-                  >
-                    {t(`super_admin.company_panel.health.${selectedCompanyHealth}`)}
+                  <div className="flex items-center gap-2">
+                    {selectedCompany ? (
+                      <Button
+                        variant="secondary"
+                        className="border-white/10 bg-black/30 px-3 py-2 text-xs"
+                        onClick={() => void openSupportView(selectedCompany.id, selectedCompany.ownerId || null)}
+                      >
+                        <LifeBuoy className="h-4 w-4" />
+                        Abrir vista soporte
+                      </Button>
+                    ) : null}
+                    <div
+                      className={cn(
+                        'rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.22em]',
+                        selectedCompanyHealth === 'healthy'
+                          ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-300'
+                          : selectedCompanyHealth === 'risk'
+                            ? 'border-red-500/20 bg-red-500/10 text-red-300'
+                            : 'border-amber-500/20 bg-amber-500/10 text-amber-300'
+                      )}
+                    >
+                      {t(`super_admin.company_panel.health.${selectedCompanyHealth}`)}
+                    </div>
                   </div>
                 </div>
 
                 {selectedCompany ? (
                   <div className="space-y-4">
                     <div className="rounded-3xl border border-white/10 bg-black/30 p-4">
-                      <p className="text-lg font-bold text-white">{selectedCompany.name}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="text-lg font-bold text-white">{selectedCompany.name}</p>
+                        {selectedCompany.internalTesting && (
+                          <span className="inline-flex items-center rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-amber-300">
+                            Modo interno
+                          </span>
+                        )}
+                      </div>
                       <p className="mt-1 text-xs uppercase tracking-[0.2em] text-neutral-500">{selectedCompany.industry}</p>
                       <div className="mt-4 grid grid-cols-2 gap-3">
                         <div>
@@ -1086,7 +1594,7 @@ export function SuperAdmin() {
                         </div>
                         <div>
                           <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.company_panel.owner')}</p>
-                          <p className="mt-1 text-sm text-neutral-300 break-all">{selectedCompany.ownerEmail}</p>
+                          <p className="mt-1 text-sm text-neutral-300 break-all">{displayOwnerEmail(selectedCompany.ownerEmail)}</p>
                         </div>
                         <div>
                           <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-600">{t('super_admin.company_panel.created')}</p>
@@ -1210,13 +1718,16 @@ export function SuperAdmin() {
                           <div>
                             <Label>{t('super_admin.company_panel.lifecycle')}</Label>
                             <select
+                              aria-label="Estado de ciclo de vida de la empresa"
                               value={controlForm.lifecycleStatus}
-                              onChange={(event) =>
+                              onChange={(event) => {
+                                setControlFeedback(null);
+                                setControlFeedbackTone('neutral');
                                 setControlForm((current) => ({
                                   ...current,
                                   lifecycleStatus: event.target.value as CompanyControlForm['lifecycleStatus'],
-                                }))
-                              }
+                                }));
+                              }}
                               className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white focus:border-blue-500/50 focus:outline-none"
                             >
                               {(['active', 'watch', 'internal_hold', 'suspended'] as const).map((value) => (
@@ -1229,13 +1740,16 @@ export function SuperAdmin() {
                           <div>
                             <Label>{t('super_admin.company_panel.priority')}</Label>
                             <select
+                              aria-label="Prioridad de la empresa"
                               value={controlForm.priority}
-                              onChange={(event) =>
+                              onChange={(event) => {
+                                setControlFeedback(null);
+                                setControlFeedbackTone('neutral');
                                 setControlForm((current) => ({
                                   ...current,
                                   priority: event.target.value as CompanyControlForm['priority'],
-                                }))
-                              }
+                                }));
+                              }}
                               className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white focus:border-blue-500/50 focus:outline-none"
                             >
                               {(['low', 'normal', 'high', 'critical'] as const).map((value) => (
@@ -1251,12 +1765,14 @@ export function SuperAdmin() {
                           <Label>{t('super_admin.company_panel.assigned_to')}</Label>
                           <Input
                             value={controlForm.assignedTo}
-                            onChange={(event) =>
+                            onChange={(event) => {
+                              setControlFeedback(null);
+                              setControlFeedbackTone('neutral');
                               setControlForm((current) => ({
                                 ...current,
                                 assignedTo: event.target.value,
-                              }))
-                            }
+                              }));
+                            }}
                             placeholder={t('super_admin.company_panel.assigned_placeholder')}
                           />
                         </div>
@@ -1265,12 +1781,14 @@ export function SuperAdmin() {
                           <Label>{t('super_admin.company_panel.next_action')}</Label>
                           <Input
                             value={controlForm.nextAction}
-                            onChange={(event) =>
+                            onChange={(event) => {
+                              setControlFeedback(null);
+                              setControlFeedbackTone('neutral');
                               setControlForm((current) => ({
                                 ...current,
                                 nextAction: event.target.value,
-                              }))
-                            }
+                              }));
+                            }}
                             placeholder={t('super_admin.company_panel.next_action_placeholder')}
                           />
                         </div>
@@ -1279,44 +1797,74 @@ export function SuperAdmin() {
                           <Label>{t('super_admin.company_panel.notes')}</Label>
                           <textarea
                             value={controlForm.notes}
-                            onChange={(event) =>
+                            onChange={(event) => {
+                              setControlFeedback(null);
+                              setControlFeedbackTone('neutral');
                               setControlForm((current) => ({
                                 ...current,
                                 notes: event.target.value,
-                              }))
-                            }
+                              }));
+                            }}
                             placeholder={t('super_admin.company_panel.notes_placeholder')}
                             className="min-h-[120px] w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white placeholder:text-neutral-600 focus:border-blue-500/50 focus:outline-none"
                           />
                         </div>
 
                         <div className="grid grid-cols-2 gap-3">
-                          <Button variant="secondary" className="border-white/10 bg-black/30" onClick={() => logBillingAction('billing_status_reviewed')}>
+                          <Button variant="secondary" className="border-white/10 bg-black/30" onClick={() => logBillingAction('billing_status_reviewed')} disabled={!selectedCompany}>
                             {t('super_admin.company_panel.actions.review_billing')}
                           </Button>
-                          <Button variant="secondary" className="border-white/10 bg-black/30" onClick={() => logBillingAction('churn_risk_marked')}>
+                          <Button variant="secondary" className="border-white/10 bg-black/30" onClick={() => logBillingAction('churn_risk_marked')} disabled={!selectedCompany}>
                             {t('super_admin.company_panel.actions.mark_churn')}
                           </Button>
-                          <Button variant="secondary" className="border-white/10 bg-black/30" onClick={() => logBillingAction('followup_scheduled')}>
+                          <Button variant="secondary" className="border-white/10 bg-black/30" onClick={() => logBillingAction('followup_scheduled')} disabled={!selectedCompany}>
                             {t('super_admin.company_panel.actions.schedule_followup')}
                           </Button>
                           <Button
                             variant="secondary"
                             className="border-white/10 bg-black/30"
                             onClick={() => logBillingAction('billing_note_added')}
-                            disabled={!controlForm.notes.trim()}
+                            disabled={!selectedCompany || !controlForm.notes.trim()}
                           >
                             {t('super_admin.company_panel.actions.log_note')}
                           </Button>
                         </div>
 
+                        <div className="mt-2 rounded-lg border border-amber-500/20 bg-amber-500/[0.08] p-3">
+                          <p className="text-[10px] font-black uppercase tracking-widest text-amber-400 mb-2">
+                            Modo Interno / Beta Testing
+                          </p>
+                          <p className="text-xs text-neutral-400 mb-2">
+                            {selectedCompany.internalTesting
+                              ? '✓ Activo — límites de plan desactivados para esta empresa.'
+                              : 'Inactivo — límites de plan normales.'}
+                          </p>
+                          <p className="text-[10px] text-neutral-500 mb-2">No afecta suscripción real de Stripe.</p>
+                          <Button
+                            variant="secondary"
+                            className="border-amber-500/30 text-amber-300 text-xs"
+                            onClick={() => void toggleInternalTesting()}
+                          >
+                            {selectedCompany.internalTesting ? 'Desactivar modo interno' : 'Activar modo interno'}
+                          </Button>
+                        </div>
+
                         <div className="flex items-center justify-between gap-3">
-                          <p className="text-xs text-neutral-500">
+                          <p
+                            className={cn(
+                              'text-xs',
+                              controlFeedbackTone === 'success'
+                                ? 'text-emerald-300'
+                                : controlFeedbackTone === 'error'
+                                  ? 'text-red-200'
+                                  : 'text-neutral-500'
+                            )}
+                          >
                             {controlFeedback || t('super_admin.company_panel.controls_note')}
                           </p>
                           <Button
                             onClick={saveCompanyControl}
-                            disabled={savingControl}
+                            disabled={savingControl || !selectedCompany || !hasControlChanges}
                             className="gap-2"
                           >
                             <Save className="h-4 w-4" />
@@ -1366,36 +1914,288 @@ export function SuperAdmin() {
           </div>
 
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+            <SuperAdminFeedbackCenter />
+
             <Card className="border-white/5 bg-neutral-900/40 p-5 xl:col-span-2">
               <div className="mb-5">
                 <p className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-600">{t('super_admin.tables.users_label')}</p>
                 <h2 className="mt-2 text-lg font-bold text-white">{t('super_admin.tables.users_title')}</h2>
               </div>
+              <div className="mb-4">
+                <Input
+                  value={userSearch}
+                  onChange={(event) => setUserSearch(event.target.value)}
+                  placeholder="Buscar usuario, empresa, rol o empresa actual"
+                  className="border-white/10 bg-black/30"
+                />
+              </div>
               <div className="overflow-x-auto">
                 <table className="w-full border-collapse">
                   <thead>
                     <tr>
+                      <th className="table-header">UID</th>
                       <th className="table-header">{t('super_admin.tables.user_email')}</th>
                       <th className="table-header">{t('super_admin.tables.user_name')}</th>
                       <th className="table-header">{t('super_admin.tables.company')}</th>
+                      <th className="table-header">Empresa actual</th>
                       <th className="table-header">{t('super_admin.tables.user_role')}</th>
+                      <th className="table-header">Suscripcion</th>
+                      <th className="table-header">Onboarding</th>
+                      <th className="table-header">Volumen</th>
                       <th className="table-header">{t('super_admin.tables.registered_at')}</th>
+                      <th className="table-header">Soporte</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {usersTable.slice(0, 12).map((user) => (
+                    {filteredUsers.length === 0 ? (
+                      <tr className="border-t border-white/[0.04]">
+                        <td colSpan={11} className="px-4 py-6 text-center text-sm text-neutral-500">
+                          <p>{usersTable.length === 0 ? 'Todavia no hay usuarios registrados.' : 'No hay usuarios que coincidan con la busqueda actual.'}</p>
+                          {userSearch.trim() ? (
+                            <Button
+                              type="button"
+                              variant="secondary"
+                              className="mt-4 border-white/10 bg-white/[0.03]"
+                              onClick={() => setUserSearch('')}
+                            >
+                              Limpiar busqueda
+                            </Button>
+                          ) : null}
+                        </td>
+                      </tr>
+                    ) : filteredUsers.slice(0, 12).map((user) => (
                       <tr key={user.id} className="border-t border-white/[0.04]">
+                        <td className="table-cell font-mono text-[11px] text-neutral-400">{user.id}</td>
                         <td className="table-cell text-white">{user.email}</td>
-                        <td className="table-cell text-neutral-300">{user.displayName}</td>
-                        <td className="table-cell text-neutral-300">{user.companyName}</td>
+                        <td className="table-cell text-neutral-300">
+                          <div className="flex items-center gap-3">
+                            {user.photoURL ? (
+                              <img src={user.photoURL} alt={user.displayName} className="h-8 w-8 rounded-full object-cover" />
+                            ) : (
+                              <div className="flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/[0.03] text-[10px] font-bold text-neutral-400">
+                                {(user.displayName || user.email || '?').slice(0, 1).toUpperCase()}
+                              </div>
+                            )}
+                            <span>{user.displayName}</span>
+                          </div>
+                        </td>
+                        <td className="table-cell text-neutral-300">
+                          {user.companyName ? (
+                            <>
+                              <div>{user.companyName}</div>
+                              <div className="mt-1 font-mono text-[10px] text-neutral-500">{user.companyId || '-'}</div>
+                            </>
+                          ) : (
+                            <span className="text-neutral-500">Sin empresa</span>
+                          )}
+                        </td>
+                        <td className="table-cell font-mono text-[11px] text-neutral-500">{user.currentCompanyId || '-'}</td>
                         <td className="table-cell uppercase text-neutral-300">{user.role}</td>
+                        <td className="table-cell"><StatusChip value={user.subscriptionStatus} dict={SUBSCRIPTION_LABELS} /></td>
+                        <td className="table-cell"><StatusChip value={user.onboardingStatus} dict={ONBOARDING_LABELS} /></td>
+                        <td className="table-cell text-[11px] text-neutral-300">
+                          <span className="font-semibold text-white">{user.products || 0}</span>
+                          <span className="text-neutral-600"> / </span>
+                          <span className="font-semibold text-white">{user.customers || 0}</span>
+                          <span className="text-neutral-600"> / </span>
+                          <span className="font-semibold text-white">{user.orders || 0}</span>
+                          <div className="mt-1 font-mono text-[9px] uppercase tracking-[0.2em] text-neutral-600">Prod / Clt / Ped</div>
+                        </td>
                         <td className="table-cell text-neutral-400">{toDate(user.createdAt)?.toLocaleDateString() || '-'}</td>
+                        <td className="table-cell">
+                          <Button
+                            variant="secondary"
+                            className="border-white/10 bg-black/30 px-3 py-2 text-xs"
+                            disabled={loadingSupport || !(user.companyId || user.currentCompanyId)}
+                            onClick={() => void openSupportView(user.companyId || user.currentCompanyId || null, user.id)}
+                          >
+                            Ver soporte
+                          </Button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
             </Card>
+
+            <div className="space-y-4">
+              <Card className="border-white/5 bg-neutral-900/40 p-5">
+                <div className="mb-4 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-600">Vista de soporte</p>
+                    <h2 className="mt-2 text-lg font-bold text-white">Vista de soporte en solo lectura</h2>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {loadingSupport ? <Loader2 className="h-4 w-4 animate-spin text-blue-300" /> : null}
+                    {supportView ? (
+                      <Button
+                        variant="secondary"
+                        className="border-white/10 bg-black/30 px-3 py-2 text-xs"
+                        onClick={() => {
+                          setSupportView(null);
+                          setSupportError(null);
+                          setSupportRequest({
+                            companyId: null,
+                            targetUserId: null,
+                          });
+                        }}
+                      >
+                        <X className="h-4 w-4" />
+                        Cerrar
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
+
+                {supportError ? (
+                  <div className="rounded-2xl border border-red-500/20 bg-red-500/[0.08] px-4 py-3 text-sm text-red-200">
+                    <div className="flex flex-col gap-3">
+                      <span>{supportError}</span>
+                      <Button
+                        variant="secondary"
+                        className="w-fit border-red-400/20 bg-black/30 px-3 py-2 text-xs text-red-100"
+                        disabled={!supportRequest.companyId && !selectedCompany?.id}
+                        onClick={() => {
+                          if (supportRequest.companyId) {
+                            void openSupportView(supportRequest.companyId, supportRequest.targetUserId);
+                          } else if (selectedCompany?.id) {
+                            void openSupportView(selectedCompany.id, selectedCompany.ownerId || null);
+                          }
+                        }}
+                      >
+                        Reintentar soporte
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
+
+                {supportView ? (
+                  <div className="space-y-4">
+                    <div className="rounded-2xl border border-amber-500/20 bg-amber-500/[0.08] px-4 py-3">
+                      <p className="text-[11px] font-black uppercase tracking-[0.22em] text-amber-300">Modo soporte activo</p>
+                      <p className="mt-1 text-sm text-neutral-200">
+                        Vista en solo lectura como admin de plataforma. No cambia la sesion ni la autenticacion del usuario real.
+                      </p>
+                    </div>
+
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                        <p className="text-[10px] font-black uppercase tracking-[0.18em] text-neutral-600">Incidencias</p>
+                        <p className="mt-2 text-xl font-bold text-white">{supportView.issues.length}</p>
+                      </div>
+                      <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                        <p className="text-[10px] font-black uppercase tracking-[0.18em] text-neutral-600">Miembros</p>
+                        <p className="mt-2 text-xl font-bold text-white">{supportView.memberships.length}</p>
+                      </div>
+                      <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                        <p className="text-[10px] font-black uppercase tracking-[0.18em] text-neutral-600">Actividad</p>
+                        <p className="mt-2 text-xl font-bold text-white">{supportView.activity.recentActivities.length}</p>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                        <p className="text-[10px] font-black uppercase tracking-[0.22em] text-neutral-600">Usuario</p>
+                        {supportView.targetUser ? (
+                          <div className="mt-3 space-y-2 text-sm text-neutral-300">
+                            <p className="font-semibold text-white">{supportView.targetUser.displayName}</p>
+                            <p>{supportView.targetUser.email}</p>
+                            <p className="font-mono text-[11px] text-neutral-500">{supportView.targetUser.uid}</p>
+                            <p>Empresa actual: <span className="font-mono text-[11px]">{supportView.targetUser.currentCompanyId || '-'}</span></p>
+                            <p>Creado: {toDate(supportView.targetUser.createdAt)?.toLocaleString() || '-'}</p>
+                          </div>
+                        ) : (
+                          <p className="mt-3 text-sm text-neutral-500">No se encontro usuario objetivo.</p>
+                        )}
+                      </div>
+
+                      <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                        <p className="text-[10px] font-black uppercase tracking-[0.22em] text-neutral-600">Empresa</p>
+                        <div className="mt-3 space-y-2 text-sm text-neutral-300">
+                          <p className="font-semibold text-white">{supportView.company.name}</p>
+                          <p>{supportView.company.industry}</p>
+                          <p className="font-mono text-[11px] text-neutral-500">{supportView.company.id}</p>
+                          <p>Plan: <span className="uppercase">{supportView.company.planId}</span></p>
+                          <p>Suscripcion: <span className="uppercase">{supportView.company.subscriptionStatus}</span></p>
+                          <p>Owner asignado: {displayOwnerEmail(supportView.company.ownerEmail)}</p>
+                          <p>Onboarding: {supportView.company.onboardingComplete ? 'completo' : `paso ${supportView.company.onboardingStep}`}</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-3">
+                      <div className="rounded-2xl border border-white/10 bg-black/30 p-4 text-sm text-neutral-300">
+                        <p className="text-[10px] font-black uppercase tracking-[0.22em] text-neutral-600">Totales</p>
+                        <p className="mt-3">Usuarios: <span className="font-semibold text-white">{supportView.company.totals.users}</span></p>
+                        <p>Productos: <span className="font-semibold text-white">{supportView.company.totals.products}</span></p>
+                        <p>Clientes: <span className="font-semibold text-white">{supportView.company.totals.customers}</span></p>
+                        <p>Pedidos: <span className="font-semibold text-white">{supportView.company.totals.orders}</span></p>
+                        <p>Ingresos: <span className="font-semibold text-white">{formatCurrency(supportView.company.totals.revenue)}</span></p>
+                      </div>
+
+                      <div className="rounded-2xl border border-white/10 bg-black/30 p-4 text-sm text-neutral-300">
+                        <p className="text-[10px] font-black uppercase tracking-[0.22em] text-neutral-600">Acceso objetivo</p>
+                        {supportView.membership ? (
+                          <div className="mt-3 space-y-1">
+                            <p>Rol: <span className="font-semibold uppercase text-white">{supportView.membership.role}</span></p>
+                            <p>Usuario: <span className="font-mono text-[11px]">{supportView.membership.userId}</span></p>
+                            <p>Empresa: <span className="font-mono text-[11px]">{supportView.membership.companyId}</span></p>
+                          </div>
+                        ) : (
+                          <p className="mt-3 text-neutral-500">No hay membership enlazada.</p>
+                        )}
+                      </div>
+
+                      <div className="rounded-2xl border border-white/10 bg-black/30 p-4 text-sm text-neutral-300">
+                        <p className="text-[10px] font-black uppercase tracking-[0.22em] text-neutral-600">Validaciones</p>
+                        <div className="mt-3 space-y-2">
+                          {supportView.issues.length > 0 ? supportView.issues.map((issue) => (
+                            <div
+                              key={issue.code}
+                              className={cn(
+                                'rounded-xl border px-3 py-2 text-xs',
+                                issue.severity === 'error'
+                                  ? 'border-red-500/20 bg-red-500/[0.08] text-red-200'
+                                  : issue.severity === 'warning'
+                                    ? 'border-amber-500/20 bg-amber-500/[0.08] text-amber-200'
+                                    : 'border-blue-500/20 bg-blue-500/[0.08] text-blue-200'
+                              )}
+                            >
+                              <p className="text-sm font-semibold leading-snug">{issue.message}</p>
+                              <p className="mt-1.5 inline-flex items-center rounded-full border border-white/10 bg-black/30 px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.18em] text-neutral-400">{issue.code}</p>
+                            </div>
+                          )) : (
+                            <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/[0.08] px-3 py-2 text-xs text-emerald-200">
+                              Sin inconsistencias criticas detectadas.
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                      <p className="text-[10px] font-black uppercase tracking-[0.22em] text-neutral-600">Actividad reciente</p>
+                      <div className="mt-3 space-y-2">
+                        {supportView.activity.recentActivities.length > 0 ? supportView.activity.recentActivities.map((item) => (
+                          <div key={item.id} className="rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2 text-xs text-neutral-300">
+                            <p className="font-semibold text-white">{item.title || item.type || 'Actividad'}</p>
+                            <p className="mt-1 text-neutral-400">{item.subtitle || '-'}</p>
+                            <p className="mt-1 text-neutral-500">{toDate(item.createdAt)?.toLocaleString() || '-'}</p>
+                          </div>
+                        )) : (
+                          <p className="text-sm text-neutral-500">No hay actividad registrada todavia.</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-8 text-center text-sm text-neutral-500">
+                    Abre una empresa o usuario desde Super Admin para inspeccion en solo lectura.
+                  </div>
+                )}
+              </Card>
+            </div>
 
             <div className="space-y-4">
               <Card className="border-white/5 bg-neutral-900/40 p-5">
@@ -1408,7 +2208,12 @@ export function SuperAdmin() {
                 </div>
                 <div className="space-y-3">
                   {revenueLeaderboard.map((company) => (
-                    <div key={company.id} className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                    <button
+                      key={company.id}
+                      type="button"
+                      onClick={() => setSelectedCompanyId(company.id)}
+                      className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-left transition-colors hover:border-white/20 hover:bg-white/[0.03]"
+                    >
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <p className="truncate text-sm font-bold text-white">{company.name}</p>
@@ -1416,7 +2221,7 @@ export function SuperAdmin() {
                         </div>
                         <p className="text-[11px] font-mono font-bold text-emerald-300">{formatCurrency(company.revenue)}</p>
                       </div>
-                    </div>
+                    </button>
                   ))}
                 </div>
               </Card>
@@ -1431,14 +2236,19 @@ export function SuperAdmin() {
                 </div>
                 <div className="space-y-3">
                   {activationWatchlist.length > 0 ? activationWatchlist.map((company) => (
-                    <div key={company.id} className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                    <button
+                      key={company.id}
+                      type="button"
+                      onClick={() => setSelectedCompanyId(company.id)}
+                      className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-left transition-colors hover:border-white/20 hover:bg-white/[0.03]"
+                    >
                       <p className="text-sm font-bold text-white">{company.name}</p>
                       <p className="mt-1 text-[11px] text-neutral-400">
                         {company.orders === 0
                           ? t('super_admin.latest.no_orders_watch')
-                          : `${company.subscriptionStatus.toUpperCase()} | ${company.ownerEmail}`}
+                          : `${company.subscriptionStatus.toUpperCase()} | ${displayOwnerEmail(company.ownerEmail)}`}
                       </p>
-                    </div>
+                    </button>
                   )) : latestUsers.map((user) => (
                     <div key={user.id} className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
                       <p className="text-sm font-bold text-white">{user.displayName}</p>
@@ -1451,6 +2261,257 @@ export function SuperAdmin() {
               <Card className="border-white/5 bg-neutral-900/40 p-5">
                 <div className="mb-5 flex items-center justify-between">
                   <div>
+                    <p className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-600">Base beta</p>
+                    <h2 className="mt-2 text-lg font-bold text-white">Usuarios para pruebas</h2>
+                  </div>
+                  <Users className="h-5 w-5 text-cyan-300" />
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-600">Total</p>
+                    <p className="mt-2 text-xl font-bold text-white">{betaUsers.length}</p>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-600">Listos</p>
+                    <p className="mt-2 text-xl font-bold text-white">{betaUserReadyCount}</p>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-600">Feedback</p>
+                    <p className="mt-2 text-xl font-bold text-white">{betaFeedbackSignals}</p>
+                  </div>
+                </div>
+                <div className="mt-3 grid gap-3 lg:grid-cols-[1.2fr_0.8fr]">
+                  <Input
+                    value={betaUserSearch}
+                    onChange={(event) => setBetaUserSearch(event.target.value)}
+                    placeholder="Buscar beta user, empresa o email"
+                    className="border-white/10 bg-black/30"
+                  />
+                  <select
+                    aria-label="Filtrar base beta por etapa"
+                    value={betaStageFilter}
+                    onChange={(event) => setBetaStageFilter(event.target.value as typeof betaStageFilter)}
+                    className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white focus:border-blue-500/50 focus:outline-none"
+                  >
+                    <option value="all" className="bg-neutral-950 text-white">Etapa: todas</option>
+                    <option value="signed_up" className="bg-neutral-950 text-white">Solo registro</option>
+                    <option value="company_created" className="bg-neutral-950 text-white">Empresa creada</option>
+                    <option value="data_seeded" className="bg-neutral-950 text-white">Con datos base</option>
+                    <option value="active" className="bg-neutral-950 text-white">Activos</option>
+                  </select>
+                </div>
+                <div className="mt-3">
+                  <select
+                    aria-label="Filtrar base beta por seguimiento"
+                    value={betaFollowUpFilter}
+                    onChange={(event) => setBetaFollowUpFilter(event.target.value as typeof betaFollowUpFilter)}
+                    className="w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white focus:border-blue-500/50 focus:outline-none"
+                  >
+                    <option value="all" className="bg-neutral-950 text-white">Seguimiento: todos</option>
+                    <option value="new" className="bg-neutral-950 text-white">Nuevos</option>
+                    <option value="watching" className="bg-neutral-950 text-white">En seguimiento</option>
+                    <option value="contacted" className="bg-neutral-950 text-white">Contactados</option>
+                    <option value="qualified" className="bg-neutral-950 text-white">Alto potencial</option>
+                  </select>
+                </div>
+                <div className="mt-3">
+                  <select
+                    aria-label="Filtrar base beta por prioridad"
+                    value={betaPriorityFilter}
+                    onChange={(event) => setBetaPriorityFilter(event.target.value as typeof betaPriorityFilter)}
+                    className="w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white focus:border-blue-500/50 focus:outline-none"
+                  >
+                    <option value="all" className="bg-neutral-950 text-white">Prioridad: todas</option>
+                    <option value="high" className="bg-neutral-950 text-white">Alta</option>
+                    <option value="medium" className="bg-neutral-950 text-white">Media</option>
+                    <option value="low" className="bg-neutral-950 text-white">Baja</option>
+                  </select>
+                </div>
+                <div className="mt-4 rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-neutral-300">
+                  <p>Pendientes: <span className="font-semibold text-white">{betaUserPendingCount}</span></p>
+                  <p className="mt-1">Seguimiento: <span className="font-semibold text-white">{betaAttentionCount}</span></p>
+                  <p className="mt-1">Contactados: <span className="font-semibold text-white">{betaContactedCount}</span></p>
+                  <p className="mt-1">Potencial: <span className="font-semibold text-white">{betaQualifiedCount}</span></p>
+                  <p className="mt-1">Listos para cerrar: <span className="font-semibold text-white">{betaHighPotentialCount}</span></p>
+                  <p className="mt-1 text-xs text-neutral-500">Usuarios beta registrados, activacion y senal de feedback sobre Firestore.</p>
+                </div>
+                <div className="mt-4 space-y-3">
+                  {filteredBetaUsers.length > 0 ? filteredBetaUsers.slice(0, 6).map((entry) => {
+                    const score = getBetaActivationScore(entry, betaUserOps[entry.uid]);
+                    const priority = getBetaConversionPriority(score);
+                    return (
+                    <div key={entry.id} className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-bold text-white">{entry.displayName || entry.email}</p>
+                          <p className="mt-1 text-[11px] text-neutral-400">{entry.companyName || 'Sin empresa activa'}</p>
+                          <p className="mt-1 text-[10px] text-neutral-600">{entry.email}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-[10px] font-black uppercase tracking-[0.18em] text-cyan-300">{entry.activationStage || entry.onboardingStatus || 'no_company'}</p>
+                          <p className="mt-1 text-[10px] text-neutral-500">{entry.feedbackCount || 0} feedback / {score} pts</p>
+                        </div>
+                      </div>
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <span className={cn(
+                          'rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.18em]',
+                          priority === 'high'
+                            ? 'border-emerald-500/20 bg-emerald-500/[0.08] text-emerald-200'
+                            : priority === 'medium'
+                              ? 'border-amber-500/20 bg-amber-500/[0.08] text-amber-200'
+                              : 'border-white/10 bg-white/[0.04] text-neutral-300'
+                        )}>
+                          {priority === 'high' ? 'cierre alto' : priority === 'medium' ? 'conversion media' : 'frio'}
+                        </span>
+                        <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-neutral-300">
+                          {betaUserOps[entry.uid]?.followUpStatus === 'qualified'
+                            ? 'alto potencial'
+                            : betaUserOps[entry.uid]?.followUpStatus === 'contacted'
+                              ? 'contactado'
+                              : betaUserOps[entry.uid]?.followUpStatus === 'watching'
+                                ? 'en seguimiento'
+                                : 'nuevo'}
+                        </span>
+                        {entry.companyId ? (
+                          <button
+                            type="button"
+                            onClick={() => setSelectedCompanyId(entry.companyId || null)}
+                            className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-white transition-colors hover:border-white/20 hover:bg-white/[0.08]"
+                          >
+                            Abrir empresa
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          onClick={() => setSelectedBetaUserId(entry.uid)}
+                          className={cn(
+                            'rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.18em] transition-colors',
+                            selectedBetaUser?.uid === entry.uid
+                              ? 'border-white/20 bg-white/[0.1] text-white'
+                              : 'border-white/10 bg-white/[0.04] text-neutral-300 hover:border-white/20 hover:bg-white/[0.08]'
+                          )}
+                        >
+                          Seguimiento
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => saveBetaUserFollowUp(entry, { followUpStatus: 'watching' })}
+                          disabled={savingBetaOpsId === entry.uid}
+                          className="rounded-full border border-amber-500/20 bg-amber-500/[0.08] px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-amber-200 transition-colors hover:border-amber-400/30 hover:bg-amber-500/[0.14] disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          Seguir
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => saveBetaUserFollowUp(entry, { followUpStatus: 'contacted' })}
+                          disabled={savingBetaOpsId === entry.uid}
+                          className="rounded-full border border-cyan-500/20 bg-cyan-500/[0.08] px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-cyan-200 transition-colors hover:border-cyan-400/30 hover:bg-cyan-500/[0.14] disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          Contactado
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => saveBetaUserFollowUp(entry, { followUpStatus: 'qualified' })}
+                          disabled={savingBetaOpsId === entry.uid}
+                          className="rounded-full border border-emerald-500/20 bg-emerald-500/[0.08] px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-emerald-200 transition-colors hover:border-emerald-400/30 hover:bg-emerald-500/[0.14] disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          Potencial
+                        </button>
+                      </div>
+                    </div>
+                    );
+                  }) : (
+                    <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-6 text-center text-sm text-neutral-500">
+                      {betaUsers.length === 0 ? 'Aun no hay usuarios beta registrados.' : 'No hay usuarios beta para el filtro actual.'}
+                    </div>
+                  )}
+                </div>
+                {selectedBetaUser ? (
+                  <div className="mt-4 rounded-[28px] border border-white/10 bg-neutral-950/70 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-600">Seguimiento beta</p>
+                        <h3 className="mt-2 truncate text-base font-bold text-white">{selectedBetaUser.displayName || selectedBetaUser.email}</h3>
+                        <p className="mt-1 text-xs text-neutral-400">{selectedBetaUser.email}</p>
+                        <p className="mt-1 text-xs text-neutral-500">{selectedBetaUser.companyName || 'Sin empresa activa'} / {selectedBetaUser.activationStage || selectedBetaUser.onboardingStatus || 'no_company'}</p>
+                      </div>
+                      <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-white">
+                        {selectedBetaOps?.followUpStatus === 'qualified'
+                          ? 'alto potencial'
+                          : selectedBetaOps?.followUpStatus === 'contacted'
+                            ? 'contactado'
+                            : selectedBetaOps?.followUpStatus === 'watching'
+                              ? 'en seguimiento'
+                              : 'nuevo'}
+                      </span>
+                    </div>
+                    <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+                      <div className="rounded-2xl border border-white/10 bg-black/30 px-3 py-3">
+                        <p className="text-[10px] font-black uppercase tracking-[0.18em] text-neutral-600">Feedback</p>
+                        <p className="mt-2 text-lg font-bold text-white">{selectedBetaUser.feedbackCount || 0}</p>
+                      </div>
+                      <div className="rounded-2xl border border-white/10 bg-black/30 px-3 py-3">
+                        <p className="text-[10px] font-black uppercase tracking-[0.18em] text-neutral-600">Atencion</p>
+                        <p className="mt-2 text-lg font-bold text-white">{selectedBetaUser.needsAttention ? 'Alta' : 'Normal'}</p>
+                      </div>
+                      <div className="rounded-2xl border border-white/10 bg-black/30 px-3 py-3">
+                        <p className="text-[10px] font-black uppercase tracking-[0.18em] text-neutral-600">Empresa</p>
+                        <p className="mt-2 truncate text-sm font-bold text-white">{selectedBetaUser.companyId || '-'}</p>
+                      </div>
+                      <div className="rounded-2xl border border-white/10 bg-black/30 px-3 py-3">
+                        <p className="text-[10px] font-black uppercase tracking-[0.18em] text-neutral-600">Score</p>
+                        <p className="mt-2 text-lg font-bold text-white">{selectedBetaScore}/100</p>
+                      </div>
+                    </div>
+                    <div className="mt-3 rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                      <p className="text-[10px] font-black uppercase tracking-[0.18em] text-neutral-600">Prioridad de conversion</p>
+                      <p className={cn(
+                        'mt-2 text-sm font-bold uppercase tracking-[0.16em]',
+                        selectedBetaPriority === 'high'
+                          ? 'text-emerald-300'
+                          : selectedBetaPriority === 'medium'
+                            ? 'text-amber-300'
+                            : 'text-neutral-300'
+                      )}>
+                        {selectedBetaPriority === 'high' ? 'Alta' : selectedBetaPriority === 'medium' ? 'Media' : 'Baja'}
+                      </p>
+                      <p className="mt-2 text-sm text-neutral-400">{selectedBetaNextAction}</p>
+                    </div>
+                    <div className="mt-4">
+                      <Label>Notas internas</Label>
+                      <textarea
+                        value={betaUserNoteDraft}
+                        onChange={(event) => setBetaUserNoteDraft(event.target.value)}
+                        rows={4}
+                        placeholder="Anota friccion, potencial de conversion o siguiente contacto."
+                        className="w-full rounded-2xl border border-white/10 bg-white/[0.035] px-4 py-3 text-sm text-white placeholder:text-neutral-600 transition-all duration-200 focus:border-blue-400/40 focus:outline-none focus:ring-2 focus:ring-blue-400/24"
+                      />
+                    </div>
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <Button
+                        variant="secondary"
+                        onClick={() => saveBetaUserFollowUp(selectedBetaUser, { notes: betaUserNoteDraft })}
+                        disabled={savingBetaOpsId === selectedBetaUser.uid || !betaNoteDirty}
+                      >
+                        Guardar nota
+                      </Button>
+                      {selectedBetaUser.companyId ? (
+                        <Button
+                          variant="secondary"
+                          onClick={() => openSupportView(selectedBetaUser.companyId || null, selectedBetaUser.uid)}
+                          disabled={loadingSupport}
+                        >
+                          Abrir soporte
+                        </Button>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
+              </Card>
+
+              <Card className="border-white/5 bg-neutral-900/40 p-5">
+                <div className="mb-5 flex items-center justify-between">
+                  <div>
                     <p className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-600">{t('super_admin.metrics.activation')}</p>
                     <h2 className="mt-2 text-lg font-bold text-white">{t('super_admin.metrics.trial_ending_with_usage')}</h2>
                   </div>
@@ -1458,12 +2519,17 @@ export function SuperAdmin() {
                 </div>
                 <div className="space-y-3">
                   {trialEndingWithUsageWatchlist.length > 0 ? trialEndingWithUsageWatchlist.map((company) => (
-                    <div key={company.id} className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                    <button
+                      key={company.id}
+                      type="button"
+                      onClick={() => setSelectedCompanyId(company.id)}
+                      className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-left transition-colors hover:border-white/20 hover:bg-white/[0.03]"
+                    >
                       <p className="text-sm font-bold text-white">{company.name}</p>
                       <p className="mt-1 text-[11px] text-neutral-400">
                         {formatCurrency(companyStats[company.id]?.monthlyRevenue ?? 0)} | {toDate(companyBillingStats[company.id]?.trialEndsAt || company.trialEndsAt)?.toLocaleDateString() || '-'}
                       </p>
-                    </div>
+                    </button>
                   )) : (
                     <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-6 text-center text-sm text-neutral-500">
                       {t('super_admin.metrics.no_trial_watch')}
@@ -1482,12 +2548,17 @@ export function SuperAdmin() {
                 </div>
                 <div className="space-y-3">
                   {pastDueWatchlist.length > 0 ? pastDueWatchlist.map((company) => (
-                    <div key={company.id} className="rounded-2xl border border-red-500/10 bg-red-500/[0.06] px-4 py-3">
+                    <button
+                      key={company.id}
+                      type="button"
+                      onClick={() => setSelectedCompanyId(company.id)}
+                      className="w-full rounded-2xl border border-red-500/10 bg-red-500/[0.06] px-4 py-3 text-left transition-colors hover:border-red-400/20 hover:bg-red-500/[0.09]"
+                    >
                       <p className="text-sm font-bold text-white">{company.name}</p>
                       <p className="mt-1 text-[11px] text-neutral-300">
-                        {formatCurrency(companyBillingStats[company.id]?.mrr ?? 0)} MRR | {company.ownerEmail}
+                        {formatCurrency(companyBillingStats[company.id]?.mrr ?? 0)} MRR | {displayOwnerEmail(company.ownerEmail)}
                       </p>
-                    </div>
+                    </button>
                   )) : (
                     <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-6 text-center text-sm text-neutral-500">
                       {t('super_admin.metrics.no_past_due_watch')}
@@ -1506,12 +2577,17 @@ export function SuperAdmin() {
                 </div>
                 <div className="space-y-3">
                   {activeWithoutUsageWatchlist.length > 0 ? activeWithoutUsageWatchlist.map((company) => (
-                    <div key={company.id} className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                    <button
+                      key={company.id}
+                      type="button"
+                      onClick={() => setSelectedCompanyId(company.id)}
+                      className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-left transition-colors hover:border-white/20 hover:bg-white/[0.03]"
+                    >
                       <p className="text-sm font-bold text-white">{company.name}</p>
                       <p className="mt-1 text-[11px] text-neutral-400">
                         {formatCurrency(companyBillingStats[company.id]?.mrr ?? 0)} MRR | {company.users} {t('super_admin.tables.users')}
                       </p>
-                    </div>
+                    </button>
                   )) : (
                     <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-6 text-center text-sm text-neutral-500">
                       {t('super_admin.metrics.no_active_without_usage')}
@@ -1530,12 +2606,17 @@ export function SuperAdmin() {
                 </div>
                 <div className="space-y-3">
                   {highRevenueLowAdoptionWatchlist.length > 0 ? highRevenueLowAdoptionWatchlist.map((company) => (
-                    <div key={company.id} className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
+                    <button
+                      key={company.id}
+                      type="button"
+                      onClick={() => setSelectedCompanyId(company.id)}
+                      className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-left transition-colors hover:border-white/20 hover:bg-white/[0.03]"
+                    >
                       <p className="text-sm font-bold text-white">{company.name}</p>
                       <p className="mt-1 text-[11px] text-neutral-400">
                         {formatCurrency(companyBillingStats[company.id]?.mrr ?? 0)} MRR | {(companyStats[company.id]?.ordersCount ?? company.orders)} {t('super_admin.latest.orders_count')}
                       </p>
-                    </div>
+                    </button>
                   )) : (
                     <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-6 text-center text-sm text-neutral-500">
                       {t('super_admin.metrics.no_high_revenue_low_adoption')}

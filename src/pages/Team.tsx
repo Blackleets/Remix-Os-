@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Card, Button, Input, Label, cn } from '../components/Common';
 import { Plus, UserPlus, Mail, Shield, MoreVertical, Trash2, ShieldCheck, Clock, CheckCircle2, XCircle } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { useToast } from '../contexts/ToastContext';
 import { useLocale } from '../hooks/useLocale';
 import { db, auth } from '../lib/firebase';
 import { collection, query, where, getDocs, addDoc, serverTimestamp, doc, deleteDoc, updateDoc, getDoc, setDoc } from 'firebase/firestore';
@@ -29,6 +30,7 @@ interface Invitation {
 
 export function Team() {
   const { company, role: myRole } = useAuth();
+  const toast = useToast();
   const { t } = useLocale();
   const [members, setMembers] = useState<Member[]>([]);
   const [invitations, setInvitations] = useState<Invitation[]>([]);
@@ -36,6 +38,7 @@ export function Team() {
   const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [inviteError, setInviteError] = useState<string | null>(null);
+  const [teamError, setTeamError] = useState<string | null>(null);
   const [inviteForm, setInviteForm] = useState({ email: '', role: 'staff' as any });
 
   const handleOpenInvite = async () => {
@@ -61,34 +64,46 @@ export function Team() {
 
   const fetchTeam = async () => {
     if (!company) return;
-    
-    // Fetch Memberships
-    const membershipsQ = query(collection(db, 'memberships'), where('companyId', '==', company.id));
-    const membershipsSnap = await getDocs(membershipsQ);
-    
-    const memberList: Member[] = [];
-    for (const membershipDoc of membershipsSnap.docs) {
-      const mData = membershipDoc.data();
-      // Fetch User profile for each member
-      const userDoc = await getDoc(doc(db, 'users', mData.userId));
-      const userData = userDoc.exists() ? userDoc.data() : { email: t('team.unnamed_node') };
-      
-      memberList.push({
-        id: membershipDoc.id,
-        userId: mData.userId,
-        role: mData.role,
-        email: userData.email,
-        displayName: userData.displayName,
-        photoURL: userData.photoURL,
-        joinedAt: mData.createdAt,
-      });
-    }
-    setMembers(memberList);
 
-    // Fetch Invitations
-    const invitesQ = query(collection(db, 'invitations'), where('companyId', '==', company.id));
-    const invitesSnap = await getDocs(invitesQ);
-    setInvitations(invitesSnap.docs.map(d => ({ id: d.id, ...d.data() } as Invitation)));
+    try {
+      // Fetch Memberships
+      const membershipsQ = query(collection(db, 'memberships'), where('companyId', '==', company.id));
+      const membershipsSnap = await getDocs(membershipsQ);
+
+      const memberList: Member[] = [];
+      for (const membershipDoc of membershipsSnap.docs) {
+        const mData = membershipDoc.data();
+        // Fetch User profile for each member. A single failing user lookup
+        // must not abort the whole team list — fall back to a minimal record.
+        let userData: any = { email: t('team.unnamed_node') };
+        try {
+          const userDoc = await getDoc(doc(db, 'users', mData.userId));
+          if (userDoc.exists()) userData = userDoc.data();
+        } catch (userErr) {
+          console.error('Team: user profile lookup failed for', mData.userId, userErr);
+        }
+
+        memberList.push({
+          id: membershipDoc.id,
+          userId: mData.userId,
+          role: mData.role,
+          email: userData.email,
+          displayName: userData.displayName,
+          photoURL: userData.photoURL,
+          joinedAt: mData.createdAt,
+        });
+      }
+      setMembers(memberList);
+
+      // Fetch Invitations
+      const invitesQ = query(collection(db, 'invitations'), where('companyId', '==', company.id));
+      const invitesSnap = await getDocs(invitesQ);
+      setInvitations(invitesSnap.docs.map(d => ({ id: d.id, ...d.data() } as Invitation)));
+      setTeamError(null);
+    } catch (err) {
+      console.error('fetchTeam failed:', err);
+      setTeamError('No se pudo cargar el equipo y las invitaciones.');
+    }
   };
 
   useEffect(() => {
@@ -99,7 +114,7 @@ export function Team() {
     e.preventDefault();
     if (!company || !inviteForm.email) return;
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(inviteForm.email)) {
-      setInviteError('Please enter a valid email address.');
+      setInviteError('Ingresa un email valido.');
       return;
     }
     setInviteError(null);
@@ -153,7 +168,7 @@ export function Team() {
     if (member.role === 'owner') {
       const owners = members.filter(m => m.role === 'owner');
       if (owners.length <= 1) {
-        alert(t('team.alerts.owner_termination'));
+        toast(t('team.alerts.owner_termination'), 'warning');
         return;
       }
     }
@@ -215,6 +230,19 @@ export function Team() {
         limitName={t('team.upgrade.limit_name')}
       />
 
+      {teamError && (
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-red-500/30 bg-red-500/[0.08] px-4 py-3 text-sm text-red-200">
+          <span>{teamError}</span>
+          <button
+            type="button"
+            onClick={() => fetchTeam()}
+            className="rounded-xl border border-red-400/30 px-3 py-1.5 text-xs font-bold uppercase tracking-[0.16em] text-red-100 transition-colors hover:bg-red-500/15"
+          >
+            Reintentar
+          </button>
+        </div>
+      )}
+
       <div className="grid lg:grid-cols-3 gap-10">
         <div className="lg:col-span-2 space-y-6">
           <Card className="relative overflow-hidden group border-white/5 bg-neutral-900/40 p-0">
@@ -272,6 +300,7 @@ export function Team() {
                           {member.role !== 'owner' && (
                              <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-all">
                                 <select 
+                                  aria-label="Rol del miembro"
                                   className="bg-black border border-white/10 rounded-lg text-[10px] px-2 py-1 outline-none text-neutral-400 focus:border-blue-500 transition-colors mr-2"
                                   value={member.role}
                                   onChange={(e) => handleUpdateRole(member.id, e.target.value)}
@@ -296,6 +325,13 @@ export function Team() {
                       )}
                     </motion.tr>
                   ))}
+                  {members.length === 0 && (
+                    <tr>
+                      <td className="table-cell text-sm text-neutral-500" colSpan={canManage ? 3 : 2}>
+                        No hay miembros cargados todavia.
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -344,6 +380,7 @@ export function Team() {
                     </div>
                     {canManage && member.role !== 'owner' && (
                       <select 
+                        aria-label="Rol del miembro"
                         className="bg-black/40 border border-white/10 rounded px-2 py-1 text-[9px] font-bold text-neutral-400 uppercase tracking-widest outline-none"
                         value={member.role}
                         onChange={(e) => handleUpdateRole(member.id, e.target.value)}
@@ -356,6 +393,11 @@ export function Team() {
                   </div>
                 </div>
               ))}
+              {members.length === 0 && (
+                <div className="p-6 text-center text-sm text-neutral-500">
+                  No hay miembros cargados todavia.
+                </div>
+              )}
             </div>
           </Card>
         </div>
@@ -420,7 +462,7 @@ export function Team() {
                 <h2 className="font-display text-xl font-bold text-white uppercase tracking-tight">
                   {t('team.modal.title')}
                 </h2>
-                <button onClick={() => setIsInviteModalOpen(false)} className="p-2 text-neutral-500 hover:text-white transition-colors rounded-full hover:bg-white/5">
+                <button type="button" aria-label="Cerrar" onClick={() => setIsInviteModalOpen(false)} className="p-2 text-neutral-500 hover:text-white transition-colors rounded-full hover:bg-white/5">
                   <Plus className="w-6 h-6 rotate-45" />
                 </button>
               </div>
@@ -439,6 +481,7 @@ export function Team() {
                   <Label>{t('team.modal.role')}</Label>
                   <select 
                     className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition-all appearance-none outline-none"
+                    aria-label="Rol de la invitacion"
                     value={inviteForm.role}
                     onChange={e => setInviteForm({...inviteForm, role: e.target.value as any})}
                   >

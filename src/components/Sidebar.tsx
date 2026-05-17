@@ -6,6 +6,7 @@ import {
   Package,
   Database,
   Receipt,
+  FileText,
   Store,
   Shield,
   Sparkle,
@@ -15,18 +16,24 @@ import {
   X,
   Radar,
 } from 'lucide-react';
-import { cn } from './Common';
+import { cn, OSGlyph } from './Common';
 import { useAuth } from '../contexts/AuthContext';
 import { auth } from '../lib/firebase';
 import { signOut } from 'firebase/auth';
 import { useTranslation } from 'react-i18next';
 import { usePlatformAdmin } from '../hooks/usePlatformAdmin';
+import { getCompanyVerticalLabel } from '../lib/company';
 
 export function Sidebar({ onClose }: { onClose?: () => void }) {
   const location = useLocation();
   const { company, role } = useAuth();
   const { t } = useTranslation();
   const { canAccessSuperAdmin } = usePlatformAdmin();
+  const compactLabel = (path: string, label: string) => {
+    if (path === '/dashboard') return 'Panel';
+    if (path === '/insights') return 'Copilot';
+    return label;
+  };
 
   const navItems = [
     { icon: Grip, label: t('nav.dashboard'), path: '/dashboard' },
@@ -34,6 +41,7 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
     { icon: Package, label: t('nav.products'), path: '/products' },
     { icon: Database, label: t('nav.inventory'), path: '/inventory' },
     { icon: Receipt, label: t('nav.orders'), path: '/orders' },
+    { icon: FileText, label: t('nav.invoices'), path: '/invoices' },
     { icon: Store, label: t('nav.pos'), path: '/pos' },
     { icon: Shield, label: t('nav.team'), path: '/team' },
     { icon: Sparkle, label: t('nav.insights'), path: '/insights' },
@@ -51,11 +59,13 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
               <div className="relative h-5 w-5 rounded-md bg-white transition-all duration-500 group-hover:rotate-45 group-hover:rounded-[10px]" />
             </div>
             <div>
-              <p className="section-kicker mb-1 !tracking-[0.26em] text-blue-300/80">Sistema operativo IA</p>
+              <p className="section-kicker mb-1 !tracking-[0.24em] text-blue-300/80">AI business OS</p>
               <span className="font-display text-xl font-bold tracking-tight text-white">Remix OS</span>
             </div>
           </Link>
           <button
+            type="button"
+            aria-label="Cerrar menú"
             onClick={onClose}
             className="rounded-xl border border-white/8 bg-white/[0.03] p-2 text-neutral-500 transition-colors hover:text-white lg:hidden"
           >
@@ -65,7 +75,7 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
 
         <div className="shell-panel mb-6 p-4">
           <div className="mb-3 flex items-center justify-between">
-            <span className="section-kicker !text-neutral-400">Registro de entidad</span>
+            <span className="section-kicker !text-neutral-400">Empresa</span>
             <span className="telemetry-chip !px-2.5 !py-1 !text-[9px]">
               <span className="status-dot pulse-live bg-emerald-400 text-emerald-400" />
               En vivo
@@ -80,16 +90,16 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
               )}
             </div>
             <div className="min-w-0">
-              <p className="truncate text-sm font-semibold text-white">{company?.name || 'Núcleo principal'}</p>
+              <p className="truncate text-sm font-semibold text-white">{company?.name || 'Remix OS'}</p>
               <p className="mt-1 truncate font-mono text-[10px] uppercase tracking-[0.2em] text-neutral-500">
-                {company?.industry || 'Núcleo operativo'}
+                {company ? getCompanyVerticalLabel(company.vertical || company.industry) : 'Activo'}
               </p>
             </div>
           </div>
         </div>
 
         <div className="mb-4">
-          <p className="mb-3 px-2 text-[10px] font-black uppercase tracking-[0.28em] text-neutral-600">Operaciones</p>
+          <p className="mb-3 px-2 text-[10px] font-black uppercase tracking-[0.22em] text-neutral-600">Navegacion</p>
           <nav className="space-y-1.5">
             {navItems.map((item) => {
               const isActive = location.pathname === item.path;
@@ -115,23 +125,19 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
                         className="absolute left-0 top-1/2 h-8 w-[3px] -translate-y-1/2 rounded-full bg-blue-400 shadow-[0_0_20px_rgba(96,165,250,0.7)]"
                       />
                     )}
-                    <div className={cn(
-                      'flex h-9 w-9 items-center justify-center rounded-xl border transition-all duration-300',
-                      isActive
-                        ? 'border-blue-300/20 bg-blue-400/10 text-blue-200'
-                        : 'border-white/8 bg-white/[0.03] text-neutral-600 group-hover:text-neutral-300'
-                    )}>
+                    <OSGlyph
+                      tone={isActive ? 'blue' : 'neutral'}
+                      size="sm"
+                      className={cn(
+                        'transition-all duration-300',
+                        !isActive && 'text-neutral-600 group-hover:text-neutral-300'
+                      )}
+                    >
                       <item.icon className="h-4 w-4" />
-                    </div>
+                    </OSGlyph>
                     <div className="flex-1">
-                      <span>{item.label}</span>
+                      <span>{compactLabel(item.path, item.label)}</span>
                     </div>
-                    <span className={cn(
-                      'font-mono text-[10px] tracking-normal transition-opacity',
-                      isActive ? 'text-blue-200/70' : 'text-neutral-700 group-hover:text-neutral-500'
-                    )}>
-                      OS
-                    </span>
                   </motion.div>
                 </Link>
               );
@@ -150,9 +156,9 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
                   : 'border-white/0 text-neutral-500 hover:border-white/8 hover:bg-white/[0.04] hover:text-white'
               )}
             >
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/8 bg-white/[0.03]">
+              <OSGlyph tone="neutral" size="sm">
                 <Settings className="h-4 w-4" />
-              </div>
+              </OSGlyph>
               {t('nav.settings')}
             </motion.div>
           </Link>
@@ -161,9 +167,9 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
               whileHover={{ x: 3 }}
               className="flex items-center gap-3 rounded-2xl border border-red-400/0 px-4 py-3 text-[11px] font-black uppercase tracking-[0.18em] text-red-300/60 transition-all duration-300 hover:border-red-400/10 hover:bg-red-400/6 hover:text-red-200"
             >
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-red-400/10 bg-red-400/5">
+              <OSGlyph tone="red" size="sm">
                 <LogOut className="h-4 w-4" />
-              </div>
+              </OSGlyph>
               {t('nav.logout')}
             </motion.div>
           </button>

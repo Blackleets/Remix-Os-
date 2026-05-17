@@ -8,10 +8,13 @@
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "test": "tsx --test shared/invoices.test.ts shared/orders.test.ts shared/invoiceProfiles.test.ts shared/plans.test.ts"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",
+    "@sentry/node": "^10.53.1",
+    "@sentry/react": "^10.53.1",
     "@tailwindcss/vite": "^4.1.14",
     "@vitejs/plugin-react": "^5.0.4",
     "clsx": "^2.1.1",

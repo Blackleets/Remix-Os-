@@ -1,0 +1,63 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function companyDoc(companyId) {
+      return firestore.get(/databases/(default)/documents/companies/$(companyId));
+    }
+
+    function membershipDoc(companyId) {
+      return firestore.get(/databases/(default)/documents/memberships/$(request.auth.uid + '_' + companyId));
+    }
+
+    function companyExists(companyId) {
+      return companyDoc(companyId).data != null;
+    }
+
+    function hasCompanyRole(companyId, roles) {
+      return isSignedIn() &&
+        membershipDoc(companyId).data != null &&
+        membershipDoc(companyId).data.role in roles;
+    }
+
+    match /users/{userId}/{allPaths=**} {
+      allow read: if isSignedIn() && request.auth.uid == userId;
+      allow write: if isSignedIn() && request.auth.uid == userId;
+    }
+
+    match /companies/{companyId}/logo/{allPaths=**} {
+      allow read: if isSignedIn() && (hasCompanyRole(companyId, ['owner', 'admin', 'staff', 'viewer']) || !companyExists(companyId));
+      allow write: if isSignedIn() && (!companyExists(companyId) || hasCompanyRole(companyId, ['owner', 'admin']));
+    }
+
+    // NOTE: Firebase Storage rules can only call firestore.get() against the
+    // (default) Firestore database. This project has NO (default) database —
+    // it uses the named DB ai-studio-5da6adea-... — so hasCompanyRole()
+    // ALWAYS evaluates false here and every product/customer image upload was
+    // being denied (stuck at 0%). Until per-company isolation is moved to Auth
+    // custom claims (tracked in DEPLOY.md), gate writes by authentication +
+    // strict image type/size so the feature works without a Firestore read.
+    // Image objects are low-sensitivity and served via unguessable tokenized
+    // download URLs. The global deny below stays intact.
+    match /companies/{companyId}/products/{allPaths=**} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn()
+        && request.resource.size < 2 * 1024 * 1024
+        && request.resource.contentType.matches('image/(jpeg|png|webp|gif)');
+    }
+
+    match /companies/{companyId}/customers/{allPaths=**} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn()
+        && request.resource.size < 2 * 1024 * 1024
+        && request.resource.contentType.matches('image/(jpeg|png|webp|gif)');
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

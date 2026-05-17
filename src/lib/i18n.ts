@@ -11,6 +11,7 @@ const resources = {
         products: 'Products',
         inventory: 'Inventory',
         orders: 'Orders',
+        invoices: 'Invoices',
         pos: 'POS',
         team: 'Team',
         super_admin: 'Super Admin',
@@ -138,6 +139,11 @@ const resources = {
         alerts: {
           join_failed: 'Failed to join. Please try again.',
           init_failed: 'Failed to initialize workspace.'
+        }
+      },
+      auth: {
+        errors: {
+          google_sign_in: 'Google sign-in failed. Please try again.'
         }
       },
       dashboard: {
@@ -498,6 +504,8 @@ const resources = {
         search: 'Search OS: Commands, Entities, Transactions...',
         live: 'Live',
         abort: 'Abort',
+        back: 'Back',
+        continue: 'Continue',
         sync: 'Sync',
         update: 'Update',
         export: 'Export CSV',
@@ -875,6 +883,7 @@ const resources = {
         products: 'Productos',
         inventory: 'Inventario',
         orders: 'Pedidos',
+        invoices: 'Facturas',
         pos: 'POS',
         team: 'Equipo',
         super_admin: 'Super Admin',
@@ -1002,6 +1011,11 @@ const resources = {
         alerts: {
           join_failed: 'Error al unirse. Por favor, intente de nuevo.',
           init_failed: 'Error al inicializar el espacio de trabajo.'
+        }
+      },
+      auth: {
+        errors: {
+          google_sign_in: 'No se pudo iniciar sesión con Google. Inténtalo de nuevo.'
         }
       },
       dashboard: {
@@ -1362,6 +1376,8 @@ const resources = {
         search: 'Buscar: Comandos, Entidades, Transacciones...',
         live: 'En Vivo',
         abort: 'Abortar',
+        back: 'Atrás',
+        continue: 'Continuar',
         sync: 'Sincronizar',
         update: 'Actualizar',
         export: 'Exportar CSV',
@@ -1739,6 +1755,7 @@ const resources = {
         products: 'Produtos',
         inventory: 'Inventário',
         orders: 'Pedidos',
+        invoices: 'Faturas',
         pos: 'POS',
         team: 'Equipe',
         super_admin: 'Super Admin',
@@ -1866,6 +1883,11 @@ const resources = {
         alerts: {
           join_failed: 'Erro ao entrar. Por favor, tente novamente.',
           init_failed: 'Erro ao inicializar o espaço de trabalho.'
+        }
+      },
+      auth: {
+        errors: {
+          google_sign_in: 'Falha ao entrar com o Google. Tente novamente.'
         }
       },
       dashboard: {
@@ -2226,6 +2248,8 @@ const resources = {
         search: 'Buscar: Comandos, Entidades, Transações...',
         live: 'Ao Vivo',
         abort: 'Abortar',
+        back: 'Voltar',
+        continue: 'Continuar',
         sync: 'Sincronizar',
         update: 'Atualizar',
         export: 'Exportar CSV',

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Card, Button, Input, Label } from '../components/Common';
 import { Shield, CreditCard, Users, Building, Bell, Check, AlertCircle, Globe, Clock, Calendar, UserRound } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
@@ -7,10 +7,12 @@ import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { motion } from 'motion/react';
 import { useLocale } from '../hooks/useLocale';
 import { ImageUpload } from '../components/ImageUpload';
+import { updateProfile } from 'firebase/auth';
+import { COMPANY_VERTICAL_OPTIONS, getCompanyVerticalLabel, normalizeCompanyVertical } from '../lib/company';
 
 export function Settings() {
   const { company, user, userProfile, refreshCompany, refreshProfile } = useAuth();
-  const { t, setLanguage, language: currentLang } = useLocale();
+  const { t, setLanguage } = useLocale();
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -18,10 +20,11 @@ export function Settings() {
   const [form, setForm] = useState({
     name: company?.name || '',
     industry: company?.industry || '',
+    vertical: normalizeCompanyVertical((company as any)?.vertical || company?.industry),
     email: company?.email || '',
     phone: company?.phone || '',
     currency: company?.currency || 'USD',
-    defaultLanguage: company?.defaultLanguage || 'en',
+    defaultLanguage: company?.defaultLanguage || 'es',
     timezone: company?.timezone || 'UTC',
     logoURL: company?.logoURL || '',
   });
@@ -33,8 +36,31 @@ export function Settings() {
 
   const [avatarLoading, setAvatarLoading] = useState(false);
   const [avatarSuccess, setAvatarSuccess] = useState(false);
+  const [avatarError, setAvatarError] = useState<string | null>(null);
 
-  const [userLang, setUserLang] = useState(userProfile?.language || 'en');
+  const [userLang, setUserLang] = useState(userProfile?.language || 'es');
+
+  useEffect(() => {
+    setForm({
+      name: company?.name || '',
+      industry: company?.industry || '',
+      vertical: normalizeCompanyVertical((company as any)?.vertical || company?.industry),
+      email: company?.email || '',
+      phone: company?.phone || '',
+      currency: company?.currency || 'USD',
+      defaultLanguage: company?.defaultLanguage || 'es',
+      timezone: company?.timezone || 'UTC',
+      logoURL: company?.logoURL || '',
+    });
+  }, [company?.id, company?.name, company?.industry, company?.currency, company?.defaultLanguage, company?.timezone, company?.logoURL, company?.email, company?.phone]);
+
+  useEffect(() => {
+    setAvatarForm({
+      displayName: userProfile?.displayName || user?.displayName || '',
+      photoURL: userProfile?.photoURL || user?.photoURL || '',
+    });
+    setUserLang(userProfile?.language || 'es');
+  }, [userProfile?.uid, userProfile?.displayName, userProfile?.photoURL, userProfile?.language, user?.displayName, user?.photoURL]);
 
   const handleUserLangChange = async (newLang: string) => {
     setUserLang(newLang);
@@ -53,8 +79,11 @@ export function Settings() {
 
     try {
       const companyRef = doc(db, 'companies', company.id);
+      const vertical = normalizeCompanyVertical(form.vertical);
       await updateDoc(companyRef, {
         ...form,
+        industry: getCompanyVerticalLabel(vertical),
+        vertical,
         updatedAt: serverTimestamp(),
       });
       
@@ -70,11 +99,18 @@ export function Settings() {
 
   const handleAvatarSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!userProfile) return;
+    if (!user?.uid) return;
 
     setAvatarLoading(true);
+    setAvatarError(null);
     try {
-      const userRef = doc(db, 'users', userProfile.uid);
+      const userRef = doc(db, 'users', user.uid);
+      if (user) {
+        await updateProfile(user, {
+          displayName: avatarForm.displayName || user.displayName || '',
+          photoURL: avatarForm.photoURL || user.photoURL || '',
+        });
+      }
       await updateDoc(userRef, {
         ...avatarForm,
         updatedAt: serverTimestamp(),
@@ -82,8 +118,9 @@ export function Settings() {
       await refreshProfile();
       setAvatarSuccess(true);
       setTimeout(() => setAvatarSuccess(false), 3000);
-    } catch (err) {
-      console.error("Avatar update failed:", err);
+    } catch (err: any) {
+      console.error('Avatar update failed:', err);
+      setAvatarError(err?.message || 'No se pudo actualizar el perfil.');
     } finally {
       setAvatarLoading(false);
     }
@@ -109,7 +146,7 @@ export function Settings() {
                         </div>
                         <div>
                             <h2 className="font-display font-bold text-xl text-white">{t('settings.security_credentials')}</h2>
-                            <p className="text-xs text-neutral-500 uppercase tracking-widest font-mono">NODE_USER_PROFILE</p>
+                            <p className="text-xs text-neutral-500 uppercase tracking-widest font-mono">PERFIL</p>
                         </div>
                     </div>
                 </div>
@@ -120,8 +157,8 @@ export function Settings() {
                             <ImageUpload 
                                 value={avatarForm.photoURL}
                                 onChange={url => setAvatarForm({ ...avatarForm, photoURL: url })}
-                                path={`users/${userProfile?.uid}/avatar`}
-                                label="Avatar"
+                                path={`users/${user?.uid}/avatar`}
+                                label="Foto"
                             />
                         </div>
                         <div className="flex-1 space-y-4">
@@ -140,6 +177,9 @@ export function Settings() {
                             >
                                 {avatarLoading ? t('common.syncing') : avatarSuccess ? t('settings.profile_updated') : t('settings.update_profile')}
                             </Button>
+                            {avatarError && (
+                              <p className="text-xs text-red-400">{avatarError}</p>
+                            )}
                         </div>
                     </div>
                 </form>
@@ -153,7 +193,7 @@ export function Settings() {
                     </div>
                     <div>
                         <h2 className="font-display font-bold text-xl text-white">{t('settings.localization')}</h2>
-                        <p className="text-xs text-neutral-500 uppercase tracking-widest font-mono">NODE_LOCALE_PARAMS</p>
+                        <p className="text-xs text-neutral-500 uppercase tracking-widest font-mono">IDIOMA Y REGION</p>
                     </div>
                 </div>
 
@@ -162,6 +202,7 @@ export function Settings() {
                         <Label>{t('settings.language')}</Label>
                         <select 
                             className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition-all appearance-none"
+                            aria-label={t('settings.language')}
                             value={userLang}
                             onChange={e => handleUserLangChange(e.target.value)}
                         >
@@ -191,7 +232,7 @@ export function Settings() {
                 </div>
                 <div>
                   <h2 className="font-display font-bold text-2xl text-white">{t('settings.company_profile')}</h2>
-                  <p className="text-sm text-neutral-500 font-mono">NODE_OS_ID: {company?.id.slice(0, 12).toUpperCase()}</p>
+                  <p className="text-sm text-neutral-500 font-mono">EMPRESA: {company?.id.slice(0, 12).toUpperCase()}</p>
                 </div>
               </div>
               <div className="flex flex-col md:flex-row items-center gap-4">
@@ -222,21 +263,20 @@ export function Settings() {
                         required 
                         value={form.name} 
                         onChange={e => setForm({...form, name: e.target.value})} 
-                        placeholder="e.g. Acme Industrials"
+                        placeholder="Ej. Acme Industrials"
                     />
                     </div>
                     <div className="space-y-2">
-                    <Label>{t('settings.industry')}</Label>
+                    <Label>Vertical</Label>
                     <select 
                         className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition-all appearance-none"
-                        value={form.industry}
-                        onChange={e => setForm({...form, industry: e.target.value})}
+                        aria-label="Vertical"
+                        value={form.vertical}
+                        onChange={e => setForm({...form, vertical: e.target.value as typeof form.vertical})}
                     >
-                        <option className="bg-neutral-900">{t('common.retail') || 'Retail'}</option>
-                        <option className="bg-neutral-900">{t('common.saas') || 'SaaS'}</option>
-                        <option className="bg-neutral-900">{t('common.manufacturing') || 'Manufacturing'}</option>
-                        <option className="bg-neutral-900">{t('common.services') || 'Services'}</option>
-                        <option className="bg-neutral-900">{t('common.technology') || 'Technology'}</option>
+                        {COMPANY_VERTICAL_OPTIONS.map((option) => (
+                          <option key={option.value} className="bg-neutral-900" value={option.value}>{option.label}</option>
+                        ))}
                     </select>
                     </div>
                 </div>
@@ -246,21 +286,23 @@ export function Settings() {
                     <Label>{t('settings.currency')}</Label>
                     <select 
                       className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition-all appearance-none"
+                      aria-label={t('settings.currency')}
                       value={form.currency}
                       onChange={e => setForm({...form, currency: e.target.value})}
                     >
-                      <option value="USD" className="bg-neutral-900">USD ($) - US Dollars</option>
+                      <option value="USD" className="bg-neutral-900">USD ($) - Dolares</option>
                       <option value="EUR" className="bg-neutral-900">EUR (€) - Euros</option>
                       <option value="MXN" className="bg-neutral-900">MXN ($) - Pesos Mexicanos</option>
                       <option value="COP" className="bg-neutral-900">COP ($) - Pesos Colombianos</option>
                       <option value="BRL" className="bg-neutral-900">BRL (R$) - Real Brasileiro</option>
-                      <option value="GBP" className="bg-neutral-900">GBP (£) - British Pounds</option>
+                      <option value="GBP" className="bg-neutral-900">GBP (£) - Libras esterlinas</option>
                     </select>
                   </div>
                   <div className="space-y-2">
                     <Label>{t('settings.timezone')}</Label>
                     <select 
                       className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition-all appearance-none"
+                      aria-label={t('settings.timezone')}
                       value={form.timezone}
                       onChange={e => setForm({...form, timezone: e.target.value})}
                     >
@@ -269,7 +311,7 @@ export function Settings() {
                       <option value="America/Mexico_City" className="bg-neutral-900">CST (Mexico City)</option>
                       <option value="America/Bogota" className="bg-neutral-900">COT (Bogota)</option>
                       <option value="America/Sao_Paulo" className="bg-neutral-900">BRT (Sao Paulo)</option>
-                      <option value="Europe/London" className="bg-neutral-900">GMT (London)</option>
+                      <option value="Europe/London" className="bg-neutral-900">GMT (Londres)</option>
                       <option value="Europe/Madrid" className="bg-neutral-900">CET (Madrid)</option>
                     </select>
                   </div>
@@ -280,6 +322,7 @@ export function Settings() {
                     <Label>{t('settings.default_company_lang')}</Label>
                     <select 
                       className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition-all appearance-none"
+                      aria-label={t('settings.default_company_lang')}
                       value={form.defaultLanguage}
                       onChange={e => setForm({...form, defaultLanguage: e.target.value})}
                     >
@@ -293,7 +336,7 @@ export function Settings() {
                     <Input 
                       value={form.phone} 
                       onChange={e => setForm({...form, phone: e.target.value})} 
-                      placeholder="+1 (555) OS-BLOCK"
+                      placeholder="+1 (555) 010-2020"
                     />
                   </div>
                 </div>
@@ -312,7 +355,7 @@ export function Settings() {
                     <div className="space-y-3 pt-4">
                         <div className="flex items-center justify-between py-2 border-b border-white/[0.03]">
                             <span className="text-[10px] uppercase font-bold text-neutral-600 tracking-widest">{t('settings.node_tier')}</span>
-                            <span className="text-[10px] font-mono bg-blue-500/10 text-blue-400 px-2 py-0.5 rounded border border-blue-500/20 uppercase font-bold text-center">Priority V1</span>
+                            <span className="text-[10px] font-mono bg-blue-500/10 text-blue-400 px-2 py-0.5 rounded border border-blue-500/20 uppercase font-bold text-center">Prioridad v1</span>
                         </div>
                         <div className="flex items-center justify-between py-2">
                             <span className="text-[10px] uppercase font-bold text-neutral-600 tracking-widest">{t('settings.entity_health')}</span>
@@ -344,7 +387,7 @@ export function Settings() {
             </div>
             <div className="md:ml-auto">
                 <Button variant="secondary" disabled className="text-[10px] uppercase tracking-widest font-bold opacity-50 px-6">
-                    Multi-Admin coming in v2.4
+                    Multi-admin disponible en proxima fase
                 </Button>
             </div>
           </div>

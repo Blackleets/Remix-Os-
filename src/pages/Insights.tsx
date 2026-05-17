@@ -33,9 +33,9 @@ export function Insights() {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center">
         <Cpu className="w-16 h-16 text-blue-500/20 mb-6" />
-        <h2 className="text-2xl font-bold text-white mb-2">Access Restricted</h2>
+        <h2 className="text-2xl font-bold text-white mb-2">Acceso restringido</h2>
         <p className="text-neutral-500 max-w-sm font-mono text-[10px] uppercase tracking-widest leading-loose">
-          Advanced business insights are reserved for administrators. Please contact your manager for access.
+          Los analisis avanzados estan reservados para administradores. Contacta a tu responsable para obtener acceso.
         </p>
       </div>
     );
@@ -76,7 +76,7 @@ export function Insights() {
       const result = await generateBusinessInsights(businessData, language);
       
       if (!result || !Array.isArray(result)) {
-        throw new Error("AI failed to generate a structured analysis.");
+        throw new Error('La IA no pudo generar un analisis estructurado.');
       }
       
       // Limit insights for Starter plan
@@ -87,7 +87,7 @@ export function Insights() {
       }
     } catch (err: any) {
       console.error(err);
-      setError("The analysis engine encountered an error. Please check your data and try again.");
+      setError('No se pudo completar el analisis. Revisa tus datos e intentalo de nuevo.');
     } finally {
       setLoading(false);
     }
@@ -122,11 +122,11 @@ export function Insights() {
           <div className="flex-1 space-y-6">
             <div className="inline-flex items-center gap-3 px-4 py-2 bg-blue-500/5 border border-blue-500/20 rounded-full">
               <span className="w-2 h-2 rounded-full bg-blue-500 animate-ping" />
-              <span className="text-[10px] font-black uppercase tracking-[0.3em] text-blue-400">Analysis Center</span>
+              <span className="text-[10px] font-black uppercase tracking-[0.3em] text-blue-400">Centro de analisis</span>
             </div>
             <div className="space-y-4">
               <h1 className="font-display text-6xl font-bold tracking-tighter text-white leading-[0.9]">
-                Business <br /> <span className="text-blue-500">{t('insights.title')}</span>
+                Inteligencia <br /> <span className="text-blue-500">{t('insights.title')}</span>
               </h1>
               <p className="text-neutral-400 max-w-md text-lg leading-relaxed font-medium">
                 {t('insights.subtitle')}
@@ -145,12 +145,12 @@ export function Insights() {
                     <Zap className="w-5 h-5" />
                   </div>
                   <div>
-                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-500/70">Restricted Access</p>
-                    <p className="font-bold text-white">Starter Protocol</p>
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-500/70">Acceso limitado</p>
+                    <p className="font-bold text-white">Plan Starter</p>
                   </div>
                 </div>
                 <p className="text-[10px] text-neutral-500 font-mono tracking-widest leading-loose">
-                  UPGRADE FOR UNRESTRICTED <br /> INSIGHTS
+                  ACTUALIZA PARA DESBLOQUEAR <br /> MAS ANALISIS
                 </p>
               </div>
             )}
@@ -181,7 +181,7 @@ export function Insights() {
                     {loading ? t('insights.analyzing') : t('insights.start')}
                   </p>
                   <p className="text-[9px] font-mono text-blue-400 mt-1 uppercase">
-                    {loading ? 'Processing...' : 'Run Scan'}
+                    {loading ? 'Procesando...' : 'Iniciar analisis'}
                   </p>
                 </div>
               </div>
@@ -195,14 +195,14 @@ export function Insights() {
         <div className="lg:col-span-1 space-y-10">
           <div className="space-y-6">
             <h3 className="text-[11px] font-black text-neutral-600 uppercase tracking-[0.4em] flex items-center gap-3">
-              <Database className="w-4 h-4" /> Operational Telemetry
+              <Database className="w-4 h-4" /> Telemetria
             </h3>
             <div className="grid gap-4">
                 {[
-                  { label: 'System Load', val: 'Minimal', status: 'optimal', icon: Cpu },
-                  { label: 'Analysis Speed', val: 'High', status: 'active', icon: Zap },
-                  { label: 'Data Integrity', val: 'Verified', status: 'secure', icon: Fingerprint },
-                  { label: 'Sync Status', val: 'Current', status: 'online', icon: Globe },
+                  { label: 'Carga', val: 'Baja', status: 'optimo', icon: Cpu },
+                  { label: 'Velocidad', val: 'Alta', status: 'activa', icon: Zap },
+                  { label: 'Integridad', val: 'Verificada', status: 'segura', icon: Fingerprint },
+                  { label: 'Sync', val: 'Al dia', status: 'online', icon: Globe },
                 ].map(m => (
                   <div key={m.label} className="p-5 rounded-2xl bg-neutral-900 border border-white/[0.03] group hover:border-blue-500/30 transition-all">
                     <div className="flex justify-between items-center mb-4">
@@ -225,10 +225,10 @@ export function Insights() {
           <div className="p-8 rounded-[2rem] bg-gradient-to-br from-blue-600/10 to-transparent border border-blue-500/20 relative overflow-hidden">
             <Terminal className="absolute bottom-4 right-4 w-20 h-20 text-blue-500/10 -rotate-12" />
             <h4 className="text-xs font-black uppercase tracking-widest text-blue-400 mb-4 flex items-center gap-2">
-              <Info className="w-3.5 h-3.5" /> Intelligence Quote
+              <Info className="w-3.5 h-3.5" /> Estado IA
             </h4>
             <p className="text-sm text-neutral-400 leading-relaxed italic font-medium relative z-10">
-              "AI systems are actively analyzing your business data. Every transaction logged increases insight accuracy over time."
+              "Cada transaccion registrada mejora el contexto operativo y la calidad del analisis."
             </p>
           </div>
         </div>
@@ -249,15 +249,15 @@ export function Insights() {
                     <Cpu className="w-16 h-16 text-blue-500" />
                   </div>
                 </div>
-                <h3 className="text-4xl font-display font-bold text-white mb-6 tracking-tight">Ready for Analysis.</h3>
+                <h3 className="text-4xl font-display font-bold text-white mb-6 tracking-tight">Listo para analizar.</h3>
                 <p className="text-neutral-500 max-w-sm mb-12 leading-relaxed text-lg font-medium">
-                  No data analysis available yet. Log transactions to initiate a performance audit and generate strategic growth insights.
+                  Aun no hay suficiente contexto. Registra ventas, clientes o productos para generar analisis mas utiles.
                 </p>
                 <button 
                   onClick={performAnalysis} 
                   className="px-12 py-5 bg-white text-black rounded-2xl font-black uppercase tracking-[0.2em] text-[10px] hover:bg-neutral-200 transition-all active:scale-[0.98] shadow-2xl shadow-white/5"
                 >
-                  Run Analysis
+                  Ejecutar analisis
                 </button>
               </motion.div>
             )}
@@ -293,7 +293,7 @@ export function Insights() {
                           />
                         ))}
                     </div>
-                    <p className="font-display font-black text-3xl text-white uppercase tracking-tighter">Analyzing Business Data</p>
+                    <p className="font-display font-black text-3xl text-white uppercase tracking-tighter">Analizando operacion</p>
                     <div className="grid grid-cols-2 gap-4 max-w-xs mx-auto">
                         <p className="text-[10px] text-neutral-500 font-mono tracking-widest uppercase text-left">PROD_SYNC: <span className="text-blue-500">OK</span></p>
                         <p className="text-[10px] text-neutral-500 font-mono tracking-widest uppercase text-left">CUST_MAP: <span className="text-blue-500">OK</span></p>
@@ -314,13 +314,13 @@ export function Insights() {
                 <div className="w-24 h-24 bg-red-500/10 rounded-[2rem] flex items-center justify-center mb-10 border border-red-500/20 shadow-[0_0_50px_rgba(239,68,68,0.1)]">
                   <AlertTriangle className="w-12 h-12 text-red-500" />
                 </div>
-                <h3 className="text-3xl font-bold text-white mb-4">Heuristic Anomaly.</h3>
+                <h3 className="text-3xl font-bold text-white mb-4">Analisis interrumpido.</h3>
                 <p className="text-neutral-500 max-w-sm mb-12 text-lg font-medium leading-relaxed">{error}</p>
                 <button 
                   onClick={performAnalysis} 
                   className="px-10 py-5 border border-white/10 rounded-2xl bg-white/5 text-white font-black uppercase tracking-widest text-[10px] hover:bg-white/10 transition-all"
                 >
-                  Retry Deep Scan
+                  Reintentar
                 </button>
               </motion.div>
             )}
@@ -333,12 +333,12 @@ export function Insights() {
               >
                 <div className="flex items-center justify-between px-6">
                   <h2 className="text-[11px] font-black text-neutral-600 uppercase tracking-[0.4em] flex items-center gap-3">
-                    <Activity className="w-4 h-4" /> Active Directives
+                    <Activity className="w-4 h-4" /> Recomendaciones activas
                   </h2>
                   <div className="flex items-center gap-4">
-                    <span className="text-[10px] font-mono text-neutral-600">INTEL_COUNT: {insights.length}</span>
+                    <span className="text-[10px] font-mono text-neutral-600">INSIGHTS: {insights.length}</span>
                     <div className="w-px h-4 bg-white/10" />
-                    <span className="text-[10px] font-mono text-emerald-500">SECURE_LINK_ACTIVE</span>
+                    <span className="text-[10px] font-mono text-emerald-500">CONTEXTO ACTIVO</span>
                   </div>
                 </div>
 
@@ -367,7 +367,7 @@ export function Insights() {
                               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                                 <div className="flex items-center gap-4">
                                   <span className="px-3 py-1 bg-white/[0.03] border border-white/5 rounded-full text-[10px] font-black uppercase tracking-[0.2em] text-neutral-500">
-                                    {insight.type}
+                                    {insight.type === 'opportunity' ? 'Oportunidad' : insight.type === 'risk' ? 'Riesgo' : insight.type === 'efficiency' ? 'Eficiencia' : 'Crecimiento'}
                                   </span>
                                   <h3 className="font-display font-bold text-3xl text-white tracking-tight">{insight.title}</h3>
                                 </div>
@@ -381,7 +381,9 @@ export function Insights() {
                                        'bg-blue-500 w-[20%]'
                                      )} />
                                   </div>
-                                  <span className="text-[10px] font-mono text-neutral-600 uppercase tracking-widest">{insight.severity}</span>
+                                  <span className="text-[10px] font-mono text-neutral-600 uppercase tracking-widest">
+                                    {insight.severity === 'critical' ? 'Critico' : insight.severity === 'warning' ? 'Alerta' : insight.severity === 'success' ? 'Positivo' : 'Info'}
+                                  </span>
                                 </div>
                               </div>
                               <p className="text-neutral-400 text-lg leading-relaxed font-medium max-w-3xl">
@@ -395,7 +397,7 @@ export function Insights() {
                                   <Zap className="w-6 h-6 text-blue-400" />
                                 </div>
                                 <div>
-                                  <p className="text-[10px] font-black uppercase text-neutral-500 tracking-[0.3em] leading-none mb-2">Primary Directive</p>
+                                  <p className="text-[10px] font-black uppercase text-neutral-500 tracking-[0.3em] leading-none mb-2">Siguiente paso</p>
                                   <p className="text-lg font-bold text-blue-400">{insight.recommendation}</p>
                                 </div>
                               </div>

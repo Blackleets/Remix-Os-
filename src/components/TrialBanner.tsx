@@ -29,36 +29,32 @@ export function TrialBanner() {
       ? 'border-amber-400/18 bg-amber-400/8 text-amber-200'
       : 'border-blue-400/18 bg-blue-400/8 text-blue-200';
 
+  const daysLabel = daysLeft === 0 ? 'hoy' : daysLeft === 1 ? '1 día' : `${daysLeft} días`;
+
   return (
-    <div className="px-4 pt-4 md:px-6 xl:px-8">
-      <div className={`shell-panel flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between ${tone}`}>
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-current/15 bg-black/15">
-            <Clock className="h-4 w-4" />
-          </div>
-          <div className="min-w-0">
-            <p className="text-[10px] font-black uppercase tracking-[0.24em] text-current/80">Trial Protocol</p>
-            <p className="truncate text-sm font-semibold text-current">
-              {daysLeft === 0
-                ? 'Your free trial expires today'
-                : daysLeft === 1
-                  ? '1 day left in your free trial'
-                  : `${daysLeft} days left in your free trial`}
-            </p>
-          </div>
+    <div className="px-4 pt-3 md:px-6 xl:px-8">
+      <div className={`flex items-center justify-between gap-2 rounded-2xl border px-3 py-2 backdrop-blur-sm ${tone}`}>
+        <div className="flex min-w-0 items-center gap-2">
+          <Clock className="h-3.5 w-3.5 shrink-0 opacity-80" />
+          <span className="min-w-0 truncate text-xs font-bold">
+            Trial · {daysLabel}
+          </span>
+          <span className="hidden sm:inline text-xs opacity-60">
+            {isUrgent ? '— ¡Últimas horas!' : isWarning ? '— Pronto termina' : '— Plan gratuito activo'}
+          </span>
         </div>
 
-        <div className="flex items-center gap-2 self-end sm:self-auto">
+        <div className="flex shrink-0 items-center gap-1.5">
           <button
             onClick={() => navigate('/billing')}
-            className="inline-flex items-center gap-2 rounded-2xl border border-current/18 bg-black/20 px-4 py-2 text-[11px] font-black uppercase tracking-[0.18em] text-current transition-colors hover:bg-black/28"
+            className="inline-flex items-center gap-1.5 rounded-xl border border-current/18 bg-black/20 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.18em] text-current transition-colors hover:bg-black/28"
           >
             <Zap className="h-3 w-3" />
-            Upgrade
+            <span>Ver planes</span>
           </button>
           <button
             onClick={() => setDismissed(true)}
-            className="rounded-xl border border-current/10 bg-black/10 p-2 opacity-70 transition-opacity hover:opacity-100"
+            className="rounded-lg border border-current/10 bg-black/10 p-1.5 opacity-60 transition-opacity hover:opacity-100"
           >
             <X className="h-3.5 w-3.5" />
           </button>

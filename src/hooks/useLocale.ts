@@ -1,13 +1,13 @@
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../contexts/AuthContext';
-import { 
-  formatCurrency as baseFormatCurrency, 
-  formatDate as baseFormatDate, 
+import {
+  formatCurrency as baseFormatCurrency,
+  formatDate as baseFormatDate,
   formatTime as baseFormatTime,
-  LocaleSettings 
+  LocaleSettings
 } from '../lib/formatters';
 import { doc, updateDoc } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { useEffect } from 'react';
 
 export function useLocale() {
@@ -15,13 +15,13 @@ export function useLocale() {
   const { userProfile, company, refreshProfile } = useAuth();
 
   // Prioritize current i18n language, then user profile, then company default
-  const rawLang = i18n.language || userProfile?.language || company?.defaultLanguage || 'en';
+  const rawLang = i18n.language || userProfile?.language || company?.defaultLanguage || 'es';
   let language = rawLang.split('-')[0].toLowerCase();
   
   // Validate supported languages
   const supported = ['en', 'es', 'pt'];
   if (!supported.includes(language)) {
-    language = 'en';
+    language = 'es';
   }
   
   const currency = company?.currency || 'USD';
@@ -44,11 +44,8 @@ export function useLocale() {
 
   const setLanguage = async (newLang: string) => {
     try {
-      const { handleFirestoreError, OperationType } = await import('../lib/firebase');
-      
-      // Update i18n immediately for visual feedback
       await i18n.changeLanguage(newLang);
-      
+
       if (userProfile?.uid) {
         const userRef = doc(db, 'users', userProfile.uid);
         try {

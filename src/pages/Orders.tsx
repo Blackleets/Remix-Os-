@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Card, Button, Input, Label, cn } from '../components/Common';
-import { Layers, Plus, Search, Receipt, CreditCard, ChevronRight, Trash2, AlertCircle, Download, Radar, Activity, Sparkles, Wallet } from 'lucide-react';
+import { Layers, Plus, Search, Receipt, CreditCard, ChevronRight, Trash2, AlertCircle, Download, Radar, Activity, Sparkles, Wallet, FileText } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useLocale } from '../hooks/useLocale';
 import { usePermissions } from '../hooks/usePermissions';
@@ -13,6 +13,8 @@ import { UpgradeModal } from '../components/UpgradeModal';
 import { PLANS, isLimitReached, getCompanyUsage } from '../lib/plans';
 import { exportToCSV } from '../lib/exportUtils';
 import { createSaleTransaction } from '../services/sales';
+import { getOrderTotal } from '../../shared/orders';
+import { EmptyStatePanel } from '../components/EmptyStatePanel';
 
 interface OrderItem {
   productId: string;
@@ -40,7 +42,7 @@ interface Product {
 
 export function Orders() {
   const { company } = useAuth();
-  const { t } = useLocale();
+  const { t, formatCurrency } = useLocale();
   const location = useLocation();
   const navigate = useNavigate();
   const [orders, setOrders] = useState<Order[]>([]);
@@ -53,6 +55,7 @@ export function Orders() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'completed' | 'pending' | 'cancelled'>('all');
   const [paymentFilter, setPaymentFilter] = useState<'all' | 'Card' | 'Cash' | 'Transfer'>('all');
+  const [invoicedOrderIds, setInvoicedOrderIds] = useState<Set<string>>(new Set());
 
   const { canEditOrders } = usePermissions();
 
@@ -69,6 +72,8 @@ export function Orders() {
     paymentMethod: 'Card',
     items: [] as OrderItem[],
   });
+
+  const hasActiveFilters = search.trim().length > 0 || statusFilter !== 'all' || paymentFilter !== 'all';
 
   const getMonthlyOrdersCount = () => {
     const now = new Date();
@@ -113,22 +118,50 @@ export function Orders() {
     );
     const unsubscribeOrders = onSnapshot(qOrders, (snap) => {
       setOrders(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Order)));
+    }, (error) => {
+      console.error('Orders listener error:', error);
     });
 
     const qCust = query(collection(db, 'customers'), where('companyId', '==', company.id));
     const unsubscribeCustomers = onSnapshot(qCust, (snap) => {
       setCustomers(snap.docs.map((d) => ({ id: d.id, name: d.data().name })));
+    }, (error) => {
+      console.error('Orders customers listener error:', error);
     });
 
     const qProd = query(collection(db, 'products'), where('companyId', '==', company.id));
     const unsubscribeProducts = onSnapshot(qProd, (snap) => {
       setProducts(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Product)));
+    }, (error) => {
+      console.error('Orders products listener error:', error);
     });
+
+    // Track which orders already have a non-cancelled invoice so we can
+    // surface a "Facturada" chip on each row. Best-effort: if the listener
+    // errors (legacy companies without the collection), the chip simply
+    // never appears and the rest of Orders keeps working.
+    const qInv = query(collection(db, 'invoices'), where('companyId', '==', company.id));
+    const unsubscribeInvoices = onSnapshot(
+      qInv,
+      (snap) => {
+        const linked = new Set<string>();
+        snap.forEach((d) => {
+          const data = d.data() as any;
+          if (!data?.orderId || data?.status === 'cancelled') return;
+          linked.add(String(data.orderId));
+        });
+        setInvoicedOrderIds(linked);
+      },
+      (error) => {
+        console.warn('Orders invoices listener error (non-fatal):', error);
+      }
+    );
 
     return () => {
       unsubscribeOrders();
       unsubscribeCustomers();
       unsubscribeProducts();
+      unsubscribeInvoices();
     };
   }, [company]);
 
@@ -190,7 +223,7 @@ export function Orders() {
 
       const preparedItems = form.items.map((item) => {
         const selected = products.find((p) => p.id === item.productId);
-        if (!selected) throw new Error('A selected product no longer exists.');
+        if (!selected) throw new Error('Uno de los productos seleccionados ya no existe.');
         return {
           productId: selected.id,
           productName: selected.name,
@@ -212,7 +245,7 @@ export function Orders() {
       setForm({ customerId: '', paymentMethod: 'Card', items: [] });
       setIsModalOpen(false);
     } catch (err: any) {
-      setError(err?.message || 'Failed to create transaction.');
+      setError(err?.message || 'No se pudo crear el pedido.');
     } finally {
       setLoading(false);
     }
@@ -220,7 +253,41 @@ export function Orders() {
 
   const completedCount = orders.filter((o) => o.status === 'completed').length;
   const pendingCount = orders.filter((o) => o.status === 'pending').length;
-  const totalVolume = filteredOrders.reduce((sum, order) => sum + (order.total || 0), 0);
+  const totalVolume = filteredOrders.reduce((sum, order) => sum + getOrderTotal(order), 0);
+
+  // Build a prefill payload for Invoices using the items snapshot embedded
+  // in the order document. We deliberately keep tax/discount empty so the
+  // user picks the country profile + tax explicitly inside the form.
+  const handleCreateInvoiceFromOrder = (order: Order) => {
+    const raw = order as unknown as { items?: any[]; itemsSnapshot?: any[]; customer?: any };
+    const sourceItems: any[] = Array.isArray(raw.itemsSnapshot)
+      ? raw.itemsSnapshot
+      : Array.isArray(raw.items)
+        ? raw.items
+        : [];
+    const items = sourceItems.map((it) => ({
+      productId: it.productId,
+      name: it.productName || it.name || 'Concepto',
+      quantity: Number(it.quantity) || 1,
+      unitPrice: Number(it.price ?? it.unitPrice) || 0,
+      discountRate: 0,
+      taxRate: 0,
+    }));
+    navigate('/invoices', {
+      state: {
+        fromOrder: {
+          orderId: order.id,
+          customerId: order.customerId,
+          customerName: order.customerName,
+          customerEmail: raw.customer?.email,
+          customerTaxId: raw.customer?.taxId || raw.customer?.nif || raw.customer?.rfc,
+          customerAddress: raw.customer?.address,
+          customerCountry: raw.customer?.country,
+          items,
+        },
+      },
+    });
+  };
 
   const getStatusClasses = (status: string) => {
     switch (status) {
@@ -235,6 +302,32 @@ export function Orders() {
     }
   };
 
+  const getStatusLabel = (status: string) => {
+    switch (status) {
+      case 'completed':
+        return 'Completado';
+      case 'pending':
+        return 'Pendiente';
+      case 'cancelled':
+        return 'Cancelado';
+      default:
+        return status;
+    }
+  };
+
+  const getPaymentLabel = (method: string) => {
+    switch (method) {
+      case 'Card':
+        return t('common.card') || 'Tarjeta';
+      case 'Cash':
+        return t('common.cash') || 'Efectivo';
+      case 'Transfer':
+        return t('common.transfer') || 'Transferencia';
+      default:
+        return method;
+    }
+  };
+
   return (
     <div className="space-y-6 md:space-y-8">
       <section className="hero-gradient overflow-hidden rounded-[30px] border border-white/10 p-6 md:p-8">
@@ -243,16 +336,16 @@ export function Orders() {
             <div className="mb-4 flex flex-wrap items-center gap-2">
               <span className="operator-badge">
                 <span className="status-dot bg-blue-400 text-blue-400" />
-                Transaction Flow
+                Flujo comercial
               </span>
               <span className="telemetry-chip">
                 <Radar className="h-3 w-3 text-blue-300" />
-                Revenue Queue
+                Pedidos en vivo
               </span>
             </div>
             <h1 className="section-title text-4xl md:text-5xl">{t('orders.title')}</h1>
             <p className="mt-3 max-w-2xl text-sm leading-relaxed text-neutral-300 md:text-base">
-              Monitor commercial throughput, filter execution states and open new transaction flows without leaving the operating layer.
+              Registra pedidos, filtra estados y convierte operaciones en ventas sin salir del flujo comercial.
             </p>
           </div>
           <div className="flex flex-col gap-3 sm:flex-row">
@@ -262,7 +355,7 @@ export function Orders() {
               onClick={() => exportToCSV(filteredOrders.map((o) => ({
                 ID: o.id,
                 Customer: o.customerName,
-                Total: o.total,
+                Total: getOrderTotal(o),
                 Status: o.status,
                 Payment: o.paymentMethod,
                 Date: o.createdAt && o.createdAt.toDate ? o.createdAt.toDate().toISOString() : o.createdAt,
@@ -281,31 +374,31 @@ export function Orders() {
 
         <div className="mt-6 grid gap-3 md:grid-cols-3">
           <div className="data-tile">
-            <p className="section-kicker mb-2 !text-neutral-500">Completed Orders</p>
+            <p className="section-kicker mb-2 !text-neutral-500">Pedidos completados</p>
             <div className="flex items-end justify-between gap-4">
               <div>
                 <p className="text-3xl font-bold text-white">{completedCount}</p>
-                <p className="mt-1 text-sm text-neutral-400">Transactions already finalized in the current ledger.</p>
+                <p className="mt-1 text-sm text-neutral-400">Ventas cerradas y registradas en este ciclo.</p>
               </div>
               <Sparkles className="h-5 w-5 text-emerald-300" />
             </div>
           </div>
           <div className="data-tile">
-            <p className="section-kicker mb-2 !text-neutral-500">Pending Flow</p>
+            <p className="section-kicker mb-2 !text-neutral-500">Pendientes</p>
             <div className="flex items-end justify-between gap-4">
               <div>
                 <p className="text-3xl font-bold text-white">{pendingCount}</p>
-                <p className="mt-1 text-sm text-neutral-400">Transactions awaiting final execution or cleanup.</p>
+                <p className="mt-1 text-sm text-neutral-400">Pedidos que aun requieren cierre o seguimiento.</p>
               </div>
               <Activity className="h-5 w-5 text-amber-300" />
             </div>
           </div>
           <div className="data-tile">
-            <p className="section-kicker mb-2 !text-neutral-500">Filtered Volume</p>
+            <p className="section-kicker mb-2 !text-neutral-500">Volumen filtrado</p>
             <div className="flex items-end justify-between gap-4">
               <div>
-                <p className="text-3xl font-bold text-white">${totalVolume.toFixed(0)}</p>
-                <p className="mt-1 text-sm text-neutral-400">Aggregate value for the current result set.</p>
+                <p className="text-3xl font-bold text-white">{formatCurrency(totalVolume)}</p>
+                <p className="mt-1 text-sm text-neutral-400">Valor total del conjunto visible actual.</p>
               </div>
               <Wallet className="h-5 w-5 text-blue-300" />
             </div>
@@ -316,18 +409,18 @@ export function Orders() {
       <UpgradeModal
         isOpen={isUpgradeModalOpen}
         onClose={() => setIsUpgradeModalOpen(false)}
-        title={t('orders.upgrade.title') || 'Transaction Limit Reached'}
-        message={t('orders.upgrade.message') || 'Monthly transaction throughput has peaked for your current plan. Synchronize to a higher tier to restore commercial flow.'}
-        limitName={t('orders.limit_name') || 'Monthly Orders'}
+        title={t('orders.upgrade.title') || 'Limite de pedidos alcanzado'}
+        message={t('orders.upgrade.message') || 'Tu plan actual ya alcanzo el limite mensual de pedidos. Sube de nivel para mantener el flujo comercial.'}
+        limitName={t('orders.limit_name') || 'Pedidos mensuales'}
       />
 
       <Card className="overflow-hidden p-0">
         <div className="border-b border-white/[0.06] bg-white/[0.02] p-6">
           <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
             <div>
-              <p className="section-kicker mb-2">Flow Filters</p>
+              <p className="section-kicker mb-2">Filtros</p>
               <h2 className="section-title text-2xl">{t('orders.table.id')}</h2>
-              <p className="mt-2 text-sm text-neutral-400">Search by customer or order id, then narrow by execution state and payment rail.</p>
+              <p className="mt-2 text-sm text-neutral-400">Busca por cliente o pedido y reduce el resultado por estado y metodo de pago.</p>
             </div>
             <div className="flex w-full flex-col gap-3 lg:flex-row lg:items-center lg:justify-end">
               <div className="relative group w-full lg:max-w-sm">
@@ -341,16 +434,18 @@ export function Orders() {
               </div>
               <div className="flex gap-2">
                 <select
+                  aria-label="Filtrar pedidos por estado"
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
                   className="h-12 rounded-2xl border border-white/10 bg-black/30 px-4 text-xs font-bold uppercase tracking-[0.16em] text-white focus:outline-none"
                 >
-                  <option value="all" className="bg-neutral-900">{t('orders.filter')} / {t('common.all') || 'All'}</option>
-                  <option value="completed" className="bg-neutral-900">Completed</option>
-                  <option value="pending" className="bg-neutral-900">Pending</option>
-                  <option value="cancelled" className="bg-neutral-900">Cancelled</option>
+                  <option value="all" className="bg-neutral-900">Estado / {t('common.all') || 'Todos'}</option>
+                  <option value="completed" className="bg-neutral-900">Completado</option>
+                  <option value="pending" className="bg-neutral-900">Pendiente</option>
+                  <option value="cancelled" className="bg-neutral-900">Cancelado</option>
                 </select>
                 <select
+                  aria-label="Filtrar pedidos por metodo de pago"
                   value={paymentFilter}
                   onChange={(e) => setPaymentFilter(e.target.value as typeof paymentFilter)}
                   className="h-12 rounded-2xl border border-white/10 bg-black/30 px-4 text-xs font-bold uppercase tracking-[0.16em] text-white focus:outline-none"
@@ -398,17 +493,38 @@ export function Orders() {
                   </td>
                   <td className="table-cell font-bold text-neutral-100">{order.customerName}</td>
                   <td className="table-cell font-mono font-bold text-blue-300">
-                    ${order.total.toFixed(2)}
+                    {formatCurrency(getOrderTotal(order))}
                   </td>
                   <td className="table-cell">
-                    <span className={cn('inline-flex rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.16em]', getStatusClasses(order.status))}>
-                      {order.status}
-                    </span>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className={cn('inline-flex rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.16em]', getStatusClasses(order.status))}>
+                        {getStatusLabel(order.status)}
+                      </span>
+                      {invoicedOrderIds.has(order.id) && (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-blue-400/20 bg-blue-500/[0.10] px-2 py-1 text-[9px] font-bold uppercase tracking-[0.16em] text-blue-200">
+                          <FileText className="h-3 w-3" />
+                          Facturada
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="table-cell text-right">
                     <div className="flex items-center justify-end gap-3 text-neutral-500 transition-colors group-hover:text-blue-300">
                       <CreditCard className="w-3.5 h-3.5" />
-                      <span className="text-[10px] font-bold uppercase tracking-widest">{order.paymentMethod}</span>
+                      <span className="text-[10px] font-bold uppercase tracking-widest">{getPaymentLabel(order.paymentMethod)}</span>
+                      {canEditOrders && (
+                        <button
+                          type="button"
+                          title="Crear factura desde este pedido"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleCreateInvoiceFromOrder(order);
+                          }}
+                          className="ml-1 rounded-xl border border-white/10 bg-white/[0.03] p-1.5 text-neutral-400 transition-colors hover:border-blue-400/30 hover:text-blue-200"
+                        >
+                          <FileText className="h-3.5 w-3.5" />
+                        </button>
+                      )}
                       <ChevronRight className="ml-1 w-4 h-4 translate-x-[-4px] opacity-0 transition-all group-hover:translate-x-0 group-hover:opacity-100" />
                     </div>
                   </td>
@@ -426,7 +542,6 @@ export function Orders() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: i * 0.03 }}
               className="space-y-3 p-4 active:bg-white/[0.02]"
-              onClick={() => navigate('/customers')}
             >
               <div className="flex items-center justify-between">
                 <span className="font-mono text-[10px] uppercase tracking-tighter text-neutral-500">
@@ -439,33 +554,62 @@ export function Orders() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="font-bold text-neutral-200">{order.customerName}</p>
-                  <p className="mt-0.5 text-[10px] uppercase tracking-widest text-neutral-500">{order.paymentMethod}</p>
+                  <p className="mt-0.5 text-[10px] uppercase tracking-widest text-neutral-500">{getPaymentLabel(order.paymentMethod)}</p>
                 </div>
                 <div className="text-right">
-                  <p className="font-mono text-base font-bold text-blue-300">${order.total.toFixed(2)}</p>
-                  <span className={cn('mt-1 inline-flex rounded-full border px-2.5 py-1 text-[9px] font-black uppercase tracking-[0.15em]', getStatusClasses(order.status))}>
-                    {order.status}
-                  </span>
+                  <p className="font-mono text-base font-bold text-blue-300">{formatCurrency(getOrderTotal(order))}</p>
+                  <div className="mt-1 flex flex-wrap items-center justify-end gap-1.5">
+                    <span className={cn('inline-flex rounded-full border px-2.5 py-1 text-[9px] font-black uppercase tracking-[0.15em]', getStatusClasses(order.status))}>
+                      {getStatusLabel(order.status)}
+                    </span>
+                    {invoicedOrderIds.has(order.id) && (
+                      <span className="inline-flex items-center gap-1 rounded-full border border-blue-400/20 bg-blue-500/[0.10] px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.15em] text-blue-200">
+                        <FileText className="h-3 w-3" />
+                        Facturada
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
+              {canEditOrders && (
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    handleCreateInvoiceFromOrder(order);
+                  }}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-[11px] font-bold uppercase tracking-[0.18em] text-neutral-300 transition-colors active:border-blue-400/30 active:text-blue-200"
+                >
+                  <FileText className="h-3.5 w-3.5" />
+                  Crear factura
+                </button>
+              )}
             </motion.div>
           ))}
         </div>
 
         {filteredOrders.length === 0 && (
-          <div className="py-24 text-center">
-            <div className="mx-auto flex max-w-md flex-col items-center gap-6 p-6 text-neutral-600">
-              <div className="flex h-20 w-20 items-center justify-center rounded-[28px] border border-dashed border-white/10 bg-white/[0.01]">
-                <Receipt className="w-10 h-10 opacity-20" />
-              </div>
-              <div className="space-y-2">
-                <p className="text-lg font-bold text-neutral-200">{t('orders.empty.title')}</p>
-                <p className="px-4 text-xs leading-relaxed text-neutral-500">{t('orders.empty.subtitle')}</p>
-              </div>
-              <Button onClick={() => { handleCreateNew(); setError(null); }} className="h-12 gap-2 px-8">
-                <Plus className="w-4 h-4" /> {t('orders.empty.button')}
-              </Button>
-            </div>
+          <div className="px-4 py-16 sm:px-6">
+            <EmptyStatePanel
+              eyebrow={hasActiveFilters ? 'Sin resultados' : 'Operacion comercial'}
+              title={hasActiveFilters ? 'No hay pedidos para este filtro.' : 'Tus pedidos apareceran aqui.'}
+              description={hasActiveFilters
+                ? 'Prueba otra busqueda, estado o metodo de pago para recuperar resultados.'
+                : 'Registra ventas, controla pagos y consulta el historial comercial desde un solo centro.'}
+              icon={<Receipt className="h-7 w-7" />}
+              primaryActionLabel={canEditOrders ? 'Crear pedido' : undefined}
+              onPrimaryAction={canEditOrders ? () => { handleCreateNew(); setError(null); } : undefined}
+              secondaryActionLabel={hasActiveFilters ? 'Limpiar filtros' : 'Ver productos'}
+              onSecondaryAction={() => {
+                if (hasActiveFilters) {
+                  setSearch('');
+                  setStatusFilter('all');
+                  setPaymentFilter('all');
+                  return;
+                }
+                navigate('/products');
+              }}
+            />
           </div>
         )}
       </Card>
@@ -481,7 +625,7 @@ export function Orders() {
             >
               <div className="flex items-center justify-between border-b border-white/[0.05] bg-white/[0.02] p-8">
                 <h2 className="font-display text-xl font-bold uppercase tracking-tight text-white">{t('orders.modal.title')}</h2>
-                <button onClick={() => setIsModalOpen(false)} className="rounded-full p-2 text-neutral-500 transition-colors hover:bg-white/5 hover:text-white">
+                <button type="button" aria-label="Cerrar" onClick={() => setIsModalOpen(false)} className="rounded-full p-2 text-neutral-500 transition-colors hover:bg-white/5 hover:text-white">
                   <Plus className="w-6 h-6 rotate-45" />
                 </button>
               </div>
@@ -498,14 +642,14 @@ export function Orders() {
                   <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 sm:gap-8">
                     <div className="space-y-2">
                       <Label>{t('orders.modal.customer')}</Label>
-                      <select required className="w-full appearance-none rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none transition-all focus:ring-2 focus:ring-blue-500/30" value={form.customerId} onChange={(e) => setForm({ ...form, customerId: e.target.value })}>
+                      <select aria-label="Cliente del pedido" required className="w-full appearance-none rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none transition-all focus:ring-2 focus:ring-blue-500/30" value={form.customerId} onChange={(e) => setForm({ ...form, customerId: e.target.value })}>
                         <option value="" className="bg-neutral-900">{t('orders.modal.select_customer')}</option>
                         {customers.map((c) => <option key={c.id} value={c.id} className="bg-neutral-900">{c.name}</option>)}
                       </select>
                     </div>
                     <div className="space-y-2">
                       <Label>{t('orders.modal.payment_method')}</Label>
-                      <select className="w-full appearance-none rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none transition-all focus:ring-2 focus:ring-blue-500/30" value={form.paymentMethod} onChange={(e) => setForm({ ...form, paymentMethod: e.target.value })}>
+                      <select aria-label="Metodo de pago" className="w-full appearance-none rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none transition-all focus:ring-2 focus:ring-blue-500/30" value={form.paymentMethod} onChange={(e) => setForm({ ...form, paymentMethod: e.target.value })}>
                         <option className="bg-neutral-900">{t('common.card') || 'Card'}</option>
                         <option className="bg-neutral-900">{t('common.cash') || 'Cash'}</option>
                         <option className="bg-neutral-900">{t('common.transfer') || 'Transfer'}</option>
@@ -526,6 +670,7 @@ export function Orders() {
                         <div key={index} className="flex flex-col items-start gap-4 rounded-2xl border border-white/[0.05] bg-white/[0.02] p-4 sm:flex-row sm:items-center">
                           <div className="w-full flex-1">
                             <select
+                              aria-label={`Producto de la linea ${index + 1}`}
                               required
                               className="w-full appearance-none border-0 bg-transparent text-sm text-white outline-none focus:ring-0"
                               value={item.productId}

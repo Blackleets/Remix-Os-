@@ -1,8 +1,10 @@
 import { Suspense, lazy, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { ToastProvider } from './contexts/ToastContext';
 import { Sidebar } from './components/Sidebar';
 import { Topbar } from './components/Topbar';
+import { BetaFeedbackButton } from './components/BetaFeedbackButton';
 import { Landing } from './pages/Landing';
 import { Auth } from './pages/Auth';
 import { Onboarding } from './pages/Onboarding';
@@ -14,6 +16,7 @@ import { Orders } from './pages/Orders';
 import { Settings } from './pages/Settings';
 import { Team } from './pages/Team';
 import { Copilot } from './components/Copilot';
+import { BottomNav } from './components/BottomNav';
 import { TrialBanner } from './components/TrialBanner';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { AnimatePresence, motion } from 'motion/react';
@@ -22,14 +25,15 @@ import { usePlatformAdmin } from './hooks/usePlatformAdmin';
 const Billing = lazy(() => import('./pages/Billing').then((module) => ({ default: module.Billing })));
 const POS = lazy(() => import('./pages/POS').then((module) => ({ default: module.POS })));
 const Insights = lazy(() => import('./pages/Insights').then((module) => ({ default: module.Insights })));
+const Invoices = lazy(() => import('./pages/Invoices').then((module) => ({ default: module.Invoices })));
 const SuperAdmin = lazy(() => import('./pages/SuperAdmin').then((module) => ({ default: module.SuperAdmin })));
 
 const RouteLoading = () => (
   <div className="flex h-[60vh] items-center justify-center">
     <div className="shell-panel min-w-[260px] px-6 py-10 text-center">
-      <p className="section-kicker mb-3">Module Loader</p>
-      <p className="text-base font-semibold text-white">Initializing premium surface...</p>
-      <p className="mt-2 text-sm text-neutral-500">Preparing the next operating module.</p>
+      <p className="section-kicker mb-3">Cargador de modulos</p>
+      <p className="text-base font-semibold text-white">Inicializando la siguiente superficie...</p>
+      <p className="mt-2 text-sm text-neutral-500">Preparando el proximo modulo operativo.</p>
     </div>
   </div>
 );
@@ -42,8 +46,8 @@ const ProtectedRoute = ({ children, allowedRoles }: { children: React.ReactNode;
     return (
       <div className="shell-background flex h-screen items-center justify-center">
         <div className="shell-panel px-8 py-10 text-center">
-          <p className="section-kicker mb-3">Boot Sequence</p>
-          <p className="text-base font-semibold text-white">Loading Remix OS...</p>
+          <p className="section-kicker mb-3">Secuencia de arranque</p>
+          <p className="text-base font-semibold text-white">Cargando Remix OS...</p>
         </div>
       </div>
     );
@@ -104,12 +108,16 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
       <div className="relative z-10 flex min-h-screen flex-1 flex-col">
         <TrialBanner />
         <Topbar onMenuClick={() => setIsSidebarOpen(true)} />
-        <main className="flex-1 px-4 pb-6 pt-4 md:px-6 md:pb-8 md:pt-5 xl:px-8">
+        <main className="main-content-pb flex-1 overflow-x-hidden px-4 pt-4 md:px-6 md:pt-5 xl:px-8">
           <div className="mx-auto max-w-[1540px]">
-            {children}
+            <ErrorBoundary key={pathname} variant="inline">
+              {children}
+            </ErrorBoundary>
           </div>
         </main>
+        {pathname !== '/pos' && <BetaFeedbackButton />}
         {pathname !== '/pos' && <Copilot />}
+        <BottomNav />
       </div>
     </div>
   );
@@ -129,8 +137,8 @@ const PlatformAdminRoute = ({ children }: { children: React.ReactNode }) => {
     return (
       <div className="shell-background flex h-screen items-center justify-center">
         <div className="shell-panel px-8 py-10 text-center">
-          <p className="section-kicker mb-3">Admin Layer</p>
-          <p className="text-base font-semibold text-white">Validating platform access...</p>
+          <p className="section-kicker mb-3">Capa de administración</p>
+          <p className="text-base font-semibold text-white">Validando acceso a la plataforma...</p>
         </div>
       </div>
     );
@@ -146,6 +154,7 @@ export default function App() {
   return (
     <ErrorBoundary>
       <AuthProvider>
+        <ToastProvider>
         <BrowserRouter>
           <Routes>
             <Route path="/" element={<Landing />} />
@@ -157,6 +166,7 @@ export default function App() {
             <Route path="/products" element={<ProtectedRoute><AppLayout><Products /></AppLayout></ProtectedRoute>} />
             <Route path="/inventory" element={<ProtectedRoute><AppLayout><Inventory /></AppLayout></ProtectedRoute>} />
             <Route path="/orders" element={<ProtectedRoute><AppLayout><Orders /></AppLayout></ProtectedRoute>} />
+            <Route path="/invoices" element={<ProtectedRoute><AppLayout><LazyRoute><Invoices /></LazyRoute></AppLayout></ProtectedRoute>} />
             <Route path="/pos" element={<ProtectedRoute><AppLayout><LazyRoute><POS /></LazyRoute></AppLayout></ProtectedRoute>} />
             <Route
               path="/insights"
@@ -180,6 +190,7 @@ export default function App() {
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </BrowserRouter>
+        </ToastProvider>
       </AuthProvider>
     </ErrorBoundary>
   );

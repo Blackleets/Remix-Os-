@@ -19,13 +19,43 @@ import {
   Clock3,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { chatCopilot, getProactiveThoughts } from '../services/gemini';
+import { chatCopilot, chatCopilotStream, CopilotRequestError, getProactiveThoughts, getDailyBriefing, loadPeppyConversation, savePeppyConversation } from '../services/gemini';
+import { executeAgentAction } from '../services/agentActions';
 import { cn } from './Common';
+
+function describeCopilotError(err: unknown): string {
+  if (err instanceof CopilotRequestError) {
+    if (err.code === 'AI_NOT_CONFIGURED' || err.status === 503) {
+      return 'La IA no está configurada en el backend. Añade GEMINI_API_KEY en Vercel y vuelve a desplegar.';
+    }
+    if (err.code === 'AI_PROVIDER_QUOTA') {
+      return 'El proveedor de IA (Gemini) alcanzó su cuota. Puede ser temporal: reinténtalo en un momento. Si persiste, la clave de API necesita más cuota o un plan superior.';
+    }
+    if (err.code === 'AI_RATE_LIMIT' || err.status === 429) {
+      return 'Has alcanzado el límite de consultas a Peppy. Espera unos segundos e inténtalo de nuevo.';
+    }
+    if (err.code === 'FIREBASE_ADMIN_NOT_CONFIGURED') {
+      return 'Firebase Admin no está configurado en el runtime. Revisa FIREBASE_SERVICE_ACCOUNT.';
+    }
+    if (err.code === 'MEMBERSHIP_NOT_FOUND' || err.code === 'MEMBERSHIP_ROLE_FORBIDDEN' || err.status === 403) {
+      return 'No tienes permisos para consultar a Peppy con esta cuenta.';
+    }
+    if (err.status === 401) {
+      return 'Tu sesión expiró. Vuelve a iniciar sesión.';
+    }
+    return `No pude conectarme a Peppy: ${err.message}`;
+  }
+  const msg = err instanceof Error ? err.message : String(err || '');
+  return msg
+    ? `No pude conectarme a Peppy. Detalle: ${msg}`
+    : 'No pude conectarme a Peppy. Inténtalo de nuevo.';
+}
 import { useLocation, useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import { useLocale } from '../hooks/useLocale';
 import { format } from 'date-fns';
 import { fetchCompanyOverview } from '../services/companyApi';
+import { PEPPY } from '../lib/peppy';
 
 interface Message {
   id: string;
@@ -33,6 +63,7 @@ interface Message {
   text: string;
   streaming?: boolean;
   timestamp: Date;
+  isBriefing?: boolean;
   command?: {
     type: string;
     params: string;
@@ -97,11 +128,17 @@ export function Copilot() {
   const [operatorHistory, setOperatorHistory] = useState<{ type: string; action: string; timestamp: Date }[]>([]);
   const [actionProcessing, setActionProcessing] = useState<string | null>(null);
   const [lastScanAt, setLastScanAt] = useState<Date | null>(null);
+  const [lastBriefingDate, setLastBriefingDate] = useState<string | null>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const streamingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const toastRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (!company?.id) return;
+    const stored = localStorage.getItem(`peppy_briefing_date_${company.id}`);
+    if (stored) setLastBriefingDate(stored);
+  }, [company?.id]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -146,52 +183,68 @@ export function Copilot() {
     toastRef.current = setTimeout(() => setToast(null), 5000);
   }, []);
 
+  const [conversationLoaded, setConversationLoaded] = useState(false);
+
   useEffect(() => {
-    if (!company) return;
-    try {
-      const stored = localStorage.getItem(`copilot_messages_${company.id}`);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        setMessages(parsed.map((m: any) => ({
-          ...m,
-          timestamp: new Date(m.timestamp),
-          streaming: false,
-        })));
+    if (!company || conversationLoaded) return;
+    setConversationLoaded(true);
+    loadPeppyConversation(company.id).then((loaded) => {
+      if (loaded.length > 0) {
+        setMessages(loaded);
+      } else {
+        // Fallback: try localStorage for users with existing history
+        try {
+          const stored = localStorage.getItem(`copilot_messages_${company.id}`);
+          if (stored) {
+            const parsed = JSON.parse(stored);
+            setMessages(parsed.map((m: any) => ({ ...m, timestamp: new Date(m.timestamp), streaming: false })));
+          }
+        } catch (_) {
+          // ignore malformed local data
+        }
       }
-    } catch (_) {
-      // ignore malformed local data
-    }
-  }, [company?.id]);
+    });
+  }, [company?.id, conversationLoaded]);
 
   useEffect(() => {
     if (!company || messages.length === 0) return;
     const timer = setTimeout(() => {
-      const toSave = messages
-        .filter((m) => !m.streaming)
-        .slice(-60)
-        .map((m) => ({ ...m, timestamp: m.timestamp.toISOString() }));
-      localStorage.setItem(`copilot_messages_${company.id}`, JSON.stringify(toSave));
-    }, 600);
+      const toSave = messages.filter((m) => !m.streaming).slice(-60);
+      // Primary: Firestore
+      savePeppyConversation(company.id, toSave);
+      // Secondary: localStorage backup
+      try {
+        localStorage.setItem(`copilot_messages_${company.id}`, JSON.stringify(
+          toSave.map((m) => ({ ...m, timestamp: m.timestamp.toISOString() }))
+        ));
+      } catch (_) {}
+    }, 1000);
     return () => clearTimeout(timer);
   }, [messages, company?.id]);
 
-  const simulateStreaming = useCallback((msgId: string, fullText: string, onDone?: () => void) => {
-    const words = fullText.split(' ');
-    let i = 0;
-    if (streamingRef.current) clearInterval(streamingRef.current);
-    streamingRef.current = setInterval(() => {
-      i++;
-      const partial = words.slice(0, i).join(' ');
-      const done = i >= words.length;
-      setMessages((prev) =>
-        prev.map((m) => (m.id === msgId ? { ...m, text: partial, streaming: !done } : m))
-      );
-      if (done) {
-        if (streamingRef.current) clearInterval(streamingRef.current);
-        onDone?.();
-      }
-    }, 22);
-  }, []);
+
+  const triggerDailyBriefing = useCallback(async () => {
+    if (!company || !['owner', 'admin'].includes(role || '')) return;
+    try {
+      const data = await getDailyBriefing(company.id, language);
+      if (!data?.briefing) return;
+      const briefingMsg: Message = {
+        id: `briefing-${Date.now()}`,
+        role: 'model',
+        text: data.briefing,
+        timestamp: new Date(),
+        isBriefing: true,
+      };
+      setMessages((prev) => [briefingMsg, ...prev]);
+      const today = new Date().toDateString();
+      setLastBriefingDate(today);
+      if (company?.id) localStorage.setItem(`peppy_briefing_date_${company.id}`, today);
+      setUnreadInsights((prev) => prev + 1);
+      if (!isOpen) showToast(`${PEPPY.name}: Tu briefing del día está listo`);
+    } catch (e) {
+      console.warn('Daily briefing failed:', e);
+    }
+  }, [company, role, language, isOpen, showToast]);
 
   useEffect(() => {
     if (!company) return;
@@ -199,6 +252,11 @@ export function Copilot() {
     const runMonitoring = async () => {
       try {
         const overview = await fetchCompanyOverview(company.id);
+
+        const today = new Date().toDateString();
+        if (lastBriefingDate !== today && ['owner', 'admin'].includes(role || '')) {
+          triggerDailyBriefing();
+        }
 
         setMetrics({
           revenue: Number(overview.recentRevenue30d ?? overview.recentRevenue ?? 0),
@@ -237,7 +295,7 @@ export function Copilot() {
     runMonitoring();
     const interval = setInterval(runMonitoring, 60000 * 2);
     return () => clearInterval(interval);
-  }, [company?.id, isOpen, showToast, language]);
+  }, [company?.id, isOpen, showToast, language, lastBriefingDate, role, triggerDailyBriefing]);
 
   const handleSendMessage = async (overrideText?: string) => {
     const textToSend = (overrideText || inputText).trim();
@@ -265,28 +323,6 @@ export function Copilot() {
         .filter((m) => !m.streaming)
         .map((m) => ({ role: m.role, parts: [{ text: m.text }] }));
 
-      const aiResponse = await chatCopilot(textToSend, history, context, language);
-
-      const userTriedToInject = /\[COMMAND:/i.test(textToSend);
-      const commandMatch = !userTriedToInject
-        ? aiResponse.match(/\[COMMAND:\s*([^|\]\n]+)\s*\|\s*([^\]]+)\]\s*$/)
-        : null;
-
-      const cleanText = commandMatch ? aiResponse.split('[COMMAND:')[0].trim() : aiResponse;
-
-      let command: Message['command'] | undefined;
-      if (commandMatch) {
-        const type = commandMatch[1].trim();
-        const params = commandMatch[2].trim();
-        const isReviewOnly = ['DRAFT_REPORT', 'REVIEW_ONLY', 'DRAFT_ORDER'].includes(type) || params.length > 100;
-        command = {
-          type: type === 'NAVIGATE' && params.length > 50 ? 'REVIEW_ONLY' : type,
-          params,
-          summary: cleanText,
-          isReviewOnly,
-        };
-      }
-
       const botMsgId = `m-${Date.now()}`;
       setMessages((prev) => [...prev, {
         id: botMsgId,
@@ -294,32 +330,72 @@ export function Copilot() {
         text: '',
         streaming: true,
         timestamp: new Date(),
-        command,
-        commandStatus: command ? 'pending' : undefined,
       }]);
       setIsTyping(false);
 
-      simulateStreaming(botMsgId, cleanText);
-
-      setOperatorHistory((prev) => [{
-        type: commandMatch ? 'COMMAND' : 'QUERY',
-        action: textToSend,
-        timestamp: new Date(),
-      }, ...prev].slice(0, 10));
+      await chatCopilotStream(
+        textToSend,
+        history,
+        context,
+        language,
+        (chunk) => {
+          setMessages((prev) =>
+            prev.map((m) => m.id === botMsgId ? { ...m, text: m.text + chunk } : m)
+          );
+        },
+        (cmd) => {
+          let command: Message['command'] | undefined;
+          if (cmd) {
+            const isReviewOnly = ['DRAFT_REPORT', 'REVIEW_ONLY', 'DRAFT_ORDER', 'DRAFT_MESSAGE'].includes(cmd.type) || cmd.params.length > 100;
+            command = {
+              type: cmd.type === 'NAVIGATE' && cmd.params.length > 50 ? 'REVIEW_ONLY' : cmd.type,
+              params: cmd.params,
+              summary: '',
+              isReviewOnly,
+            };
+          }
+          setMessages((prev) =>
+            prev.map((m) => m.id === botMsgId
+              ? { ...m, streaming: false, command, commandStatus: command ? 'pending' : undefined }
+              : m)
+          );
+          setOperatorHistory((prev) => [{
+            type: cmd ? 'COMMAND' : 'QUERY',
+            action: textToSend,
+            timestamp: new Date(),
+          }, ...prev].slice(0, 10));
+        },
+        (err) => {
+          console.error('Stream error:', err);
+          // Fallback to non-streaming on stream failure
+          chatCopilot(textToSend, history, context, language).then((text) => {
+            setMessages((prev) =>
+              prev.map((m) => m.id === botMsgId ? { ...m, text, streaming: false } : m)
+            );
+          }).catch((fallbackErr) => {
+            const errToShow = fallbackErr instanceof CopilotRequestError ? fallbackErr : err;
+            setMessages((prev) =>
+              prev.map((m) => m.id === botMsgId
+                ? { ...m, text: describeCopilotError(errToShow), streaming: false }
+                : m)
+            );
+          });
+        }
+      );
     } catch (error) {
       console.error('Chat error:', error);
       setIsTyping(false);
       setMessages((prev) => [...prev, {
         id: `err-${Date.now()}`,
         role: 'model',
-        text: 'No pude conectarme al servicio de datos del negocio. Inténtalo de nuevo.',
+        text: describeCopilotError(error),
         timestamp: new Date(),
       }]);
     }
   };
 
   const handleExecuteAction = async (msgId: string, command: Message['command']) => {
-    if (!command) return;
+    if (!command || !company) return;
     setActionProcessing(msgId);
 
     try {
@@ -327,6 +403,14 @@ export function Copilot() {
 
       if (command.isReviewOnly || ['DRAFT_REPORT', 'REVIEW_ONLY', 'DRAFT_ORDER'].includes(command.type)) {
         setMessages((prev) => prev.map((m) => (m.id === msgId ? { ...m, commandStatus: 'executed' } : m)));
+        return;
+      }
+
+      const AGENT_ACTION_TYPES = ['CREATE_REMINDER', 'DRAFT_MESSAGE', 'FLAG_CUSTOMER', 'STOCK_ALERT'];
+      if (AGENT_ACTION_TYPES.includes(command.type)) {
+        await executeAgentAction(company.id, command.type, command.params);
+        setMessages((prev) => prev.map((m) => (m.id === msgId ? { ...m, commandStatus: 'executed' } : m)));
+        showToast(`${PEPPY.name}: ${command.type === 'CREATE_REMINDER' ? 'Recordatorio creado' : command.type === 'DRAFT_MESSAGE' ? 'Mensaje guardado como borrador' : command.type === 'FLAG_CUSTOMER' ? 'Cliente actualizado' : 'Alerta de stock configurada'}`);
         return;
       }
 
@@ -380,7 +464,7 @@ export function Copilot() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 10, scale: 0.96 }}
             className={cn(
-              'fixed bottom-24 z-[60] max-w-[340px] rounded-[24px] border border-blue-400/14 bg-[rgba(8,12,18,0.94)] p-4 shadow-[0_18px_56px_rgba(0,0,0,0.44)] backdrop-blur-2xl cursor-pointer',
+              'peppy-toast-pos fixed z-[60] max-w-[340px] rounded-[24px] border border-blue-400/14 bg-[rgba(8,12,18,0.94)] p-4 shadow-[0_18px_56px_rgba(0,0,0,0.44)] backdrop-blur-2xl cursor-pointer',
               isPOSRoute ? 'left-6 right-6 sm:right-auto' : 'right-6'
             )}
             onClick={openPanel}
@@ -390,7 +474,7 @@ export function Copilot() {
                 <BrainCircuit className="h-4.5 w-4.5 text-blue-300" />
               </div>
               <div>
-                <p className="section-kicker mb-2">Vigilancia IA</p>
+                <p className="section-kicker mb-2">Peppy · Vigilancia</p>
                 <p className="text-sm leading-relaxed text-neutral-200">{toast}</p>
               </div>
             </div>
@@ -398,28 +482,26 @@ export function Copilot() {
         )}
       </AnimatePresence>
 
-      <div className={cn('fixed bottom-6 z-[60]', isPOSRoute ? 'left-6' : 'right-6')}>
+      {!isOpen && (
+      <div className={cn('peppy-btn-pos fixed z-[60]', isPOSRoute ? 'left-6' : 'right-6')}>
         <motion.button
-          onClick={() => {
-            if (isOpen) setIsOpen(false);
-            else openPanel();
-          }}
+          onClick={openPanel}
+          type="button"
+          aria-label="Abrir Copilot"
           whileHover={{ scale: 1.035 }}
           whileTap={{ scale: 0.97 }}
           className={cn(
-            'group relative flex h-16 w-16 items-center justify-center overflow-hidden rounded-[22px] border transition-all duration-300',
+            'group relative flex h-14 w-14 items-center justify-center overflow-hidden rounded-[20px] border transition-all duration-300 lg:h-16 lg:w-16 lg:rounded-[22px]',
             isOpen
               ? 'border-white/12 bg-[rgba(14,18,24,0.96)] shadow-[0_18px_48px_rgba(0,0,0,0.42)]'
               : 'border-blue-400/18 bg-[linear-gradient(180deg,rgba(89,133,255,0.96),rgba(43,88,211,0.96))] shadow-[0_22px_56px_rgba(43,88,211,0.36)] before:absolute before:inset-0 before:bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.24),transparent_45%)] before:opacity-90'
           )}
         >
-          {isOpen ? (
-            <X className="relative h-5 w-5 text-white" />
-          ) : (
+          {(
             <>
               <BrainCircuit className="relative h-6 w-6 text-white" />
-              <span className="absolute bottom-1.5 rounded-full border border-white/14 bg-black/20 px-1.5 py-0.5 font-mono text-[8px] font-bold uppercase tracking-[0.18em] text-blue-100">
-                IA
+              <span className="absolute bottom-1.5 rounded-full border border-white/14 bg-black/20 px-1.5 py-0.5 font-mono text-[8px] font-bold uppercase tracking-[0.18em] text-blue-100" title="Peppy AI">
+                P
               </span>
               <motion.div
                 animate={{ opacity: [0.45, 1, 0.45] }}
@@ -440,6 +522,7 @@ export function Copilot() {
           )}
         </motion.button>
       </div>
+      )}
 
       <AnimatePresence>
         {isOpen && (
@@ -473,11 +556,11 @@ export function Copilot() {
                   </div>
                   <div>
                     <p className="section-kicker mb-1">Consola operativa</p>
-                    <p className="font-display text-xl font-bold tracking-tight text-white">{company?.name || 'Remix OS'} Copilot</p>
+                    <p className="font-display text-xl font-bold tracking-tight text-white">{company?.name || 'Remix OS'} · {PEPPY.name}</p>
                     <div className="mt-2 flex flex-wrap gap-2">
                       <span className="telemetry-chip !px-2.5 !py-1">
                         <span className="status-dot pulse-live bg-emerald-400 text-emerald-400" />
-                        Vigilancia IA
+                        {PEPPY.name} · Activo
                       </span>
                       <span className="telemetry-chip !px-2.5 !py-1">
                         <ShieldCheck className="h-3 w-3 text-blue-300" />
@@ -487,6 +570,8 @@ export function Copilot() {
                   </div>
                 </div>
                 <button
+                  type="button"
+                  aria-label="Cerrar Copilot"
                   onClick={() => setIsOpen(false)}
                   className="rounded-2xl border border-white/8 bg-white/[0.03] p-2.5 text-neutral-500 transition-colors hover:text-white"
                 >
@@ -544,7 +629,7 @@ export function Copilot() {
 
               <div className="flex rounded-2xl border border-white/8 bg-white/[0.03] p-1">
                 {[
-                  { id: 'chat', label: 'Operador IA', icon: MessageSquare },
+                  { id: 'chat', label: PEPPY.name, icon: MessageSquare },
                   { id: 'intel', label: `Vigilancia IA${unreadInsights > 0 ? ` · ${unreadInsights}` : ''}`, icon: Zap },
                 ].map((tab) => (
                   <button
@@ -575,10 +660,10 @@ export function Copilot() {
                           <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-[24px] border border-blue-400/14 bg-blue-500/10">
                             <Sparkles className="h-7 w-7 text-blue-300" />
                           </div>
-                          <p className="section-kicker mb-2">Operador IA</p>
-                          <h4 className="mb-3 text-lg font-semibold text-white">Pide un informe operativo real</h4>
+                          <p className="section-kicker mb-2">{PEPPY.name}</p>
+                          <h4 className="mb-3 text-lg font-semibold text-white">¡Hola! Soy {PEPPY.name}.</h4>
                           <p className="mb-6 text-sm leading-relaxed text-neutral-400">
-                            Puedo resumir flujo de ingresos, presión de producto, movimiento de clientes y acciones recomendadas a partir de datos reales del espacio de trabajo.
+                            {PEPPY.tagline} Puedo resumir flujo de ingresos, presión de producto, movimiento de clientes, crear recordatorios y acciones recomendadas a partir de datos reales del espacio de trabajo.
                           </p>
 
                           <div className="space-y-2 text-left">
@@ -618,7 +703,13 @@ export function Copilot() {
                           ) : (
                             <div>
                               <div className="mb-3 flex items-center gap-2">
-                                <span className="operator-badge !px-2.5 !py-1">Operador IA</span>
+                                {m.isBriefing ? (
+                                  <span className="rounded-full border border-amber-400/20 bg-amber-500/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-widest text-amber-200">
+                                    {PEPPY.name} · Briefing Diario
+                                  </span>
+                                ) : (
+                                  <span className="operator-badge !px-2.5 !py-1">{PEPPY.name}</span>
+                                )}
                                 <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-neutral-600">{format(m.timestamp, 'HH:mm')}</span>
                               </div>
 
@@ -744,6 +835,8 @@ export function Copilot() {
                         className="flex-1 rounded-2xl border border-white/10 bg-white/[0.035] px-4 py-3 text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:ring-2 focus:ring-blue-400/25 focus:border-blue-400/30"
                       />
                       <button
+                        type="button"
+                        aria-label="Enviar mensaje"
                         onClick={() => handleSendMessage()}
                         disabled={!inputText.trim() || isTyping}
                         className="flex h-12 w-12 items-center justify-center rounded-2xl border border-blue-300/18 bg-[linear-gradient(180deg,rgba(91,136,255,0.96),rgba(49,92,214,0.96))] text-white shadow-[0_16px_34px_rgba(43,88,211,0.28)] transition-all hover:brightness-105 disabled:opacity-30"
@@ -755,11 +848,14 @@ export function Copilot() {
                       <button
                         onClick={() => {
                           setMessages([]);
-                          if (company) localStorage.removeItem(`copilot_messages_${company.id}`);
+                          if (company) {
+                            localStorage.removeItem(`copilot_messages_${company.id}`);
+                            savePeppyConversation(company.id, []);
+                          }
                         }}
                         className="mt-3 w-full text-center text-[10px] font-black uppercase tracking-[0.2em] text-neutral-600 transition-colors hover:text-neutral-400"
                       >
-                        Limpiar sesión del operador
+                        Limpiar sesión de {PEPPY.name}
                       </button>
                     )}
                   </div>
@@ -774,8 +870,8 @@ export function Copilot() {
                         <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-[22px] border border-white/10 bg-white/[0.03]">
                           <Zap className="h-5 w-5 text-neutral-500" />
                         </div>
-                        <p className="section-kicker mb-2">Vigilancia IA</p>
-                        <p className="text-base font-semibold text-white">Aún no hay señales del operador</p>
+                        <p className="section-kicker mb-2">Peppy · Vigilancia</p>
+                        <p className="text-base font-semibold text-white">Aún no hay señales de Peppy</p>
                         <p className="mt-2 text-sm leading-relaxed text-neutral-400">
                           Copilot escanea el grafo operativo cada dos minutos y publica aquí las señales relevantes.
                         </p>
@@ -802,7 +898,7 @@ export function Copilot() {
                                 {tone.chip}
                               </span>
                               <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-neutral-600">
-                                {format(ins.timestamp, 'HH:mm')} · IA
+                                {format(ins.timestamp, 'HH:mm')} · {PEPPY.name}
                               </span>
                             </div>
                             <div className="flex gap-3">

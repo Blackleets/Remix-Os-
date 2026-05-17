@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Card, Button } from '../components/Common';
 import { Check, Zap, Crown, Shield, ArrowRight, CreditCard, Activity, Package, Users, ShoppingBag, Loader2 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { useToast } from '../contexts/ToastContext';
 import { useLocale } from '../hooks/useLocale';
 import { auth, db } from '../lib/firebase';
 import { collection, query, where, getDocs } from 'firebase/firestore';
@@ -79,6 +80,7 @@ const PLANS = [
 
 export function Billing() {
   const { company, user, refreshCompany, role } = useAuth();
+  const toast = useToast();
   const { t } = useLocale();
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -174,7 +176,7 @@ export function Billing() {
         const usage = await getCompanyUsage(company.id);
         setCounts(usage);
       } catch (error) {
-        console.error("Error fetching usage:", error);
+        console.error('Error fetching usage:', error);
       }
     };
 
@@ -195,14 +197,14 @@ export function Billing() {
     try {
       const res = await authedFetch('/api/billing/sync', { sessionId, companyId: company.id });
       
-      if (!res.ok) throw new Error("Sync failed");
+      if (!res.ok) throw new Error('Sync failed');
       
       await refreshCompany();
       setSearchParams({}); // Clear params
-      alert("Billing protocol synchronized successfully.");
+      toast('Facturacion sincronizada correctamente.', 'success');
     } catch (err) {
       console.error(err);
-      alert("Status synchronization failed. Please contact engineering support.");
+      toast('No se pudo sincronizar el estado. Intentalo de nuevo.', 'error');
     } finally {
       setSyncing(false);
     }
@@ -219,11 +221,11 @@ export function Billing() {
       if (data.url) {
         window.location.href = data.url;
       } else {
-        throw new Error(data.error || "Failed to create session");
+        throw new Error(data.error || 'No se pudo crear la sesion de pago.');
       }
     } catch (err: any) {
       console.error(err);
-      setBillingError(err.message || "Failed to update subscription. Please try again.");
+      setBillingError(err.message || 'No se pudo actualizar la suscripcion. Intentalo de nuevo.');
     } finally {
       setLoading(false);
     }
@@ -239,11 +241,11 @@ export function Billing() {
       if (data.url) {
         window.location.href = data.url;
       } else {
-        throw new Error(data.error || "Failed to create portal session");
+        throw new Error(data.error || 'No se pudo abrir el portal de facturacion.');
       }
     } catch (err: any) {
       console.error(err);
-      setBillingError(err.message || "Portal session failed. Please try again.");
+      setBillingError(err.message || 'No se pudo abrir el portal. Intentalo de nuevo.');
     } finally {
       setLoading(false);
     }
@@ -278,7 +280,7 @@ export function Billing() {
       {billingError && (
         <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm flex items-center justify-between gap-4">
           <span>{billingError}</span>
-          <button onClick={() => setBillingError(null)} className="text-red-400 hover:text-red-300 transition-colors font-bold text-xs uppercase tracking-widest">Dismiss</button>
+          <button onClick={() => setBillingError(null)} className="text-red-400 hover:text-red-300 transition-colors font-bold text-xs uppercase tracking-widest">Cerrar</button>
         </div>
       )}
       {(loading || syncing) && (
@@ -322,11 +324,11 @@ export function Billing() {
                 <div>
                   <div className="flex items-center gap-3 mb-1">
                     <h2 className="font-display font-bold text-2xl text-white uppercase tracking-tight">{currentPlan.name}</h2>
-                    <span className="text-[10px] font-bold bg-emerald-500/10 text-emerald-500 px-2 py-0.5 rounded border border-emerald-500/20 uppercase">{t('billing.active_protocol')}</span>
+                    <span className="text-[10px] font-bold bg-emerald-500/10 text-emerald-500 px-2 py-0.5 rounded border border-emerald-500/20 uppercase">Plan activo</span>
                   </div>
                   <p className="text-sm text-neutral-500 font-mono italic">
                     {t('common.active')}: <span className="text-emerald-400 capitalize">{company?.subscription?.status || t('billing.gateway.active')}</span>
-                    {company?.subscription?.currentPeriodEnd && ` • ${t('billing.renews')} ${format(company.subscription.currentPeriodEnd.toDate ? company.subscription.currentPeriodEnd.toDate() : company.subscription.currentPeriodEnd, 'MMM dd, yyyy')}`}
+                    {company?.subscription?.currentPeriodEnd && ` / ${t('billing.renews')} ${format(company.subscription.currentPeriodEnd.toDate ? company.subscription.currentPeriodEnd.toDate() : company.subscription.currentPeriodEnd, 'MMM dd, yyyy')}`}
                   </p>
                 </div>
               </div>
@@ -362,7 +364,7 @@ export function Billing() {
                       <span className="text-[10px] uppercase font-bold tracking-widest">{usage.label}</span>
                     </div>
                     <span className="text-xs font-mono text-white font-bold">
-                        {usage.current} / {usage.max === Infinity ? '∞' : usage.max}
+                        {usage.current} / {usage.max === Infinity ? 'Ilimitado' : usage.max}
                     </span>
                   </div>
                   <div className="h-1.5 w-full bg-white/[0.03] rounded-full overflow-hidden border border-white/[0.05]">

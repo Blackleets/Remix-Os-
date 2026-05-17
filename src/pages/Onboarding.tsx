@@ -1,13 +1,15 @@
 import { useEffect, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
-import { Button, Input, Label, Card, cn } from '../components/Common';
+import { Button, Input, Card, cn } from '../components/Common';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../lib/firebase';
-import { doc, setDoc, serverTimestamp, collection, addDoc, query, where, getDocs, updateDoc } from 'firebase/firestore';
+import { doc, serverTimestamp, collection, query, where, getDocs } from 'firebase/firestore';
 import { motion, AnimatePresence } from 'motion/react';
 import { CheckCircle2, Building2, Plus, ArrowRight } from 'lucide-react';
+import { ImageUpload } from '../components/ImageUpload';
 
 import { useLocale } from '../hooks/useLocale';
+import { COMPANY_VERTICAL_OPTIONS, getCompanyVerticalLabel } from '../lib/company';
 
 interface Invitation {
   id: string;
@@ -18,23 +20,32 @@ interface Invitation {
 }
 
 export function Onboarding() {
-  const { t } = useLocale();
+  const { t, language } = useLocale();
   const { user, company, refreshCompany } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [onboardingError, setOnboardingError] = useState<string | null>(null);
   const [step, setStep] = useState(1);
   const [invitations, setInvitations] = useState<Invitation[]>([]);
+  const [draftCompanyId] = useState(() => doc(collection(db, 'companies')).id);
   const [form, setForm] = useState({
     name: '',
-    industry: 'Retail',
-    country: 'United States',
+    vertical: 'retail',
+    country: 'Estados Unidos',
     currency: 'USD',
+    defaultLanguage: language || 'es',
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
     email: user?.email || '',
     phone: '',
+    logoURL: '',
     useSeedData: true
   });
+
+  const languageOptions = [
+    { value: 'es', label: 'Español' },
+    { value: 'en', label: 'English' },
+    { value: 'pt', label: 'Português' },
+  ];
 
   useEffect(() => {
     const fetchInvitations = async () => {
@@ -51,7 +62,7 @@ export function Onboarding() {
   }, [user]);
 
   if (!user) return <Navigate to="/auth" />;
-  if (company?.onboardingState?.isComplete) return <Navigate to="/dashboard" />;
+  if (company) return <Navigate to="/dashboard" replace />;
 
   const handleAcceptInvite = async (invite: Invitation) => {
     setLoading(true);
@@ -67,6 +78,11 @@ export function Onboarding() {
         createdAt: serverTimestamp(),
       });
 
+      batch.set(doc(db, 'users', user.uid), {
+        currentCompanyId: invite.companyId,
+        updatedAt: serverTimestamp(),
+      }, { merge: true });
+
       batch.update(doc(db, 'invitations', invite.id), {
         status: 'accepted',
         acceptedAt: serverTimestamp(),
@@ -74,8 +90,8 @@ export function Onboarding() {
 
       batch.set(doc(collection(db, 'activities')), {
         type: 'team_join',
-        title: 'New Member Joined',
-        subtitle: `${user.email} joined through invitation`,
+        title: 'Miembro incorporado',
+        subtitle: `${user.email} se unió mediante invitación`,
         companyId: invite.companyId,
         createdAt: serverTimestamp(),
       });
@@ -96,21 +112,25 @@ export function Onboarding() {
     try {
       const { writeBatch, doc } = await import('firebase/firestore');
       const batch = writeBatch(db);
-      const companyRef = doc(collection(db, 'companies'));
+      const companyRef = doc(db, 'companies', draftCompanyId);
+      const verticalLabel = getCompanyVerticalLabel(form.vertical);
       
       batch.set(companyRef, {
         name: form.name,
-        industry: form.industry,
+        industry: verticalLabel,
+        vertical: form.vertical,
         country: form.country,
         currency: form.currency,
+        defaultLanguage: form.defaultLanguage,
         timezone: form.timezone,
         email: form.email,
         phone: form.phone,
+        logoURL: form.logoURL,
         ownerId: user.uid,
         createdAt: serverTimestamp(),
         onboardingState: {
-          isComplete: true,
-          step: 3,
+          isComplete: false,
+          step: 1,
           checklist: {
             profile: true,
             product: false,
@@ -132,6 +152,11 @@ export function Onboarding() {
         role: 'owner',
         createdAt: serverTimestamp(),
       });
+
+      batch.set(doc(db, 'users', user.uid), {
+        currentCompanyId: companyRef.id,
+        updatedAt: serverTimestamp(),
+      }, { merge: true });
 
       await batch.commit();
 
@@ -211,6 +236,22 @@ export function Onboarding() {
                 <div className="absolute top-0 right-0 p-8 opacity-[0.02] pointer-events-none hidden sm:block">
                   <Building2 className="w-32 h-32 text-white" />
                 </div>
+
+                <div className="relative flex items-center gap-5 rounded-[2rem] border border-white/10 bg-white/[0.02] p-5">
+                  <div className="w-20 shrink-0">
+                    <ImageUpload
+                      value={form.logoURL}
+                      onChange={(url) => setForm({ ...form, logoURL: url })}
+                      path={`companies/${draftCompanyId}/logo`}
+                      label="Logo"
+                    />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-500">Identidad visual</p>
+                    <p className="mt-2 text-sm font-semibold text-white">Sube tu logo o continúa sin él.</p>
+                    <p className="mt-1 text-xs text-neutral-500">Podrás cambiarlo después desde Configuración.</p>
+                  </div>
+                </div>
                 
                 <div className="space-y-4 relative">
                   <span className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-500 ml-1">{t('onboarding.profile.company_name')}</span>
@@ -224,17 +265,17 @@ export function Onboarding() {
                 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 sm:gap-8 relative">
                   <div className="space-y-4">
-                    <span className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-500 ml-1">{t('onboarding.profile.sector')}</span>
+                    <span className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-500 ml-1">Vertical</span>
                     <div className="relative">
                       <select 
                         className="w-full h-14 sm:h-16 bg-white/[0.03] border border-white/10 rounded-2xl px-6 text-lg font-bold text-white outline-none focus:ring-4 focus:ring-white/5 transition-all appearance-none cursor-pointer"
-                        value={form.industry}
-                        onChange={(e) => setForm({ ...form, industry: e.target.value })}
+                        aria-label="Sector / vertical del negocio"
+                        value={form.vertical}
+                        onChange={(e) => setForm({ ...form, vertical: e.target.value })}
                       >
-                        <option className="bg-neutral-900" value="Retail">{t('onboarding.profile.sectors.retail')}</option>
-                        <option className="bg-neutral-900" value="Tech">{t('onboarding.profile.sectors.tech')}</option>
-                        <option className="bg-neutral-900" value="Services">{t('onboarding.profile.sectors.services')}</option>
-                        <option className="bg-neutral-900" value="Manufacturing">{t('onboarding.profile.sectors.manufacturing')}</option>
+                        {COMPANY_VERTICAL_OPTIONS.map((option) => (
+                          <option key={option.value} className="bg-neutral-900" value={option.value}>{option.label}</option>
+                        ))}
                       </select>
                     </div>
                   </div>
@@ -243,6 +284,7 @@ export function Onboarding() {
                     <div className="relative">
                       <select 
                         className="w-full h-14 sm:h-16 bg-white/[0.03] border border-white/10 rounded-2xl px-6 text-lg font-bold text-white outline-none focus:ring-4 focus:ring-white/5 transition-all appearance-none cursor-pointer"
+                        aria-label="Moneda"
                         value={form.currency}
                         onChange={(e) => setForm({ ...form, currency: e.target.value })}
                       >
@@ -255,6 +297,33 @@ export function Onboarding() {
                   </div>
                 </div>
                 
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 sm:gap-8 relative">
+                  <div className="space-y-4">
+                    <span className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-500 ml-1">País</span>
+                    <Input
+                      placeholder="País de operación"
+                      className="h-14 sm:h-16 text-lg sm:text-xl font-bold px-6 rounded-2xl bg-white/[0.03] border-white/10 text-white placeholder:text-neutral-700 focus:bg-white/[0.05] focus:border-white/20 transition-all"
+                      value={form.country}
+                      onChange={(e) => setForm({ ...form, country: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-4">
+                    <span className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-500 ml-1">Idioma base</span>
+                    <div className="relative">
+                      <select
+                        className="w-full h-14 sm:h-16 bg-white/[0.03] border border-white/10 rounded-2xl px-6 text-lg font-bold text-white outline-none focus:ring-4 focus:ring-white/5 transition-all appearance-none cursor-pointer"
+                        aria-label="Idioma predeterminado"
+                        value={form.defaultLanguage}
+                        onChange={(e) => setForm({ ...form, defaultLanguage: e.target.value })}
+                      >
+                        {languageOptions.map((option) => (
+                          <option key={option.value} className="bg-neutral-900" value={option.value}>{option.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
                 <Button onClick={nextStep} disabled={!form.name?.trim()} className="w-full h-16 sm:h-20 text-lg sm:text-2xl font-black rounded-[2rem] sm:rounded-3xl bg-white text-black hover:bg-neutral-200 shadow-2xl shadow-white/5 transition-all active:scale-[0.98]">
                   {t('common.continue')} <ArrowRight className="ml-4 w-5 h-5 sm:w-7 sm:h-7" />
                 </Button>
@@ -304,10 +373,11 @@ export function Onboarding() {
                   />
                 </div>
                 <div className="space-y-4">
-                  <span className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-500 ml-1">Timezone</span>
+                  <span className="text-[10px] font-black uppercase tracking-[0.25em] text-neutral-500 ml-1">Zona horaria</span>
                   <div className="relative">
                     <select
                       className="w-full h-14 sm:h-16 bg-white/[0.03] border border-white/10 rounded-2xl px-6 text-base font-bold text-white outline-none focus:ring-4 focus:ring-white/5 transition-all appearance-none cursor-pointer"
+                      aria-label="Zona horaria"
                       value={form.timezone}
                       onChange={(e) => setForm({ ...form, timezone: e.target.value })}
                     >

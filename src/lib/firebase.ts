@@ -1,10 +1,33 @@
 import { initializeApp } from 'firebase/app';
+import { initializeAppCheck, ReCaptchaV3Provider } from 'firebase/app-check';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
+
+// App Check — anti-abuse shield in front of Firestore/Storage/Auth. It is a
+// strict no-op until VITE_RECAPTCHA_SITE_KEY is set, so local dev and the
+// current production deploy keep working unchanged. To enable: register a
+// reCAPTCHA v3 site key in the Firebase console (App Check) and set the env
+// var. For local debugging, set VITE_APPCHECK_DEBUG=true and register the
+// printed debug token in the console.
+const recaptchaSiteKey = import.meta.env.VITE_RECAPTCHA_SITE_KEY as string | undefined;
+if (recaptchaSiteKey) {
+  try {
+    if (import.meta.env.VITE_APPCHECK_DEBUG === 'true') {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (self as any).FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+    }
+    initializeAppCheck(app, {
+      provider: new ReCaptchaV3Provider(recaptchaSiteKey),
+      isTokenAutoRefreshEnabled: true,
+    });
+  } catch (err) {
+    console.error('[AppCheck] initialization failed (continuing without it):', err);
+  }
+}
 export const auth = getAuth(app);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const storage = getStorage(app);

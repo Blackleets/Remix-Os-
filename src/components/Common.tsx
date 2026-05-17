@@ -74,6 +74,47 @@ export const Label = ({ children, className }: { children: React.ReactNode; clas
   </label>
 );
 
+export const OSGlyph = ({
+  children,
+  className,
+  tone = 'neutral',
+  size = 'md',
+}: {
+  children: React.ReactNode;
+  className?: string;
+  tone?: 'neutral' | 'blue' | 'emerald' | 'amber' | 'violet' | 'red';
+  size?: 'sm' | 'md' | 'lg';
+}) => {
+  const toneStyles = {
+    neutral: 'border-white/10 bg-white/[0.03] text-neutral-300',
+    blue: 'border-blue-400/16 bg-blue-500/10 text-blue-200',
+    emerald: 'border-emerald-400/16 bg-emerald-500/10 text-emerald-200',
+    amber: 'border-amber-400/16 bg-amber-500/10 text-amber-200',
+    violet: 'border-violet-400/16 bg-violet-500/10 text-violet-200',
+    red: 'border-red-400/16 bg-red-500/10 text-red-200',
+  };
+
+  const sizeStyles = {
+    sm: 'h-9 w-9 rounded-[16px]',
+    md: 'h-11 w-11 rounded-[18px]',
+    lg: 'h-12 w-12 rounded-[20px]',
+  };
+
+  return (
+    <div
+      className={cn(
+        'os-glyph relative flex shrink-0 items-center justify-center overflow-hidden border shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]',
+        sizeStyles[size],
+        toneStyles[tone],
+        className
+      )}
+    >
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.1),transparent_58%)] opacity-90" />
+      <div className="relative flex items-center justify-center">{children}</div>
+    </div>
+  );
+};
+
 export enum OperationType {
   CREATE = 'create',
   UPDATE = 'update',
