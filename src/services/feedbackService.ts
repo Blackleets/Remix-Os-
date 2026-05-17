@@ -41,10 +41,11 @@ const VALID_SEVERITIES: BetaFeedbackSeverity[] = ['low', 'medium', 'high', 'crit
 // and activationStage — that this client path never sent, so every direct
 // write was rejected by Firestore rules and surfaced as "No pudimos enviar tu
 // feedback". The endpoint verifies the Firebase ID token, confirms the user
-// is a member of the active company (companyId cannot be spoofed), and
-// performs both writes server-side. There is intentionally no direct-Firestore
-// fallback: a partial write (betaFeedback created, betaUsers rejected) is the
-// exact inconsistency we are removing.
+// is a member of the active company (companyId cannot be spoofed), accepts
+// both route/pagePath payload keys during rollout, and performs both writes
+// server-side. There is intentionally no direct-Firestore fallback: a partial
+// write (betaFeedback created, betaUsers rejected) is the exact inconsistency
+// we are removing.
 export async function submitBetaFeedback(
   input: BetaFeedbackInput
 ): Promise<{ ok: true; feedbackId: string }> {
@@ -86,6 +87,7 @@ export async function submitBetaFeedback(
         severity: input.severity,
         title,
         message,
+        route: pagePath,
         pagePath,
       }),
     });

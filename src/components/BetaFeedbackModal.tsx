@@ -105,9 +105,9 @@ export function BetaFeedbackModal({
   };
 
   return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/72 px-4 py-6 backdrop-blur-sm">
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/72 px-4 py-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] backdrop-blur-sm">
       <div className="absolute inset-0" onClick={handleClose} />
-      <div className="relative z-10 w-full max-w-3xl overflow-hidden rounded-[28px] border border-white/10 bg-neutral-950 shadow-[0_24px_90px_rgba(0,0,0,0.45)]">
+      <div className="relative z-10 max-h-[calc(100dvh-3rem)] w-full max-w-3xl overflow-y-auto rounded-[28px] border border-white/10 bg-neutral-950 shadow-[0_24px_90px_rgba(0,0,0,0.45)]">
         <div className="border-b border-white/8 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.18),transparent_42%),linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.01))] px-6 py-5">
           <div className="flex items-start justify-between gap-4">
             <div>

@@ -14,7 +14,7 @@ export function BetaFeedbackButton() {
 
   return (
     <>
-      <div className="fixed bottom-5 left-4 z-[45] md:bottom-6 md:left-6 xl:left-8">
+      <div className="beta-feedback-pos fixed left-4 z-[61] md:left-6 xl:left-8">
         <Button
           variant="secondary"
           className="gap-2 border-white/12 bg-black/45 px-4 py-3 text-sm text-white shadow-[0_18px_42px_rgba(0,0,0,0.28)] backdrop-blur-xl hover:border-blue-400/25 hover:bg-blue-500/10"

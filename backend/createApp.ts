@@ -2906,10 +2906,15 @@ CURRENT BUSINESS DATA:
       const severity = String(req.body?.severity || '');
       const title = typeof req.body?.title === 'string' ? req.body.title.trim() : '';
       const message = typeof req.body?.message === 'string' ? req.body.message.trim() : '';
-      const pagePath = typeof req.body?.pagePath === 'string' ? req.body.pagePath.trim() : '';
-      const companyName = typeof req.body?.companyName === 'string' ? req.body.companyName.trim() : '';
-      const userEmail = typeof req.body?.userEmail === 'string' ? req.body.userEmail.trim() : '';
-      const userName = typeof req.body?.userName === 'string' ? req.body.userName.trim() : '';
+      const route =
+        typeof req.body?.route === 'string'
+          ? req.body.route.trim()
+          : typeof req.body?.pagePath === 'string'
+            ? req.body.pagePath.trim()
+            : '';
+      const companyNameInput = typeof req.body?.companyName === 'string' ? req.body.companyName.trim() : '';
+      const userEmailInput = typeof req.body?.userEmail === 'string' ? req.body.userEmail.trim() : '';
+      const userNameInput = typeof req.body?.userName === 'string' ? req.body.userName.trim() : '';
 
       if (!VALID_TYPES.includes(type)) {
         return res.status(400).json({ error: 'type inválido', code: 'INVALID_TYPE' });
@@ -2923,16 +2928,24 @@ CURRENT BUSINESS DATA:
       if (!message || message.length > 3000) {
         return res.status(400).json({ error: 'message requerido (1-3000 caracteres)', code: 'INVALID_MESSAGE' });
       }
-      if (!pagePath || pagePath.length > 500) {
-        return res.status(400).json({ error: 'pagePath requerido (1-500 caracteres)', code: 'INVALID_PAGE_PATH' });
+      if (!route || route.length > 500) {
+        return res.status(400).json({ error: 'route requerido (1-500 caracteres)', code: 'INVALID_ROUTE' });
       }
 
       const db = getDb();
       if (!db) throw new Error('Database not initialized');
 
+      const [companySnap, authUser] = await Promise.all([
+        db.collection('companies').doc(access.companyId).get(),
+        getAuth().getUser(access.uid).catch(() => null),
+      ]);
+      const companyName = typeof companySnap.data()?.name === 'string' ? companySnap.data()?.name.trim() : '';
+      const userEmail = authUser?.email?.trim() || userEmailInput;
+      const userName = authUser?.displayName?.trim() || userNameInput;
+
       const feedbackRef = await db.collection('betaFeedback').add({
         companyId: access.companyId,
-        companyName: companyName || null,
+        companyName: companyName || companyNameInput || null,
         userId: access.uid,
         userEmail: userEmail || null,
         userName: userName || null,
@@ -2940,7 +2953,7 @@ CURRENT BUSINESS DATA:
         severity,
         title,
         message,
-        pagePath,
+        pagePath: route,
         status: 'open',
         createdAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
@@ -2961,7 +2974,7 @@ CURRENT BUSINESS DATA:
           displayName: userName || existingBetaUser.displayName || null,
           currentCompanyId: access.companyId,
           companyId: access.companyId,
-          companyName: companyName || existingBetaUser.companyName || null,
+          companyName: companyName || companyNameInput || existingBetaUser.companyName || null,
           hasCompany,
           onboardingStatus:
             existingBetaUser.onboardingStatus || (hasCompany ? 'pending' : 'no_company'),

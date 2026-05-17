@@ -278,6 +278,13 @@
   .peppy-toast-pos { bottom: 6rem; }
 }
 
+.beta-feedback-pos {
+  bottom: calc(92px + env(safe-area-inset-bottom, 0px));
+}
+@media (min-width: 768px) {
+  .beta-feedback-pos { bottom: 1.5rem; }
+}
+
 .bottom-nav-sheet-pos {
   bottom: calc(80px + env(safe-area-inset-bottom, 0px));
 }
